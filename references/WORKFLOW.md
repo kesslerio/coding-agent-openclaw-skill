@@ -93,20 +93,23 @@ gh pr review <PR> --comment --body "$(cat review.md)"
 - **Small Batches**: Don't change 50 files at once.
 - **Clear Exit**: "Reply with DONE when finished."
 
-## Interactive Sessions (tmux)
+## Interactive Sessions (t-pane)
 
-For long-running tasks or "pair programming" sessions.
+For complex multi-step tasks where context must be preserved.
 
-```bash
-# Start session
-tmux new -s codex-session
+**Mechanism:** We use the `t-pane` MCP server to manage tmux sessions reliably. This replaces brittle raw `tmux` commands.
 
-# Send command
-tmux send-keys -t codex-session "codex --yolo exec '...'" Enter
+**Capabilities:**
+- **Persistent Context**: Codex runs in a session that survives between prompts.
+- **Reliable Output**: `t-pane` uses markers to capture exact output.
+- **Prompt Detection**: Detects when Codex needs input.
 
-# Monitor
-tmux capture-pane -p -t codex-session
-```
+**Workflow:**
+1. **Create Session**: `create_pane(name="codex-session")`
+2. **Execute**: `execute_command(pane="codex-session", command="codex --yolo exec '...'")`
+3. **Monitor**: Output is returned automatically.
+
+**Note:** This is the Supervisor Pattern. The Agent (Niemand) calls `t-pane` to drive Codex.
 
 ## Agent Utilization
 
