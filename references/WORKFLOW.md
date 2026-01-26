@@ -97,7 +97,7 @@ gh pr review <PR> --comment --body "$(cat review.md)"
 
 For complex multi-step tasks where context must be preserved.
 
-**Mechanism:** We use the `t-pane` MCP server to manage tmux sessions reliably. This replaces brittle raw `tmux` commands.
+**Mechanism:** We use the `t-pane` MCP server to manage tmux sessions reliably. This replaces brittle raw `tmux` commands. Use this when you want to **see** the execution or interact with the session.
 
 **Capabilities:**
 - **Persistent Context**: Codex runs in a session that survives between prompts.
@@ -109,7 +109,22 @@ For complex multi-step tasks where context must be preserved.
 2. **Execute**: `execute_command(pane="codex-session", command="codex --yolo exec '...'")`
 3. **Monitor**: Output is returned automatically.
 
-**Note:** This is the Supervisor Pattern. The Agent (Niemand) calls `t-pane` to drive Codex.
+## Native Interactive Mode (Codex MCP)
+
+For purely automated, structured tasks where terminal visibility is not required.
+
+**Mechanism:** We use the native `codex mcp-server`.
+
+**Capabilities:**
+- **Stateful Threads**: Uses `threadId` to continue conversations natively.
+- **No Terminal Scraping**: Returns structured JSON responses.
+- **Approval Policies**: Fine-grained control over command execution.
+
+**Workflow:**
+1. **Start**: `codex.codex(prompt="...", sandbox="danger-full-access")`
+2. **Continue**: `codex.codex-reply(threadId="...", prompt="...")`
+
+**Note:** This is the Supervisor Pattern. The Agent (Niemand) calls these tools via `mcporter` to drive Codex.
 
 ## Agent Utilization
 
