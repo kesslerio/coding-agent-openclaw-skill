@@ -26,7 +26,7 @@ Use `/coding` when:
 1. Codex implements code (--yolo mode)
 2. Create PR
 3. Codex reviews the PR (Code Review)
-4. Codex reviews references/RULES.md standards (Final Review) ← REQUIRED
+4. Codex reviews references/STANDARDS.md standards (Final Review) ← REQUIRED
 5. Fix any issues found
 6. Push fixes to same PR branch
 ```
@@ -35,7 +35,7 @@ Use `/coding` when:
 ```
 1. Checkout PR
 2. Codex reviews locally (Code Review)
-3. Codex reviews references/RULES.md standards (Final Review) ← REQUIRED
+3. Codex reviews references/STANDARDS.md standards (Final Review) ← REQUIRED
 4. Post both reviews to GitHub (gh pr review/comment)
 5. Fix issues if needed
 6. Push fixes to PR branch
@@ -54,17 +54,17 @@ codex review --base main --title "PR #N: Brief description"
 gh pr review <PR> --approve --body "$(cat review.md)"
 ```
 
-## references/RULES.md Standards Review (Step 2/2 - REQUIRED FINAL STEP)
+## references/STANDARDS.md Standards Review (Step 2/2 - REQUIRED FINAL STEP)
 
-**Critical:** This review validates compliance with `references/RULES.md` coding standards. It MUST run after the code review.
+**Critical:** This review validates compliance with `references/STANDARDS.md` coding standards. It MUST run after the code review.
 
 ### Review Command
 ```bash
 codex exec --model gpt-5.2-codex \
   -c model_reasoning_effort="high" \
-  "Review this PR against coding standards in references/RULES.md:
+  "Review this PR against coding standards in references/STANDARDS.md:
 
-\$(cat references/RULES.md)
+\$(cat references/STANDARDS.md)
 
 Report: PASS/FAIL per category with file:line refs. Be strict."
 ```
@@ -76,7 +76,7 @@ gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
 
 ### Standards Review Output Format
 ```markdown
-## references/RULES.md Standards Review ✅|⚠️|❌
+## references/STANDARDS.md Standards Review ✅|⚠️|❌
 
 ### ✅ PASSED
 - Code Quality: Functions under 40 lines, clean separation
@@ -219,7 +219,7 @@ codex --yolo exec "Fix the bug and commit"
 
 ## Git Workflow
 
-**Note:** Per references/GITHUB.md, Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested by user.
+**Note:** Per references/WORKFLOW.md, Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested by user.
 
 ### When User Says "Take to PR" or Similar:
 1. Create feature branch
@@ -338,5 +338,5 @@ tmux -S "$SOCKET" capture-pane -p -t "$SESSION" -S -200
 
 ## References
 
-- `references/CODING.md` - Full coding guidelines & Git hygiene
-- `references/GITHUB.md` - GitHub integration & workflow
+- `references/WORKFLOW.md` - Full coding workflow & Git integration
+- `references/STANDARDS.md` - Coding standards & rules

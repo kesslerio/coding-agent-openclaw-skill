@@ -39,9 +39,8 @@ codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 
 - `SKILL.md` — Full skill documentation
 - `dev.md` — Dev persona configuration
-- `references/CODING.md` — Coding guidelines
-- `references/GITHUB.md` — Git workflow
-- `references/RULES.md` — Coding standards
+- `references/STANDARDS.md` — Coding standards & rules
+- `references/WORKFLOW.md` — Coding workflow & Git integration
 - `references/quick-reference.md` — Command quick reference
 
 ## Requirements
