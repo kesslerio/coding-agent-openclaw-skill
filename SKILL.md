@@ -26,7 +26,7 @@ Use `/coding` when:
 1. Codex implements code (--yolo mode)
 2. Create PR
 3. Codex reviews the PR (Code Review)
-4. Codex reviews CLAUDE.md standards (Final Review) ← REQUIRED
+4. Codex reviews RULES.md standards (Final Review) ← REQUIRED
 5. Fix any issues found
 6. Push fixes to same PR branch
 ```
@@ -35,7 +35,7 @@ Use `/coding` when:
 ```
 1. Checkout PR
 2. Codex reviews locally (Code Review)
-3. Codex reviews CLAUDE.md standards (Final Review) ← REQUIRED
+3. Codex reviews RULES.md standards (Final Review) ← REQUIRED
 4. Post both reviews to GitHub (gh pr review/comment)
 5. Fix issues if needed
 6. Push fixes to PR branch
@@ -54,15 +54,15 @@ codex review --base main --title "PR #N: Brief description"
 gh pr review <PR> --approve --body "$(cat review.md)"
 ```
 
-## CLAUDE.md Standards Review (Step 2/2 - REQUIRED FINAL STEP)
+## RULES.md Standards Review (Step 2/2 - REQUIRED FINAL STEP)
 
-**Critical:** This review validates compliance with `~/.claude/CLAUDE.md` coding standards. It MUST run after the code review.
+**Critical:** This review validates compliance with `RULES.md` coding standards. It MUST run after the code review.
 
 ### Review Command
 ```bash
 codex exec --model gpt-5.2-codex \
   -c model_reasoning_effort="high" \
-  "Review this PR against CLAUDE.md coding standards:
+  "Review this PR against RULES.md coding standards:
 
 1. CODE QUALITY (KISS, YAGNI, DRY, SRP)
    - Functions ≤40 lines? Classes ≤500 lines?
@@ -97,7 +97,7 @@ gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
 
 ### Standards Review Output Format
 ```markdown
-## CLAUDE.md Standards Review ✅|⚠️|❌
+## RULES.md Standards Review ✅|⚠️|❌
 
 ### ✅ PASSED
 - Code Quality: Functions under 40 lines, clean separation
