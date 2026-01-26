@@ -25,19 +25,95 @@ Use `/coding` when:
 ```
 1. Codex implements code (--yolo mode)
 2. Create PR
-3. Codex reviews the PR
-4. Fix any issues found in review
-5. Push fixes to same PR branch
+3. Codex reviews the PR (Code Review)
+4. Codex reviews CLAUDE.md standards (Final Review) ← REQUIRED
+5. Fix any issues found
+6. Push fixes to same PR branch
 ```
 
 ### For Existing PRs:
 ```
 1. Checkout PR
-2. Codex reviews locally
-3. Post review to GitHub (gh pr review)
-4. Fix issues if needed
-5. Push fixes to PR branch
+2. Codex reviews locally (Code Review)
+3. Codex reviews CLAUDE.md standards (Final Review) ← REQUIRED
+4. Post both reviews to GitHub (gh pr review/comment)
+5. Fix issues if needed
+6. Push fixes to PR branch
 ```
+
+## Code Review (Step 1/2)
+
+### PR Review Command
+```bash
+gh pr checkout <PR_NUMBER> --repo owner/repo
+codex review --base main --title "PR #N: Brief description"
+```
+
+### Post Review to GitHub
+```bash
+gh pr review <PR> --approve --body "$(cat review.md)"
+```
+
+## CLAUDE.md Standards Review (Step 2/2 - REQUIRED FINAL STEP)
+
+**Critical:** This review validates compliance with `~/.claude/CLAUDE.md` coding standards. It MUST run after the code review.
+
+### Review Command
+```bash
+codex exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="high" \
+  "Review this PR against CLAUDE.md coding standards:
+
+1. CODE QUALITY (KISS, YAGNI, DRY, SRP)
+   - Functions ≤40 lines? Classes ≤500 lines?
+   - No premature abstraction or speculative code?
+
+2. NAMING & STYLE
+   - Descriptive names? No magic numbers?
+   - Variables declared near usage?
+
+3. FUNCTIONS
+   - Max 3-4 parameters?
+   - Explicit error handling (no silent failures)?
+
+4. IMPORTS
+   - Order: node → external → internal?
+   - Unused imports removed?
+
+5. GIT COMMITS
+   - Format: type(scope): subject?
+   - 50 chars max?
+
+6. INCLUSIVE LANGUAGE
+   - allowlist/blocklist, primary/replica, main branch?
+
+Report: PASS/FAIL per category with file:line refs. Be strict."
+```
+
+### Post Standards Review
+```bash
+gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
+```
+
+### Standards Review Output Format
+```markdown
+## CLAUDE.md Standards Review ✅|⚠️|❌
+
+### ✅ PASSED
+- Code Quality: Functions under 40 lines, clean separation
+- Naming: Descriptive, no magic numbers
+
+### ⚠️ WARNINGS (P2)
+- [file:23] Function has 7 parameters (limit: 4)
+- [file:45] Silent error handling
+
+### ❌ ISSUES (P1)
+- [file:8] Commit uses wrong format
+
+### Recommendation: APPROVE / REQUEST_CHANGES
+```
+
+### ⚠️ CRITICAL: PR Cannot Merge Without Passing Standards Review
 
 ## Codex Implementation
 
