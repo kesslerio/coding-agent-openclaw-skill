@@ -344,18 +344,46 @@ gh pr review 123 --request-changes --body "Issues found..."
 gh pr create --title "feat: X" --body "Description"
 ```
 
-## tmux for Interactive Sessions
+## Codex MCP for Complex Tasks
 
-For long-running Codex sessions:
+For complex, multi-step coding tasks requiring persistent context, use **Codex MCP** via `mcporter` instead of terminal-based approaches.
+
+### Why MCP over Terminal?
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| `codex exec` | Simple, direct | No state between calls |
+| tmux | Watch in real-time | Complex setup, scraping overhead |
+| **Codex MCP** | Stateful threads, structured JSON | Requires mcporter |
+
+**Recommendation:** Use MCP for automation, `codex exec` for one-shots.
+
+### MCP Workflow
+
 ```bash
-SOCKET="${TMPDIR:-/tmp}/clawdbot-tmux-sockets/clawdbot.sock"
-SESSION=codex-session
+# Start a new thread
+codex.codex(prompt="Implement feature X", sandbox="danger-full-access")
 
-tmux -S "$SOCKET" new-session -d -s "$SESSION"
-tmux -S "$SOCKET" send-keys -t "$SESSION" "codex --yolo exec '...'" Enter
-# Wait, then capture
-tmux -S "$SOCKET" capture-pane -p -t "$SESSION" -S -200
+# Continue the conversation (preserves context)
+codex.codex-reply(threadId="<thread-id>", prompt="Now add tests")
 ```
+
+### When to Use Each
+
+| Use Case | Approach |
+|----------|----------|
+| Simple implementation | `codex --yolo exec` |
+| Code review | `codex review` |
+| Multi-step refactoring | **Codex MCP** (stateful) |
+| Complex architecture | **Codex MCP** with high reasoning |
+| Debugging/watching | `codex exec --full-auto` (watch stdout) |
+
+### MCP Benefits
+- **Stateful Threads**: Use `threadId` to continue conversations natively
+- **No Terminal Scraping**: Returns structured JSON responses
+- **Approval Policies**: Fine-grained control over command execution
+
+See `references/WORKFLOW.md` for full MCP configuration details.
 
 ## References
 
