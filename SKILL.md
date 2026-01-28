@@ -83,8 +83,8 @@ gh pr review <PR> --approve --body "$(cat review.md)"
 
 ### Review Command
 ```bash
-timeout 180 codex exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="medium" \
+timeout 300 codex exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="high" \
   "Review this PR against coding standards in references/STANDARDS.md:
 
 \$(cat references/STANDARDS.md)
@@ -161,9 +161,9 @@ timeout 180 codex --yolo exec "..." 2>&1
 # Code review: 5 minutes (high reasoning, large files)
 timeout 300 codex review --base main --title "PR #N: ..." 2>&1
 
-# Standards review: 3 minutes
-timeout 180 codex exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="medium" \
+# Standards review: 5 minutes (high reasoning required)
+timeout 300 codex exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="high" \
   "Review against standards..." 2>&1
 ```
 
@@ -172,8 +172,8 @@ timeout 180 codex exec --model gpt-5.2-codex \
 |-----------|---------|-----------|
 | Simple edits | 120s | low/medium |
 | Standard features | 180s | medium |
-| Code review (<500 lines) | 180s | medium |
-| Code review (>500 lines) | 300s | medium |
+| Code review (any size) | 300s | **high** |
+| Standards review | 300s | **high** |
 | Complex architecture | 300s | high |
 
 Poll patiently - wait 15-30 seconds between polls:
