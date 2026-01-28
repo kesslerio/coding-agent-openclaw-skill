@@ -67,8 +67,10 @@ Use `/coding` when:
 ### PR Review Command
 ```bash
 gh pr checkout <PR_NUMBER> --repo owner/repo
-codex review --base main --title "PR #N: Brief description"
+timeout 300 codex review --base main --title "PR #N: Brief description" 2>&1
 ```
+
+**Note:** Use `timeout 180` for smaller PRs (<500 lines). Use `timeout 300` for large files.
 
 ### Post Review to GitHub
 ```bash
@@ -81,8 +83,8 @@ gh pr review <PR> --approve --body "$(cat review.md)"
 
 ### Review Command
 ```bash
-codex exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="high" \
+timeout 180 codex exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="medium" \
   "Review this PR against coding standards in references/STANDARDS.md:
 
 \$(cat references/STANDARDS.md)
@@ -119,9 +121,9 @@ gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
 
 ### Basic Implementation Command
 ```bash
-cd /path/to/repo && codex --yolo exec --model gpt-5.2-codex \
+cd /path/to/repo && timeout 180 codex --yolo exec --model gpt-5.2-codex \
   -c model_reasoning_effort="medium" \
-  "Implement X. Do not ask for confirmation, just implement."
+  "Implement X. Do not ask for confirmation, just implement." 2>&1
 ```
 
 ### ⚠️ Critical: Explicit Instructions
@@ -150,10 +152,29 @@ codex --yolo exec "Add auto-tagging feature"  # May ask "shall I proceed?"
 
 ### Timeout Handling
 
-Codex can take 1-3 minutes for complex tasks. Use proper timeouts:
+Codex can take 1-5 minutes for complex tasks. **Always use explicit timeouts:**
+
 ```bash
-codex --yolo exec "..." 2>&1  # Use timeout parameter if available
+# Implementation: 3 minutes (medium reasoning)
+timeout 180 codex --yolo exec "..." 2>&1
+
+# Code review: 5 minutes (high reasoning, large files)
+timeout 300 codex review --base main --title "PR #N: ..." 2>&1
+
+# Standards review: 3 minutes
+timeout 180 codex exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="medium" \
+  "Review against standards..." 2>&1
 ```
+
+**Timeout Guidelines:**
+| Task Type | Timeout | Reasoning |
+|-----------|---------|-----------|
+| Simple edits | 120s | low/medium |
+| Standard features | 180s | medium |
+| Code review (<500 lines) | 180s | medium |
+| Code review (>500 lines) | 300s | medium |
+| Complex architecture | 300s | high |
 
 Poll patiently - wait 15-30 seconds between polls:
 ```bash
