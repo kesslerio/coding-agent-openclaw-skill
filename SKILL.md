@@ -67,10 +67,10 @@ Use `/coding` when:
 ### PR Review Command
 ```bash
 gh pr checkout <PR_NUMBER> --repo owner/repo
-timeout 300 codex review --base main --title "PR #N: Brief description" 2>&1
+timeout 600 codex review --base main --title "PR #N: Brief description" 2>&1
 ```
 
-**Note:** Use `timeout 180` for smaller PRs (<500 lines). Use `timeout 300` for large files.
+**Note:** Use `timeout 300` for small PRs (<300 lines). Use `timeout 600` for large files (>500 lines).
 
 ### Post Review to GitHub
 ```bash
@@ -83,7 +83,7 @@ gh pr review <PR> --approve --body "$(cat review.md)"
 
 ### Review Command
 ```bash
-timeout 300 codex exec --model gpt-5.2-codex \
+timeout 600 codex exec --model gpt-5.2-codex \
   -c model_reasoning_effort="high" \
   "Review this PR against coding standards in references/STANDARDS.md:
 
@@ -158,11 +158,11 @@ Codex can take 1-5 minutes for complex tasks. **Always use explicit timeouts:**
 # Implementation: 3 minutes (medium reasoning)
 timeout 180 codex --yolo exec "..." 2>&1
 
-# Code review: 5 minutes (high reasoning, large files)
-timeout 300 codex review --base main --title "PR #N: ..." 2>&1
+# Code review: 10 minutes (high reasoning)
+timeout 600 codex review --base main --title "PR #N: ..." 2>&1
 
-# Standards review: 5 minutes (high reasoning required)
-timeout 300 codex exec --model gpt-5.2-codex \
+# Standards review: 10 minutes (high reasoning required)
+timeout 600 codex exec --model gpt-5.2-codex \
   -c model_reasoning_effort="high" \
   "Review against standards..." 2>&1
 ```
@@ -172,9 +172,10 @@ timeout 300 codex exec --model gpt-5.2-codex \
 |-----------|---------|-----------|
 | Simple edits | 120s | low/medium |
 | Standard features | 180s | medium |
-| Code review (any size) | 300s | **high** |
-| Standards review | 300s | **high** |
-| Complex architecture | 300s | high |
+| Code review (small <300 lines) | 300s | **high** |
+| Code review (large >500 lines) | 600s | **high** |
+| Standards review | 600s | **high** |
+| Complex architecture | 600s | high |
 
 Poll patiently - wait 15-30 seconds between polls:
 ```bash
