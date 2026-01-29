@@ -1,6 +1,6 @@
-# coding-agent Clawdbot Skill 💻
+# coding-agent Moltbot Skill 💻
 
-Clawdbot skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
+Moltbot skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
 
 ## Features
 
@@ -13,14 +13,14 @@ Clawdbot skill for coding assistant with Codex CLI integration. Activates dev pe
 ## Installation
 
 ```bash
-# Clone to Clawdbot skills directory
+# Clone to Moltbot skills directory
 cd /home/art/clawd/skills
 git clone https://github.com/kesslerio/coding-agent-clawdhub-skill.git coding-agent
 ```
 
 ## Usage
 
-In Clawdbot, activate with:
+In Moltbot, activate with:
 ```
 /coding
 ```
@@ -44,7 +44,7 @@ codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 
 ## Requirements
 
-- Clawdbot
+- Moltbot
 - Codex CLI (`gpt-5.2-codex`)
 - GitHub CLI (`gh`)
 

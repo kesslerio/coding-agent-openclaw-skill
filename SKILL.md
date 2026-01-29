@@ -1,7 +1,7 @@
 ---
 name: coding-agent
-description: "Coding assistant with Codex CLI for code reviews, refactoring, and implementation. Use gpt-5.2-codex in high thinking mode for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
-metadata: {"clawdbot":{"emoji":"💻","requires":{"bins":["codex","gh"],"env":[]}}}
+description: "Coding assistant with Codex MCP for reviews, refactoring, and implementation. Use gpt-5.2-codex with high reasoning for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
+metadata: {"moltbot":{"emoji":"💻","requires":{"bins":["gh"],"env":[]}}}
 ---
 
 # Coding Agent Skill 💻
@@ -38,13 +38,27 @@ Use `/coding` when:
 - Context involves GitHub workflow (PRs, issues, commits)
 - Complex coding tasks requiring deep analysis
 
+## Critical: Use Codex MCP by Default
+
+**Codex MCP is the PRIMARY interface.** Terminal `codex` is only for quick edits.
+
+### When to Use MCP vs Terminal
+
+| Use Case | Approach | Reasoning |
+|----------|----------|-----------|
+| Quick edits, one-liners | Terminal `codex` | Fast, no setup |
+| Implementation (>1 file) | **Codex MCP** | Stateful, structured |
+| Code review | **Codex MCP** | High reasoning, detailed |
+| Multi-step refactoring | **Codex MCP** | Thread persistence |
+| Complex architecture | **Codex MCP** | High reasoning mode |
+
 ## ⚠️ Critical: Workflow Order
 
 **NEVER write code directly. ALWAYS use Codex to implement.**
 
 ### For New Features (Issue → PR):
 ```
-1. Codex implements code (--yolo mode)
+1. Codex implements code (MCP with --yolo mode)
 2. Create PR
 3. Codex reviews the PR (Code Review)
 4. Codex reviews references/STANDARDS.md standards (Final Review) ← REQUIRED
@@ -62,15 +76,47 @@ Use `/coding` when:
 6. Push fixes to PR branch
 ```
 
-## Code Review (Step 1/2)
+## Codex MCP Commands
 
-### PR Review Command
+### Start a New Thread
 ```bash
-gh pr checkout <PR_NUMBER> --repo owner/repo
-timeout 600 codex review --base main --title "PR #N: Brief description" 2>&1
+mcporter call codex.codex 'prompt="Implement feature X. Just implement, no questions."' 'sandbox=workspace-write' 'approval-policy=untrusted'
 ```
 
-**Note:** Use `timeout 300` for small PRs (<300 lines). Use `timeout 600` for large files (>500 lines).
+### Continue a Thread
+```bash
+mcporter call codex.codex-reply 'threadId="<thread-id>"' 'prompt="Now add tests for the new function"'
+```
+
+### Code Review via MCP
+```bash
+mcporter call codex.codex 'prompt="Review this PR for issues. Check for bugs, style, and best practices. Be strict."' 'approval-policy=untrusted' 'sandbox=read-only'
+```
+
+### Standards Review via MCP (REQUIRED)
+```bash
+mcporter call codex.codex 'prompt="Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."' 'approval-policy=untrusted'
+```
+
+## Terminal Codex (Quick Edits Only)
+
+### Quick Edits
+```bash
+cd /path/to/repo && codex --yolo exec "Add console.log to line 42. Quick fix only."
+```
+
+### When Terminal is Acceptable
+- Single-line changes
+- Syntax fixes
+- Quick debugging print statements
+- Anything under 50 characters of instructions
+
+## Code Review (MCP Preferred)
+
+### MCP Review Command
+```bash
+mcporter call codex.codex 'prompt="Review PR #N for bugs, security issues, and code quality. Report findings with file:line references."' 'approval-policy=untrusted' 'sandbox=read-only'
+```
 
 ### Post Review to GitHub
 ```bash
@@ -81,20 +127,9 @@ gh pr review <PR> --approve --body "$(cat review.md)"
 
 **Critical:** This review validates compliance with `references/STANDARDS.md` coding standards. It MUST run after the code review.
 
-### Review Command
+### MCP Standards Review
 ```bash
-timeout 600 codex exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="high" \
-  "Review this PR against coding standards in references/STANDARDS.md:
-
-\$(cat references/STANDARDS.md)
-
-Report: PASS/FAIL per category with file:line refs. Be strict."
-```
-
-### Post Standards Review
-```bash
-gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
+mcporter call codex.codex 'prompt="Review this PR against coding standards in references/STANDARDS.md:\n\n$(cat references/STANDARDS.md)\n\nReport: PASS/FAIL per category with file:line refs. Be strict."' 'approval-policy=untrusted'
 ```
 
 ### Standards Review Output Format
@@ -117,96 +152,57 @@ gh pr comment <PR> --repo owner/repo --body "$(cat claude-md-review.md)"
 
 ### ⚠️ CRITICAL: PR Cannot Merge Without Passing Standards Review
 
-## Codex Implementation
+## MCP Implementation
 
-### Basic Implementation Command
+### Basic Implementation
 ```bash
-cd /path/to/repo && timeout 180 codex --yolo exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="medium" \
-  "Implement X. Do not ask for confirmation, just implement." 2>&1
+mcporter call codex.codex 'prompt="Implement X feature. Do not ask for confirmation. Just implement now. Work in /path/to/repo."' 'sandbox=workspace-write' 'approval-policy=untrusted'
 ```
 
-### ⚠️ Critical: Explicit Instructions
-
-Codex may stop and ask for confirmation even with `--yolo`. To prevent this:
-
-**DO:**
+### Multi-Step Implementation
 ```bash
-codex --yolo exec "Implement the feature. Do not ask for confirmation. Just implement now."
+# Step 1: Initial implementation
+mcporter call codex.codex 'prompt="Implement the data models and database schema for X. No questions, just implement."' 'sandbox=workspace-write' 'approval-policy=untrusted'
+# Note the threadId from response...
+
+# Step 2: Continue with API layer
+mcporter call codex.codex-reply 'threadId="<thread-id>"' 'prompt="Now add the REST API endpoints for CRUD operations"'
+
+# Step 3: Add tests
+mcporter call codex.codex-reply 'threadId="<thread-id>"' 'prompt="Add unit tests for all endpoints with 80%+ coverage"'
 ```
 
-**DON'T:**
+### Reasoning Effort
+
+| Level | Use When |
+|-------|----------|
+| `low` | Simple changes (via terminal only) |
+| `medium` | Standard features (MCP default) |
+| `high` | Complex architecture, reviews, standards |
+
+**Note:** MCP doesn't have explicit reasoning levels. Use detailed prompts instead:
 ```bash
-codex --yolo exec "Add auto-tagging feature"  # May ask "shall I proceed?"
-```
-
-### Reasoning Effort Levels
-
-| Level | Use Case | Behavior |
-|-------|----------|----------|
-| `low` | Simple edits, formatting | Fast, minimal analysis |
-| `medium` | Standard features, bug fixes | Balanced (RECOMMENDED) |
-| `high` | Complex architecture decisions | ⚠️ Can get stuck in analysis loops |
-
-**Recommendation:** Use `medium` by default. Only use `high` for genuinely complex architectural decisions. High reasoning can spend 2-3 minutes analyzing without producing code.
-
-### Timeout Handling
-
-Codex can take 1-5 minutes for complex tasks. **Always use explicit timeouts:**
-
-```bash
-# Implementation: 3 minutes (medium reasoning)
-timeout 180 codex --yolo exec "..." 2>&1
-
-# Code review: 10 minutes (high reasoning)
-timeout 600 codex review --base main --title "PR #N: ..." 2>&1
-
-# Standards review: 10 minutes (high reasoning required)
-timeout 600 codex exec --model gpt-5.2-codex \
-  -c model_reasoning_effort="high" \
-  "Review against standards..." 2>&1
-```
-
-**Timeout Guidelines:**
-| Task Type | Timeout | Reasoning |
-|-----------|---------|-----------|
-| Simple edits | 120s | low/medium |
-| Standard features | 180s | medium |
-| Code review (small <300 lines) | 300s | **high** |
-| Code review (large >500 lines) | 600s | **high** |
-| Standards review | 600s | **high** |
-| Complex architecture | 600s | high |
-
-Poll patiently - wait 15-30 seconds between polls:
-```bash
-# ❌ Don't rapid-fire poll
-process poll --sessionId xyz  # every 2 seconds
-
-# ✅ Wait between polls
-sleep 20 && process poll --sessionId xyz
+# For high reasoning
+mcporter call codex.codex 'prompt="This is a complex architectural decision. Analyze thoroughly before implementing..."' ...
 ```
 
 ## Code Review Workflow
 
 ### New Features: Implement → PR → Review → Fix
 ```bash
-# 1. Create branch and implement
-cd /path/to/repo
-git checkout -b feat/feature-name
-codex --yolo exec "Implement X. No questions, just implement."
+# 1. Create branch and implement (MCP)
+mcporter call codex.codex 'prompt="Implement X. No questions, just implement. Work in /repo/path."' 'sandbox=workspace-write'
 
 # 2. Commit and create PR
 git add -A && git commit -m "feat(scope): description"
 git push -u origin feat/feature-name
 gh pr create --title "..." --body "..."
 
-# 3. Review the PR with Codex
-codex review --base main --title "PR #N: Feature X"
+# 3. Review the PR with Codex (MCP)
+mcporter call codex.codex 'prompt="Review PR #N for issues. Check bugs, security, style."' 'sandbox=read-only'
 
-# 4. Post review to GitHub (as NiemandBot)
-gh pr review <PR_NUMBER> --comment --body "## Codex Review
-<paste codex findings here>
-🤖 *Reviewed by NiemandBot*"
+# 4. Post review to GitHub
+gh pr review <PR_NUMBER> --comment --body "## Codex Review <paste findings>"
 
 # 5. Fix any P1/P2 issues found, push to same branch
 git add -A && git commit -m "fix: address review feedback"
@@ -215,22 +211,12 @@ git push
 
 ### Review PR (Local + GitHub)
 ```bash
-# 1. Checkout and run Codex review locally
+# 1. Checkout and run Codex review (MCP)
 gh pr checkout <PR_NUMBER> --repo owner/repo
-codex review --base main --title "PR #N: Brief description"
+mcporter call codex.codex 'prompt="Review this PR thoroughly. Report all issues with file:line refs."' 'sandbox=read-only'
 
-# 2. Post as proper GitHub PR review (not just a comment)
-# Use --approve, --request-changes, or --comment based on findings
-gh pr review <PR_NUMBER> --repo owner/repo --comment --body "## Codex Review
-
-**P2 Issues:**
-- Issue description — \`file.py:123\`
-
-**P3 Issues:**
-- Minor issue — \`file.py:456\`
-
----
-🤖 *Reviewed by NiemandBot via Codex*"
+# 2. Post as proper GitHub PR review
+gh pr review <PR_NUMBER> --repo owner/repo --comment --body "## Codex Review\n\n**P2 Issues:**\n- Issue — \`file.py:123\`\n\n---\n🤖 *Reviewed by NiemandBot*"
 ```
 
 ### GitHub Review Actions
@@ -245,20 +231,31 @@ gh pr review <PR> --request-changes --body "Found issues that need fixing..."
 gh pr review <PR> --comment --body "Some suggestions..."
 ```
 
-## Sandbox Modes
+## Sandbox Modes (MCP)
 
-| Mode | Flag | Use Case |
-|------|------|----------|
-| Read-only | (default) | Reviews, analysis |
-| Full access | `--yolo` | Implementation, commits |
+| Mode | Use Case |
+|------|----------|
+| `read-only` | Reviews, analysis |
+| `workspace-write` | Implementation, commits |
 
 ```bash
-# Review (read-only is fine)
-codex review --base main
+# Review (read-only)
+mcporter call codex.codex 'prompt="..."' 'sandbox=read-only'
 
-# Implement (needs write access)
-codex --yolo exec "Fix the bug and commit"
+# Implement (write access)
+mcporter call codex.codex 'prompt="..."' 'sandbox=workspace-write'
 ```
+
+## Approval Policies (MCP)
+
+| Policy | Behavior |
+|--------|----------|
+| `untrusted` | Model can suggest but not run commands |
+| `on-request` | Model asks, user approves |
+| `on-failure` | Auto-run, stop on errors |
+| `never` | Model never runs commands |
+
+**Recommendation:** Use `untrusted` for reviews, `on-failure` for implementations.
 
 ## Git Workflow
 
@@ -266,8 +263,8 @@ codex --yolo exec "Fix the bug and commit"
 
 ### When User Says "Take to PR" or Similar:
 1. Create feature branch
-2. Have Codex implement
-3. Have Codex review
+2. Have Codex implement (MCP)
+3. Have Codex review (MCP)
 4. Fix review issues
 5. Commit and push
 6. Create PR with proper description
@@ -311,9 +308,13 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 Edit file.py: add function xyz...
 ```
 
-### ✅ DO: Have Codex implement
+### ✅ DO: Have Codex implement (use MCP for anything beyond quick fixes)
 ```bash
-codex --yolo exec "Add function xyz to file.py. Implement now."
+# Quick fix (terminal OK)
+codex --yolo exec "Add logging to line 42"
+
+# Complex work (MCP required)
+mcporter call codex.codex 'prompt="Implement auth system..."' 'sandbox=workspace-write'
 ```
 
 ### ❌ DON'T: Skip review entirely
@@ -325,87 +326,45 @@ git push && gh pr create && gh pr merge
 ### ✅ DO: Create PR, then review, then fix
 ```bash
 git push && gh pr create
-codex review --base main --title "PR #N: Feature"
+mcporter call codex.codex 'prompt="Review PR #N..."' 'sandbox=read-only'
 # Fix issues found
 git commit && git push  # Fixes go to same PR
 ```
 
-### ❌ DON'T: Use high reasoning for everything
+### ❌ DON'T: Use terminal for complex tasks
 ```bash
-# Can get stuck in 3+ minute analysis loops
-codex exec -c model_reasoning_effort="high" "Simple task"
+# Wrong - no state between calls
+codex exec "Part 1" && codex exec "Part 2"  # Context lost!
 ```
 
-### ✅ DO: Match reasoning to complexity
+### ✅ DO: Use MCP for multi-step tasks
 ```bash
-# Simple tasks: medium (default)
-codex --yolo exec "Add logging to function X"
-
-# Complex architecture: high
-codex --yolo exec -c model_reasoning_effort="high" "Redesign the auth system"
+# Correct - thread preserves context
+mcporter call codex.codex 'prompt="Part 1..."' ... # Gets threadId
+mcporter call codex.codex-reply 'threadId="..."' 'prompt="Part 2..."' # Continues
 ```
 
 ## Quick Reference
 
 ```bash
-# Implement feature
-codex --yolo exec "Implement X. No questions."
+# Implement feature (MCP - default)
+mcporter call codex.codex 'prompt="Implement X."' 'sandbox=workspace-write'
 
-# Review changes locally
-codex review --base main --title "Feature X"
+# Quick fix (terminal - exception)
+codex --yolo exec "Quick fix only"
 
-# Review specific PR
-gh pr checkout 123 && codex review --base main
+# Review PR (MCP)
+mcporter call codex.codex 'prompt="Review PR #N..."' 'sandbox=read-only'
 
-# Post review to GitHub (as NiemandBot)
+# Standards review (MCP - REQUIRED)
+mcporter call codex.codex 'prompt="Review against standards..."' 'sandbox=read-only'
+
+# Post review to GitHub
 gh pr review 123 --comment --body "Codex review findings..."
-gh pr review 123 --approve --body "LGTM! 🚀"
-gh pr review 123 --request-changes --body "Issues found..."
 
 # Create PR
 gh pr create --title "feat: X" --body "Description"
 ```
-
-## Codex MCP for Complex Tasks
-
-For complex, multi-step coding tasks requiring persistent context, use **Codex MCP** via `mcporter` instead of terminal-based approaches.
-
-### Why MCP over Terminal?
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| `codex exec` | Simple, direct | No state between calls |
-| tmux | Watch in real-time | Complex setup, scraping overhead |
-| **Codex MCP** | Stateful threads, structured JSON | Requires mcporter |
-
-**Recommendation:** Use MCP for automation, `codex exec` for one-shots.
-
-### MCP Workflow
-
-```bash
-# Start a new thread
-codex.codex(prompt="Implement feature X", sandbox="danger-full-access")
-
-# Continue the conversation (preserves context)
-codex.codex-reply(threadId="<thread-id>", prompt="Now add tests")
-```
-
-### When to Use Each
-
-| Use Case | Approach |
-|----------|----------|
-| Simple implementation | `codex --yolo exec` |
-| Code review | `codex review` |
-| Multi-step refactoring | **Codex MCP** (stateful) |
-| Complex architecture | **Codex MCP** with high reasoning |
-| Debugging/watching | `codex exec --full-auto` (watch stdout) |
-
-### MCP Benefits
-- **Stateful Threads**: Use `threadId` to continue conversations natively
-- **No Terminal Scraping**: Returns structured JSON responses
-- **Approval Policies**: Fine-grained control over command execution
-
-See `references/WORKFLOW.md` for full MCP configuration details.
 
 ## References
 

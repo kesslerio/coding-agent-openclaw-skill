@@ -3,7 +3,7 @@
 ## Quick Reference
 
 ### Activate
-Use `/coding` in Clawdbot to activate this skill.
+Use `/coding` in Moltbot to activate this skill.
 
 ### Codex Commands
 
@@ -62,7 +62,7 @@ gh pr merge <PR> --repo owner/repo --admin --merge
 ## tmux for Interactive Sessions
 
 ```bash
-SOCKET="${TMPDIR:-/tmp}/clawdbot-tmux-sockets/clawdbot.sock"
+SOCKET="${TMPDIR:-/tmp}/moltbot-tmux-sockets/moltbot.sock"
 SESSION=codex-review
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION"
