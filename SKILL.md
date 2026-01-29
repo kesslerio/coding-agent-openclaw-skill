@@ -32,15 +32,46 @@ You are Dev - a pragmatic and patient experienced developer. The colleague every
 ## When to Use This Skill
 
 Use `/coding` when:
-- User asks for code review
-- User asks to review a PR
+- User asks for code review (use **Claude CLI opus**)
+- User asks to review a PR (use **Claude CLI opus**)
 - User asks to implement or fix code
 - Context involves GitHub workflow (PRs, issues, commits)
 - Complex coding tasks requiring deep analysis
 
-## Critical: Use Codex MCP by Default
+**For reviews:** Always prefer `claude -p` (opus) over Codex. Claude provides better reasoning for quality analysis.
 
-**Codex MCP is the PRIMARY interface.** Terminal `codex` is only for quick edits.
+**For implementation:** Use Codex MCP for multi-file work, terminal `codex` for quick edits.
+
+## Critical: Use Claude CLI (opus) for Reviews
+
+**For code reviews and quality analysis, prefer `claude` CLI (opus model) over Codex.** Claude provides deeper architectural insight and better reasoning for review tasks.
+
+### Claude CLI Review Command
+```bash
+# Full codebase review with high reasoning
+claude -p "Review this codebase for: security issues, bugs, code quality, best practices. Report findings with file:line refs. Be thorough."
+
+# PR review
+claude -p "Review the changes in this PR: $DIFF. Focus on: bugs, security, code quality. Report issues with file:line."
+
+# API review  
+claude -p "Review the API documentation at docs/api.md. Check for: completeness, accuracy, examples. Report gaps."
+```
+
+### Codex MCP for Implementation
+Use Codex MCP for actual code implementation:
+```bash
+mcporter call codex.codex 'prompt="Implement feature X. Just implement, no questions."' 'sandbox=workspace-write'
+```
+
+### Timeout Settings
+
+For reviews and complex analysis, use extended timeouts:
+- Code reviews: 180-300s (detailed analysis)
+- Architectural reviews: 300-600s (deep thinking)
+- Implementation: 120-180s per file
+
+Update `timeoutSeconds` in sub-agent spawns for quality work.
 
 ### When to Use MCP vs Terminal
 
@@ -69,11 +100,19 @@ Use `/coding` when:
 ### For Existing PRs:
 ```
 1. Checkout PR
-2. Codex reviews locally (Code Review)
+2. Claude CLI review locally: claud -p "Review PR changes for bugs, security, quality"
 3. Codex reviews references/STANDARDS.md standards (Final Review) ← REQUIRED
 4. Post both reviews to GitHub (gh pr review/comment)
 5. Fix issues if needed
 6. Push fixes to PR branch
+```
+
+### For Codebase Reviews (Claude CLI preferred):
+```
+1. Claude CLI full review: claude -p "Review codebase thoroughly..."
+2. Prioritize findings by severity (P0/P1/P2/P3)
+3. Create GitHub issues for each finding
+4. Link issues to relevant code locations
 ```
 
 ## Codex MCP Commands
@@ -188,6 +227,15 @@ mcporter call codex.codex 'prompt="This is a complex architectural decision. Ana
 
 ## Code Review Workflow
 
+**For quality reviews, use Claude CLI (opus) with extended timeouts:**
+```bash
+# Spawn with 300s+ timeout for thorough review
+sessions_spawn task="Review repo X for issues..." timeoutSeconds=300 model="anthropic/claude-opus-4-5"
+
+# Use claude -p for detailed analysis
+claude -p "Review this codebase thoroughly for bugs, security, quality issues"
+```
+
 ### New Features: Implement → PR → Review → Fix
 ```bash
 # 1. Create branch and implement (MCP)
@@ -198,11 +246,11 @@ git add -A && git commit -m "feat(scope): description"
 git push -u origin feat/feature-name
 gh pr create --title "..." --body "..."
 
-# 3. Review the PR with Codex (MCP)
-mcporter call codex.codex 'prompt="Review PR #N for issues. Check bugs, security, style."' 'sandbox=read-only'
+# 3. Review the PR with Claude CLI (preferred for quality)
+claude -p "Review PR #N for bugs, security, quality. Report with file:line refs."
 
 # 4. Post review to GitHub
-gh pr review <PR_NUMBER> --comment --body "## Codex Review <paste findings>"
+gh pr review <PR_NUMBER> --comment --body "## Claude Review <paste findings>"
 
 # 5. Fix any P1/P2 issues found, push to same branch
 git add -A && git commit -m "fix: address review feedback"
