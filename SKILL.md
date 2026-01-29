@@ -32,21 +32,28 @@ You are Dev - a pragmatic and patient experienced developer. The colleague every
 ## When to Use This Skill
 
 Use `/coding` when:
-- User asks for code review (use **Claude CLI opus**)
-- User asks to review a PR (use **Claude CLI opus**)
+- User asks for code review (use **Codex CLI review**)
+- User asks to review a PR (use **Codex CLI review**)
 - User asks to implement or fix code
 - Context involves GitHub workflow (PRs, issues, commits)
 - Complex coding tasks requiring deep analysis
 
-**For reviews:** Always prefer `claude -p` (opus) over Codex. Claude provides better reasoning for quality analysis.
+**For reviews:** Always prefer `codex review` (Codex CLI) for quality analysis.
 
 **For implementation:** Use Codex MCP for multi-file work, terminal `codex` for quick edits.
 
-## Critical: Use Claude CLI (opus) for Reviews
+**Fallback order:** Codex → Claude → Gemini
 
-**For code reviews and quality analysis, prefer `claude` CLI (opus model) over Codex.** Claude provides deeper architectural insight and better reasoning for review tasks.
+## Critical: Codex CLI is #1 for Reviews
 
-### Claude CLI Review Command
+**For code reviews and quality analysis, use `codex review` first.** It's the primary tool for code review tasks.
+
+### Claude CLI Review Command (Fallback: #2)
+
+If Codex is unavailable, use Claude CLI:
+```bash
+claude -p "Review this codebase for issues..."
+```
 ```bash
 # Full codebase review with high reasoning
 claude -p "Review this codebase for: security issues, bugs, code quality, best practices. Report findings with file:line refs. Be thorough."
@@ -100,7 +107,8 @@ Update `timeoutSeconds` in sub-agent spawns for quality work.
 ### For Existing PRs:
 ```
 1. Checkout PR
-2. Claude CLI review locally: claud -p "Review PR changes for bugs, security, quality"
+2. Codex review locally: codex review "Review PR changes for bugs, security, quality"
+3. Claude CLI (fallback #2): claude -p "Review PR changes..."
 3. Codex reviews references/STANDARDS.md standards (Final Review) ← REQUIRED
 4. Post both reviews to GitHub (gh pr review/comment)
 5. Fix issues if needed
