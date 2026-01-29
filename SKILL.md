@@ -267,6 +267,60 @@ git worktree remove /tmp/issue-99
 
 ---
 
+## tmux Orchestration (Alternative)
+
+For advanced multi-agent control, use the **tmux skill** instead of bash background mode.
+
+### When to Use tmux vs bash background
+
+| Use Case | Recommended |
+|----------|-------------|
+| Quick one-shot tasks | `bash pty:true` |
+| Long-running with monitoring | `bash background:true` |
+| Multiple parallel agents | **tmux** |
+| Agent forking (context transfer) | **tmux** |
+| Session persistence (survives disconnects) | **tmux** |
+| Interactive debugging (pdb, REPL) | **tmux** |
+
+### Quick Example
+
+```bash
+SOCKET="${TMPDIR:-/tmp}/coding-agents.sock"
+
+# Create sessions for parallel work
+tmux -S "$SOCKET" new-session -d -s agent-1 -c /tmp/worktree-1
+tmux -S "$SOCKET" new-session -d -s agent-2 -c /tmp/worktree-2
+
+# Launch agents
+tmux -S "$SOCKET" send-keys -t agent-1 "codex --yolo 'Fix issue #1'" Enter
+tmux -S "$SOCKET" send-keys -t agent-2 "claude 'Fix issue #2'" Enter
+
+# Monitor (check for shell prompt to detect completion)
+tmux -S "$SOCKET" capture-pane -p -t agent-1 -S -100
+
+# Attach to watch live
+tmux -S "$SOCKET" attach -t agent-1
+```
+
+### Agent Forking
+
+Transfer context between agents (e.g., plan with Codex, execute with Claude):
+
+```bash
+# Capture context from current agent
+CONTEXT=$(tmux -S "$SOCKET" capture-pane -p -t planner -S -500)
+
+# Fork to new agent with context
+tmux -S "$SOCKET" new-session -d -s executor
+tmux -S "$SOCKET" send-keys -t executor "claude -p 'Based on this plan: $CONTEXT
+
+Execute step 1.'" Enter
+```
+
+**Full docs:** See the `tmux` skill for socket conventions, wait-for-text helpers, and cleanup.
+
+---
+
 ## ⚠️ Rules
 
 1. **Always use pty:true** - coding agents need a terminal!
