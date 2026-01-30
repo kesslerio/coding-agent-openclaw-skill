@@ -1,6 +1,6 @@
-# coding-agent Moltbot Skill 💻
+# coding-agent OpenClaw Skill 💻
 
-Moltbot skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
+OpenClaw skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
 
 ## Features
 
@@ -13,14 +13,14 @@ Moltbot skill for coding assistant with Codex CLI integration. Activates dev per
 ## Installation
 
 ```bash
-# Clone to Moltbot skills directory
+# Clone to OpenClaw skills directory
 cd /home/art/clawd/skills
 git clone https://github.com/kesslerio/coding-agent-clawdhub-skill.git coding-agent
 ```
 
 ## Usage
 
-In Moltbot, activate with:
+In OpenClaw, activate with:
 ```
 /coding
 ```
@@ -44,7 +44,7 @@ codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 
 ## Requirements
 
-- Moltbot
+- OpenClaw
 - Codex CLI (`gpt-5.2-codex`)
 - GitHub CLI (`gh`)
 

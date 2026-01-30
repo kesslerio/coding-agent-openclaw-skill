@@ -3,7 +3,7 @@
 ## Quick Reference
 
 ### Activate
-Use `/coding` in Moltbot to activate this skill.
+Use `/coding` in OpenClaw to activate this skill.
 
 ### Codex Commands
 
@@ -62,7 +62,7 @@ gh pr merge <PR> --repo owner/repo --admin --merge
 ## tmux for Interactive Sessions
 
 ```bash
-SOCKET="${TMPDIR:-/tmp}/moltbot-tmux-sockets/moltbot.sock"
+SOCKET="${TMPDIR:-/tmp}/openclaw-tmux-sockets/openclaw.sock"
 SESSION=codex-review
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION"

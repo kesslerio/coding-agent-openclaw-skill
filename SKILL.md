@@ -1,7 +1,7 @@
 ---
 name: coding-agent
 description: "Coding assistant with Codex MCP for reviews, refactoring, and implementation. Use gpt-5.2-codex with high reasoning for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
-metadata: {"moltbot":{"emoji":"💻","requires":{"bins":["gh"],"env":[]}}}
+metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"env":[]}}}
 ---
 
 # Coding Agent Skill 💻
