@@ -134,7 +134,7 @@ Update `timeoutSeconds` in sub-agent spawns for quality work.
 Before writing any code, verify:
 1. [ ] Feature branch created (`git checkout -b type/description`)
 2. [ ] Using correct tool (Codex MCP for implementation, CLI for reviews)
-3. [ ] PR will be created before merge
+3. [ ] Plan to create PR before merge
 
 ### Tool Usage Requirements
 When user specifies "use claude/codex/gemini":
@@ -155,6 +155,12 @@ If you realize you've violated any of these rules:
 2. **Notify** the user of the violation
 3. **Revert** or fix the issue (e.g., create PR for direct push)
 4. **Document** the violation in PR/issue comments
+
+### User Override
+If user **explicitly** requests bypassing these rules (e.g., "push directly to main, I know what I'm doing"):
+- Confirm the override request before proceeding
+- Document the override reason in commit/PR message
+- This is the ONLY exception to the above rules
 
 ## Codex MCP Commands
 

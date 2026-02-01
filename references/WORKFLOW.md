@@ -64,13 +64,11 @@ These are non-negotiable requirements. Violating any of these means the task has
 
 ### Self-Check Before Completion
 Before reporting task complete, verify:
-```
-□ Changes on feature branch (not main)?
-□ PR created and URL available?
-□ Correct tools used (as specified by user)?
-□ Code review completed and posted?
-□ Standards review completed and posted?
-```
+- [ ] Changes on feature branch (not main)?
+- [ ] PR created and URL available?
+- [ ] Correct tools used (as specified by user)?
+- [ ] Code review completed and posted?
+- [ ] Standards review completed and posted?
 
 ## GitHub CLI (gh)
 

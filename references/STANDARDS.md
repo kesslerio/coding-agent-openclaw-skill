@@ -73,7 +73,7 @@ During standards review, also verify process compliance:
 - [ ] No direct commits to main
 
 ### Tool Usage Compliance
-- [ ] If agent CLI specified → verify CLI was used (check conversation history)
+- [ ] If agent CLI specified → verify CLI was used (look for CLI invocation in session log)
 - [ ] Implementation done via Codex MCP (not direct file edits)
 - [ ] Reviews done via `codex review` or `claude -p`
 - [ ] Tool used is documented in PR description
