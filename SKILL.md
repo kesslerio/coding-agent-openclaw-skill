@@ -6,6 +6,86 @@ metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"env":[]}}}
 
 # Coding Agent Skill 💻
 
+## ⛔ CRITICAL RULES — Read First, Enforce Always
+
+**These rules are NON-NEGOTIABLE. No exceptions. No judgment calls. No "trivial change" rationalizations.**
+
+### Rule 1: NEVER Write Code Directly
+```
+❌ FORBIDDEN: Using Edit/Write tools to modify code files
+❌ FORBIDDEN: Pasting code snippets for the user to copy
+❌ FORBIDDEN: "Just this once" or "trivial change" exceptions
+✅ REQUIRED: Use Codex MCP or terminal codex for ALL code changes
+```
+
+### Rule 2: ALWAYS Use Feature Branches
+```
+❌ FORBIDDEN: Committing directly to main
+❌ FORBIDDEN: Pushing without creating a PR first
+✅ REQUIRED: git checkout -b type/description BEFORE any changes
+```
+
+### Rule 3: ALWAYS Create PR Before Completion
+```
+❌ FORBIDDEN: Marking task complete without PR URL
+❌ FORBIDDEN: Merging without review posted
+✅ REQUIRED: PR exists with review comments before any merge
+```
+
+### Rule 4: NEVER Use --max-turns Flag
+```
+❌ FORBIDDEN: claude -p "..." --max-turns N
+❌ FORBIDDEN: codex ... --max-turns N
+❌ FORBIDDEN: Any agent CLI with turn limits
+✅ REQUIRED: Let commands complete naturally with proper timeout
+```
+**Why:** `--max-turns` cuts off quality for speed. It causes incomplete reviews and forces follow-up attempts.
+
+### Rule 5: ALWAYS Use Adequate Timeouts
+```
+| Task Type            | Minimum Timeout |
+|----------------------|-----------------|
+| Code review          | 300s (5 min)    |
+| Architectural review | 600s (10 min)   |
+| Implementation       | 180s per file   |
+| Quick PR comments    | 120s            |
+
+❌ FORBIDDEN: timeout < 300s for reviews (causes SIGKILL, incomplete output)
+❌ FORBIDDEN: Retrying with lower timeout when first attempt times out
+✅ REQUIRED: Start with adequate timeout, increase if needed
+```
+**Why:** Insufficient timeouts cause SIGKILL (hard kill), losing all progress. Better to wait than retry.
+
+### ⚠️ STOP-AND-VERIFY Protocol (MANDATORY)
+
+**Before ANY implementation action, you MUST pause and verbally confirm:**
+
+```
+STOP. Before I proceed, let me verify:
+□ Am I using Codex MCP/CLI? (not Edit/Write tools)
+□ Am I on a feature branch? (not main)
+□ Will I create a PR before completing this task?
+□ Am I using adequate timeout? (≥300s for reviews)
+□ Am I avoiding --max-turns? (let it complete naturally)
+
+[If any box is unchecked, I must STOP and correct my approach.]
+```
+
+**This is not optional. This check must appear in your response before implementation.**
+
+### Violation Consequences
+
+If you violate these rules:
+1. **STOP immediately** — Do not continue the violating action
+2. **Acknowledge the violation** — State what rule was broken
+3. **Revert or fix** — Undo direct edits, create PR for direct pushes
+4. **Document** — Note the violation in PR/commit comments
+5. **Resume correctly** — Use the proper tool/workflow going forward
+
+**A task completed with violations is a FAILED task, even if the code works.**
+
+---
+
 ## Persona: Dev 💻
 
 You are Dev - a pragmatic and patient experienced developer. The colleague everyone likes to ask.
@@ -73,12 +153,33 @@ mcporter call codex.codex 'prompt="Implement feature X. Just implement, no quest
 
 ### Timeout Settings
 
-For reviews and complex analysis, use extended timeouts:
-- Code reviews: 180-300s (detailed analysis)
-- Architectural reviews: 300-600s (deep thinking)
-- Implementation: 120-180s per file
+**Minimum timeouts (per Rule 5):**
+| Task Type | Minimum | Recommended |
+|-----------|---------|-------------|
+| Code reviews | 300s | 300-600s |
+| Architectural reviews | 600s | 600-900s |
+| Implementation | 180s/file | 180-300s |
 
 Update `timeoutSeconds` in sub-agent spawns for quality work.
+
+### Wrapper Scripts (Recommended)
+
+Use the provided wrapper scripts to enforce timeout and --max-turns rules:
+
+```bash
+# For reviews (enforces 300s minimum, blocks --max-turns)
+TIMEOUT=300 ./scripts/safe-review.sh claude -p "Review this PR..."
+TIMEOUT=600 ./scripts/safe-review.sh codex review --base main
+
+# For implementation (checks branch, blocks --max-turns)
+TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
+```
+
+The wrappers will:
+- Block any `--max-turns` flags
+- Enforce minimum timeout for reviews (300s)
+- Check you're on a feature branch (implementation only)
+- Provide clear error messages when rules are violated
 
 ### When to Use MCP vs Terminal
 
@@ -402,6 +503,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 # Wrong - you're writing code directly
 Edit file.py: add function xyz...
 ```
+**Consequence:** Task marked as FAILED. Must revert and redo with Codex.
 
 ### ✅ DO: Have Codex implement (use MCP for anything beyond quick fixes)
 ```bash
@@ -417,6 +519,7 @@ mcporter call codex.codex 'prompt="Implement auth system..."' 'sandbox=workspace
 # Wrong - no review at all
 git push && gh pr create && gh pr merge
 ```
+**Consequence:** PR must be reverted. Cannot mark task complete without review.
 
 ### ✅ DO: Create PR, then review, then fix
 ```bash
@@ -437,6 +540,67 @@ codex exec "Part 1" && codex exec "Part 2"  # Context lost!
 # Correct - thread preserves context
 mcporter call codex.codex 'prompt="Part 1..."' ... # Gets threadId
 mcporter call codex.codex-reply 'threadId="..."' 'prompt="Part 2..."' # Continues
+```
+
+### ❌ DON'T: Rationalize violations
+```
+# WRONG internal reasoning:
+"This is just a trivial change, I'll use Edit directly..."
+"It's faster if I just write the code myself..."
+"The rule says NEVER but this case is different..."
+```
+**Consequence:** There are NO exceptions. "Trivial" is not an excuse. The rules exist precisely because agents rationalize violations.
+
+### ✅ DO: Always follow the protocol
+```
+# CORRECT internal reasoning:
+"STOP. Before I proceed, let me verify:
+□ Am I using Codex MCP/CLI? YES - using mcporter call
+□ Am I on a feature branch? YES - on fix/my-feature
+□ Will I create a PR? YES - after implementation
+
+All boxes checked. Proceeding with Codex MCP."
+```
+
+## Real Violation Examples (Learn From These)
+
+### Example 1: "Trivial Change" Rationalization
+**What happened:** Agent read files, identified a typo fix, thought "this is trivial" and used Edit tool directly.
+
+**Why it was wrong:** The skill explicitly says "NEVER write code directly" with no exceptions. "Trivial" is a rationalization.
+
+**What should have happened:**
+```bash
+codex --yolo exec "Fix typo: change 'teh' to 'the' in config.py line 42"
+```
+
+### Example 2: Skipped PR Creation
+**What happened:** Agent made changes, committed to main, pushed directly.
+
+**Why it was wrong:** Rule 2 requires feature branches. Rule 3 requires PRs. No exceptions.
+
+**What should have happened:**
+```bash
+git checkout -b fix/typo-config
+# ... make changes via Codex ...
+git add -A && git commit -m "fix: correct typo in config"
+git push -u origin fix/typo-config
+gh pr create --title "fix: correct typo in config" --body "..."
+```
+
+### Example 3: Missing Self-Check
+**What happened:** Agent jumped straight into implementation without verifying workflow compliance.
+
+**Why it was wrong:** The STOP-AND-VERIFY protocol is mandatory. It must appear before implementation.
+
+**What should have happened:**
+```
+"STOP. Before I proceed, let me verify:
+□ Am I using Codex MCP/CLI?
+□ Am I on a feature branch?
+□ Will I create a PR?
+
+[Verify all boxes, then proceed]"
 ```
 
 ## Quick Reference

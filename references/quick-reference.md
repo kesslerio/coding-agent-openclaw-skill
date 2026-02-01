@@ -1,20 +1,55 @@
 # coding-agent Reference
 
+## ⛔ STOP-AND-VERIFY (Before ANY Implementation)
+
+**Say this out loud before writing/changing any code:**
+```
+STOP. Before I proceed, let me verify:
+□ Am I using Codex MCP/CLI? (not Edit/Write tools)
+□ Am I on a feature branch? (not main)
+□ Will I create a PR before completing this task?
+□ Am I using adequate timeout? (≥300s for reviews)
+□ Am I avoiding --max-turns? (let it complete naturally)
+```
+**If any box is unchecked → STOP and fix before proceeding.**
+
+## Forbidden Flags & Minimum Timeouts
+
+```
+❌ FORBIDDEN: --max-turns (any value)
+❌ FORBIDDEN: timeout < 300s for reviews
+
+✅ Reviews: TIMEOUT=300 minimum
+✅ Architecture: TIMEOUT=600 minimum
+```
+
+## Wrapper Scripts (Recommended)
+```bash
+# Reviews (enforces 300s min, blocks --max-turns)
+TIMEOUT=300 ./scripts/safe-review.sh claude -p "..."
+TIMEOUT=600 ./scripts/safe-review.sh codex review --base main
+
+# Implementation (checks branch, blocks --max-turns)
+TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "..."
+```
+
+## Pre-Completion Checklist
+
+Before marking ANY task complete:
+- [ ] On feature branch? (not main)
+- [ ] PR created with URL?
+- [ ] Used Codex/Claude CLI? (not direct edits)
+- [ ] Code review posted to PR?
+- [ ] Standards review posted to PR?
+
+**Unchecked box = Task NOT complete.**
+
+---
+
 ## Quick Reference
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
-
-### Process Checklist (Before Completing Any Task)
-
-**MUST verify before marking task complete:**
-- [ ] On feature branch? (not main)
-- [ ] PR created?
-- [ ] Used specified tools? (codex/claude/gemini if requested)
-- [ ] Code review posted to PR?
-- [ ] Standards review posted to PR?
-
-**If any box is unchecked → STOP and fix before proceeding.**
 
 ### Codex Commands
 
@@ -59,7 +94,7 @@ gh pr merge <PR> --repo owner/repo --admin --merge
 ## Code Quality Standards
 
 - Functions: max 30-40 lines
-- Classes: max 500 lines  
+- Classes: max 500 lines
 - Files: max 500 lines
 - KISS, YAGNI, DRY, SRP principles
 
