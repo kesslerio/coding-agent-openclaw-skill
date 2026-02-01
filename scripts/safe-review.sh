@@ -74,6 +74,6 @@ if [[ "$CLI" == "claude" ]]; then
   done
 fi
 
-# Execute with timeout
+# Execute with timeout (use ${arr[@]+...} for older bash compatibility)
 warn "Running $CLI with ${TIMEOUT}s timeout (min: ${MIN_REVIEW_TIMEOUT}s)"
-exec timeout "${TIMEOUT}s" "$CLI" "${EXTRA_ARGS[@]}" "$@"
+exec timeout "${TIMEOUT}s" "$CLI" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@"

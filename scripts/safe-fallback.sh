@@ -34,15 +34,16 @@ warn() { echo -e "${YELLOW}⚠️  $1${NC}" >&2; }
 ok() { echo -e "${GREEN}✅ $1${NC}" >&2; }
 info() { echo -e "${CYAN}ℹ️  $1${NC}" >&2; }
 
-# Track failures
-declare -a FAILURES=()
+# Track failures (portable array init)
+FAILURES=()
 
 # Try Codex MCP
 try_codex_mcp() {
   info "Trying Codex MCP..."
   if command -v mcporter &>/dev/null; then
     local sandbox=$([[ "$MODE" == "review" ]] && echo "read-only" || echo "workspace-write")
-    if mcporter call codex.codex "prompt=\"$PROMPT\"" "sandbox=$sandbox" 2>/dev/null; then
+    # Use heredoc-style quoting to handle special chars in prompt
+    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" 2>&1; then
       ok "Codex MCP succeeded"
       return 0
     else
@@ -59,7 +60,8 @@ try_claude_mcp() {
   info "Trying Claude MCP..."
   if command -v mcporter &>/dev/null; then
     local subagent=$([[ "$MODE" == "review" ]] && echo "general-purpose" || echo "Bash")
-    if mcporter call claude.Task "prompt=\"$PROMPT\"" "subagent_type=\"$subagent\"" 2>/dev/null; then
+    # Use simple quoting - mcporter handles the rest
+    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" 2>&1; then
       ok "Claude MCP succeeded"
       return 0
     else
@@ -117,30 +119,31 @@ try_claude_cli() {
   return 1
 }
 
-# Report blocker
+# Report blocker (all to stderr)
 report_blocker() {
-  echo ""
+  echo "" >&2
   error "BLOCKED: All implementation tools unavailable"
-  echo ""
-  echo "Failures:"
+  echo "" >&2
+  echo "Failures:" >&2
   for failure in "${FAILURES[@]}"; do
-    echo "  - $failure"
+    echo "  - $failure" >&2
   done
-  echo ""
-  echo "Options:"
-  echo "  a) Wait for tool availability (e.g., Codex usage limit reset)"
-  echo "  b) User manually runs: codex --yolo exec \"$PROMPT\""
-  echo "  c) User explicitly authorizes override: 'Override Rule 1 for this task'"
-  echo ""
-  echo "⛔ DO NOT use direct file edits - this is a Rule 1 violation"
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  a) Wait for tool availability (e.g., Codex usage limit reset)" >&2
+  echo "  b) User manually runs: codex --yolo exec \"$PROMPT\"" >&2
+  echo "  c) User explicitly authorizes override: 'Override Rule 1 for this task'" >&2
+  echo "" >&2
+  echo "⛔ DO NOT use direct file edits - this is a Rule 1 violation" >&2
   exit 1
 }
 
 # Main execution
 main() {
-  echo "Mode: $MODE | Timeout: ${TIMEOUT}s"
-  echo "Prompt: $PROMPT"
-  echo ""
+  # All status to stderr so stdout only has tool output
+  echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
+  echo "Prompt: $PROMPT" >&2
+  echo "" >&2
 
   # Try tools in order
   try_codex_mcp && exit 0
