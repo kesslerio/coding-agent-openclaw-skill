@@ -35,6 +35,43 @@
 - `test`: Adding tests
 - `chore`: Build/tooling changes
 
+## Hard Requirements (Violation = Task Failure)
+
+These are non-negotiable requirements. Violating any of these means the task has FAILED.
+
+### 1. Branch Requirement
+- **MUST** create feature branch before any code changes
+- **MUST NOT** commit directly to main
+- **Violation Response**: Stop and ask user to confirm branch creation
+
+### 2. PR Requirement
+- **MUST** create PR before code can be considered "done"
+- **MUST** post review to PR before merge
+- **MUST** include PR URL in task completion message
+- **Violation Response**: Refuse to mark task complete without PR URL
+
+### 3. Tool Usage Requirement
+- When user specifies "use claude/codex/gemini": **MUST** use that CLI tool
+- **MUST NOT** use direct file edits when agent CLI is specified
+- **MUST** document which tool was used in PR description
+- **Violation Response**: Stop and switch to specified tool
+
+### 4. Review Requirement
+- **MUST** run code review before merge
+- **MUST** run standards review (references/STANDARDS.md) before merge
+- **MUST** post both reviews to GitHub PR
+- **Violation Response**: Block merge until reviews are posted
+
+### Self-Check Before Completion
+Before reporting task complete, verify:
+```
+□ Changes on feature branch (not main)?
+□ PR created and URL available?
+□ Correct tools used (as specified by user)?
+□ Code review completed and posted?
+□ Standards review completed and posted?
+```
+
 ## GitHub CLI (gh)
 
 ### Authentication

@@ -60,3 +60,46 @@
 ## Inclusive Language
 
 - **Terms**: allowlist/blocklist, primary/replica, placeholder/example, main branch, conflict-free, concurrent/parallel
+
+## Process Compliance Checks
+
+During standards review, also verify process compliance:
+
+### Git Workflow Compliance
+- [ ] Changes made on feature branch (not main)
+- [ ] PR exists with descriptive title
+- [ ] Commits follow conventional format (`type(scope): description`)
+- [ ] No force pushes to shared branches
+- [ ] No direct commits to main
+
+### Tool Usage Compliance
+- [ ] If agent CLI specified → verify CLI was used (check conversation history)
+- [ ] Implementation done via Codex MCP (not direct file edits)
+- [ ] Reviews done via `codex review` or `claude -p`
+- [ ] Tool used is documented in PR description
+
+### Review Process Compliance
+- [ ] Code/logic review completed
+- [ ] Standards review completed
+- [ ] Both reviews posted to GitHub PR
+- [ ] Issues found are addressed before merge
+
+### Compliance Review Output Format
+```markdown
+## Process Compliance Review ✅|❌
+
+### Git Workflow
+- [x] Feature branch used
+- [x] PR created
+- [x] Conventional commits
+
+### Tool Usage
+- [x] Specified tools used
+- [x] Implementation via Codex MCP
+
+### Review Process
+- [x] Code review posted
+- [x] Standards review posted
+
+**Status**: COMPLIANT / NON-COMPLIANT
+```

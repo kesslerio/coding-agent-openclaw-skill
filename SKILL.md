@@ -123,6 +123,39 @@ Update `timeoutSeconds` in sub-agent spawns for quality work.
 4. Link issues to relevant code locations
 ```
 
+## Process Enforcement (CRITICAL)
+
+### Branch Protection Rules
+- **NEVER push directly to main** - Always create a feature branch first
+- **ALWAYS create a PR** before any code reaches main
+- **ALWAYS wait for review approval** before merging
+
+### Pre-Implementation Checklist
+Before writing any code, verify:
+1. [ ] Feature branch created (`git checkout -b type/description`)
+2. [ ] Using correct tool (Codex MCP for implementation, CLI for reviews)
+3. [ ] PR will be created before merge
+
+### Tool Usage Requirements
+When user specifies "use claude/codex/gemini":
+- **MUST** use the specified CLI tool for the task
+- **MUST NOT** use direct file edits or alternative tools
+- **Violation**: Stop immediately and switch to specified tool
+
+### Merge Blockers
+Do NOT merge or mark task complete if:
+- No PR exists (direct push to main = FAILURE)
+- No review comments posted
+- Standards review not completed
+- Agent CLI tools specified but not used
+
+### Violation Response
+If you realize you've violated any of these rules:
+1. **STOP** immediately
+2. **Notify** the user of the violation
+3. **Revert** or fix the issue (e.g., create PR for direct push)
+4. **Document** the violation in PR/issue comments
+
 ## Codex MCP Commands
 
 ### Start a New Thread

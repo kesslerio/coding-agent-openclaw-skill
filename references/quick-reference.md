@@ -5,6 +5,19 @@
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
 
+### Process Checklist (Before Completing Any Task)
+
+**MUST verify before marking task complete:**
+```
+□ On feature branch? (not main)
+□ PR created?
+□ Used specified tools? (codex/claude/gemini if requested)
+□ Code review posted to PR?
+□ Standards review posted to PR?
+```
+
+**If any box is unchecked → STOP and fix before proceeding.**
+
 ### Codex Commands
 
 **High Thinking Mode (complex tasks):**
