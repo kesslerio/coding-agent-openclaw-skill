@@ -122,17 +122,96 @@ Use `/coding` when:
 
 **For implementation:** Use Codex MCP for multi-file work, terminal `codex` for quick edits.
 
-**Fallback order:** Codex → Claude → Gemini
+**Fallback order:** Codex MCP → Claude MCP → Codex CLI → Claude CLI → BLOCKED
+
+## Tool Fallback Chain (IMPORTANT)
+
+When a tool is unavailable, follow this chain. **NEVER skip to direct edits.**
+
+### For Implementation:
+| Priority | Tool | Command |
+|----------|------|---------|
+| 1 | Codex MCP | `mcporter call codex.codex 'prompt="..."' 'sandbox=workspace-write'` |
+| 2 | Claude MCP | `mcporter call claude.Task 'prompt="..."' 'subagent_type="Bash"'` |
+| 3 | Codex CLI | `codex --yolo exec "..."` |
+| 4 | Claude CLI | `timeout 180s claude -p "..."` |
+| 5 | **BLOCKED** | Report to user, request override (see below) |
+
+### For Reviews:
+| Priority | Tool | Command |
+|----------|------|---------|
+| 1 | Codex CLI | `codex review --base main` |
+| 2 | Claude MCP | `mcporter call claude.Task 'prompt="Review..."' 'subagent_type="general-purpose"'` |
+| 3 | Claude CLI | `timeout 300s claude -p "Review..."` |
+| 4 | **BLOCKED** | Report to user, request override |
+
+### Tool Unavailability Protocol
+
+When ALL tools in the chain fail:
+
+1. **DO NOT fall back to direct edits** — This is STILL Rule 1 violation
+2. **Report the blocker** to the user:
+   ```
+   ⚠️ BLOCKED: Cannot proceed with implementation.
+   - Codex MCP: [reason - e.g., usage limit]
+   - Claude MCP: [reason - e.g., connection error]
+   - Codex CLI: [reason - e.g., not installed]
+   - Claude CLI: [reason - e.g., timeout/hang]
+
+   Options:
+   a) Wait for tool availability
+   b) User manually runs the command
+   c) User explicitly authorizes override: "Override Rule 1 for this task"
+   ```
+3. **Request explicit override** if user wants to proceed with direct edits
+
+### Emergency Override Protocol
+
+When user explicitly requests bypassing Rule 1:
+1. **User must say:** "Override Rule 1: proceed with direct edit for [specific task]"
+2. **Agent confirms:** "Acknowledged override. Direct edit authorized for: [task]"
+3. **Document:** Add to commit message: `[OVERRIDE] Direct edit - tools unavailable`
+4. **Scope:** ONE-TIME exception for the specific task only
 
 ## Critical: Codex CLI is #1 for Reviews
 
 **For code reviews and quality analysis, use `codex review` first.** It's the primary tool for code review tasks.
 
-### Claude CLI Review Command (Fallback: #2)
+### Claude MCP (Fallback: #2)
 
-If Codex is unavailable, use Claude CLI:
+If Codex is unavailable, use Claude MCP via mcporter (more reliable than CLI):
 ```bash
-claude -p "Review this codebase for issues..."
+# Review via Claude MCP
+mcporter call claude.Task 'prompt="Review this codebase for security issues, bugs, code quality. Report findings with file:line refs."' 'subagent_type="general-purpose"'
+
+# Implementation via Claude MCP
+mcporter call claude.Task 'prompt="Implement feature X. Just implement, no questions."' 'subagent_type="Bash"'
+```
+
+### Claude CLI Review Command (Fallback: #3)
+
+If Claude MCP is also unavailable, use Claude CLI with timeout and permission bypass:
+```bash
+timeout 300s claude -p --dangerously-skip-permissions "Review this codebase for issues..."
+```
+
+### ⚠️ Claude CLI Reliability Notes
+
+`claude -p` can hang indefinitely because:
+1. **Permission prompts**: Claude waits for user approval but can't display prompts in non-interactive mode
+2. **TTY expectations**: Some operations expect an interactive terminal
+
+**Mitigations:**
+- Use `--dangerously-skip-permissions` flag for non-interactive use (bypasses permission prompts)
+- Always wrap with `timeout` to prevent indefinite hangs
+- **Prefer Claude MCP** (`mcporter call claude.Task`) - it handles permissions automatically
+
+```bash
+# Recommended: Claude MCP (no permission issues)
+mcporter call claude.Task 'prompt="Review..."' 'subagent_type="general-purpose"'
+
+# Fallback: Claude CLI with permission bypass and timeout
+timeout 300s claude -p --dangerously-skip-permissions "Review..."
 ```
 ```bash
 # Full codebase review with high reasoning

@@ -82,6 +82,20 @@ if ! command -v "$CLI" &>/dev/null; then
   exit 1
 fi
 
-# Execute with timeout
+# For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging
+EXTRA_ARGS=()
+if [[ "$CLI" == "claude" ]]; then
+  for arg in "$@"; do
+    if [[ "$arg" == "-p" || "$arg" == "--print" ]]; then
+      if [[ ! " $* " =~ " --dangerously-skip-permissions " ]]; then
+        EXTRA_ARGS+=("--dangerously-skip-permissions")
+        warn "Adding --dangerously-skip-permissions to prevent permission prompt hangs"
+      fi
+      break
+    fi
+  done
+fi
+
+# Execute with timeout (use ${arr[@]+...} for older bash compatibility)
 warn "Running $CLI implementation with ${TIMEOUT}s timeout"
-exec timeout "${TIMEOUT}s" "$CLI" "$@"
+exec timeout "${TIMEOUT}s" "$CLI" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@"
