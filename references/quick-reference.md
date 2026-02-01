@@ -23,14 +23,36 @@ STOP. Before I proceed, let me verify:
 ✅ Architecture: TIMEOUT=600 minimum
 ```
 
+## Tool Fallback Chain
+
+```
+Implementation: Codex MCP → Claude MCP → Codex CLI → Claude CLI → BLOCKED
+Reviews:        Codex CLI → Claude MCP → Claude CLI → BLOCKED
+
+⛔ NEVER skip to direct edits - request user override instead
+```
+
 ## Wrapper Scripts (Recommended)
 ```bash
+# Auto-fallback (tries all tools in order)
+./scripts/safe-fallback.sh impl "Implement feature X"
+./scripts/safe-fallback.sh review "Review this PR for bugs"
+
 # Reviews (enforces 300s min, blocks --max-turns)
 TIMEOUT=300 ./scripts/safe-review.sh claude -p "..."
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base main
 
 # Implementation (checks branch, blocks --max-turns)
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "..."
+```
+
+## Claude MCP Commands
+```bash
+# Implementation via Claude MCP
+mcporter call claude.Task 'prompt="Implement X"' 'subagent_type="Bash"'
+
+# Review via Claude MCP
+mcporter call claude.Task 'prompt="Review for bugs"' 'subagent_type="general-purpose"'
 ```
 
 ## Pre-Completion Checklist
