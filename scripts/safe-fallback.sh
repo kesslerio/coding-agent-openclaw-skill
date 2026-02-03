@@ -42,8 +42,9 @@ try_codex_mcp() {
   info "Trying Codex MCP..."
   if command -v mcporter &>/dev/null; then
     local sandbox=$([[ "$MODE" == "review" ]] && echo "read-only" || echo "workspace-write")
+    local mcp_timeout_ms=$((TIMEOUT * 1000))
     # Use heredoc-style quoting to handle special chars in prompt
-    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" 2>&1; then
+    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" --timeout "$mcp_timeout_ms" 2>&1; then
       ok "Codex MCP succeeded"
       return 0
     else
@@ -60,8 +61,9 @@ try_claude_mcp() {
   info "Trying Claude MCP..."
   if command -v mcporter &>/dev/null; then
     local subagent=$([[ "$MODE" == "review" ]] && echo "general-purpose" || echo "Bash")
+    local mcp_timeout_ms=$((TIMEOUT * 1000))
     # Use simple quoting - mcporter handles the rest
-    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" 2>&1; then
+    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" --timeout "$mcp_timeout_ms" 2>&1; then
       ok "Claude MCP succeeded"
       return 0
     else
