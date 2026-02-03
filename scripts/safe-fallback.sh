@@ -78,7 +78,20 @@ try_codex_cli() {
   info "Trying Codex CLI..."
   if command -v codex &>/dev/null; then
     if [[ "$MODE" == "review" ]]; then
-      if timeout "${TIMEOUT}s" codex review --base main 2>/dev/null; then
+      local base_branch="main"
+      if git rev-parse --git-dir &>/dev/null; then
+        base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+        if [[ -z "$base_branch" ]]; then
+          for candidate in main master trunk; do
+            if git show-ref --verify --quiet "refs/heads/${candidate}" || \
+               git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+              base_branch="$candidate"
+              break
+            fi
+          done
+        fi
+      fi
+      if timeout "${TIMEOUT}s" codex review --base "$base_branch" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else
