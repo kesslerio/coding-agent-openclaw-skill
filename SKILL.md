@@ -6,6 +6,7 @@ metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"env":[]}}}
 
 # Coding Agent Skill 💻
 
+<<<<<<< ours
 ## ⛔ CRITICAL RULES — Read First, Enforce Always
 
 **These rules are NON-NEGOTIABLE. No exceptions. No judgment calls. No "trivial change" rationalizations.**
@@ -83,6 +84,36 @@ If you violate these rules:
 5. **Resume correctly** — Use the proper tool/workflow going forward
 
 **A task completed with violations is a FAILED task, even if the code works.**
+
+## ⚠️ CRITICAL: Timeouts (Read First)
+
+**Reviews require 5-10 minutes. Use wrapper scripts:**
+
+```bash
+# Set CODING_AGENT_DIR to your skill installation path, or use relative path from skill root
+# Example: export CODING_AGENT_DIR="$HOME/skills/coding-agent"
+
+# Code review (5 min timeout)
+"${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
+
+# Implementation (3 min timeout)
+"${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
+```
+
+**Raw mcporter is DEPRECATED for reviews.** Wrappers enforce correct timeouts.
+
+| Task | Script | Default Timeout | Env Override |
+|------|--------|-----------------|--------------|
+| Code review | `scripts/code-review` | 300000ms (5 min) | `CODE_REVIEW_TIMEOUT` |
+| Implementation | `scripts/code-implement` | 180000ms (3 min) | `CODE_IMPLEMENT_TIMEOUT` |
+| Quick fix only | `codex --yolo exec` | default | - |
+
+**Environment variables:**
+- `MCPORTER_CALL_TIMEOUT` - Global default for all mcporter calls
+- `CODE_REVIEW_TIMEOUT` - Override for code reviews (milliseconds)
+- `CODE_IMPLEMENT_TIMEOUT` - Override for implementations (milliseconds)
+
+**If you use raw mcporter and it times out, that's on you. The skill told you to use wrappers.**
 
 ---
 
@@ -708,3 +739,27 @@ gh pr create --title "feat: X" --body "Description"
 
 - `references/WORKFLOW.md` - Full coding workflow & Git integration
 - `references/STANDARDS.md` - Coding standards & rules
+
+## Frontend Design Skills Reference
+
+When working on frontend/UI projects, be aware of the **frontend-design-ultimate** skill:
+
+**Repository**: https://github.com/kesslerio/frontend-design-ultimate-clawhub-skill
+
+**Based on these source skills (check for consistency when reviewing)**:
+1. **Anthropic frontend-design** — https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
+   - Anti-AI-slop philosophy
+   - Typography, color, motion, spatial composition guidelines
+   - BANNED: Inter, Roboto, Arial, purple gradients, centered layouts
+   
+2. **Anthropic web-artifacts-builder** — https://github.com/anthropics/skills/blob/main/skills/web-artifacts-builder/SKILL.md
+   - React 18 + TypeScript + Vite + Tailwind + shadcn/ui
+   - Single-file HTML bundling with Parcel
+   - 40+ shadcn components pre-installed
+
+3. **Community frontend-design-v2** — https://github.com/nhatmobile1/claude-skills/blob/main/skills/frontend/frontend-design-v2/SKILL.md
+   - Mobile-first responsive patterns
+   - Hero layouts, accordion patterns, form consistency
+   - Pre-implementation checklist
+
+When reviewing frontend code or the frontend-design-ultimate skill itself, verify consistency with these sources.

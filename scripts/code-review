@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# code-review - Wrapper for code reviews with proper timeout
+# Usage: code-review "Review PR #123 for bugs, security, quality"
+#
+# Default timeout: 5 minutes (300000ms)
+# Override with CODE_REVIEW_TIMEOUT env var
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: code-review \"<prompt>\"" >&2
+    echo "Example: code-review \"Review PR #123 for bugs, security, code quality\"" >&2
+    exit 1
+fi
+
+TIMEOUT="${CODE_REVIEW_TIMEOUT:-300000}"
+
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
+echo "Starting code review with ${TIMEOUT}ms timeout..." >&2
+
+mcporter call codex.codex \
+    "prompt=$1" \
+    'sandbox=read-only' \
+    'approval-policy=untrusted' \
+    --timeout "$TIMEOUT"

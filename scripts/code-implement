@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# code-implement - Wrapper for code implementation with proper timeout
+# Usage: code-implement "Implement feature X in /path/to/repo"
+#
+# Default timeout: 3 minutes (180000ms)
+# Override with CODE_IMPLEMENT_TIMEOUT env var
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: code-implement \"<prompt>\"" >&2
+    echo "Example: code-implement \"Implement auth middleware in /home/art/project\"" >&2
+    exit 1
+fi
+
+TIMEOUT="${CODE_IMPLEMENT_TIMEOUT:-180000}"
+
+echo "Starting implementation with ${TIMEOUT}ms timeout..." >&2
+
+mcporter call codex.codex \
+    "prompt=$1" \
+    'sandbox=workspace-write' \
+    'approval-policy=on-failure' \
+    --timeout "$TIMEOUT"
