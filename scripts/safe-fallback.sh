@@ -91,7 +91,7 @@ try_codex_cli() {
           done
         fi
       fi
-      if timeout "${TIMEOUT}s" codex review --base "$base_branch" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex review --base "$base_branch" "$PROMPT" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else
