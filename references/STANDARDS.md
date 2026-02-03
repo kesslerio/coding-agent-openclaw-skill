@@ -1,5 +1,14 @@
 # Coding Standards
 
+## Contents
+- Principles
+- Size Limits
+- Naming & Clarity
+- Error Handling
+- Testing
+- Security
+- Documentation
+
 **Language:** English only - all code, comments, docs, examples, commits, configs, errors, tests
 
 ## Foundational Principles

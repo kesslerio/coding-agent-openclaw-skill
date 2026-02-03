@@ -42,8 +42,10 @@ try_codex_mcp() {
   info "Trying Codex MCP..."
   if command -v mcporter &>/dev/null; then
     local sandbox=$([[ "$MODE" == "review" ]] && echo "read-only" || echo "workspace-write")
+    local mcp_timeout_ms=$((TIMEOUT * 1000))
+    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
     # Use heredoc-style quoting to handle special chars in prompt
-    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" 2>&1; then
+    if MCPORTER_CALL_TIMEOUT="$mcp_timeout_ms" mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" "approval-policy=$approval_policy" 2>&1; then
       ok "Codex MCP succeeded"
       return 0
     else
@@ -60,8 +62,10 @@ try_claude_mcp() {
   info "Trying Claude MCP..."
   if command -v mcporter &>/dev/null; then
     local subagent=$([[ "$MODE" == "review" ]] && echo "general-purpose" || echo "Bash")
+    local mcp_timeout_ms=$((TIMEOUT * 1000))
+    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
     # Use simple quoting - mcporter handles the rest
-    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" 2>&1; then
+    if MCPORTER_CALL_TIMEOUT="$mcp_timeout_ms" mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" "approval-policy=$approval_policy" 2>&1; then
       ok "Claude MCP succeeded"
       return 0
     else
@@ -77,8 +81,28 @@ try_claude_mcp() {
 try_codex_cli() {
   info "Trying Codex CLI..."
   if command -v codex &>/dev/null; then
+    if ! command -v timeout &>/dev/null; then
+      FAILURES+=("Codex CLI: timeout not installed")
+      return 1
+    fi
     if [[ "$MODE" == "review" ]]; then
-      if timeout "${TIMEOUT}s" codex review --base main 2>/dev/null; then
+      local base_branch="main"
+      if git rev-parse --git-dir &>/dev/null; then
+        base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+        if [[ -z "$base_branch" ]]; then
+          for candidate in main master trunk; do
+            if git show-ref --verify --quiet "refs/heads/${candidate}" || \
+               git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+              base_branch="$candidate"
+              break
+            fi
+          done
+        fi
+        if [[ -z "$base_branch" ]]; then
+          base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+        fi
+      fi
+      if timeout "${TIMEOUT}s" codex review --base "$base_branch" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else

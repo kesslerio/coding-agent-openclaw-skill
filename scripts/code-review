@@ -21,7 +21,7 @@ export PATH="$PATH:/run/current-system/sw/bin"
 echo "Starting code review with ${TIMEOUT}ms timeout..." >&2
 
 mcporter call codex.codex \
-    "prompt=$1" \
+    "prompt=$*" \
     'sandbox=read-only' \
     'approval-policy=untrusted' \
     --timeout "$TIMEOUT"

@@ -18,7 +18,7 @@ TIMEOUT="${CODE_IMPLEMENT_TIMEOUT:-180000}"
 echo "Starting implementation with ${TIMEOUT}ms timeout..." >&2
 
 mcporter call codex.codex \
-    "prompt=$1" \
+    "prompt=$*" \
     'sandbox=workspace-write' \
     'approval-policy=on-failure' \
     --timeout "$TIMEOUT"
