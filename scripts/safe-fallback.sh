@@ -79,6 +79,10 @@ try_claude_mcp() {
 try_codex_cli() {
   info "Trying Codex CLI..."
   if command -v codex &>/dev/null; then
+    if ! command -v timeout &>/dev/null; then
+      FAILURES+=("Codex CLI: timeout not installed")
+      return 1
+    fi
     if [[ "$MODE" == "review" ]]; then
       local base_branch="main"
       if git rev-parse --git-dir &>/dev/null; then
