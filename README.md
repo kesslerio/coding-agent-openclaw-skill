@@ -1,67 +1,52 @@
-# coding-agent
+# coding-agent OpenClaw Skill 💻
 
-Moltbot skill for orchestrating AI coding agents (Codex, Claude Code, Gemini CLI, Pi, OpenCode) via bash with PTY support and background process control.
+OpenClaw skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
 
 ## Features
 
-- **Multi-agent support** - Codex CLI, Claude Code, Gemini CLI, Pi, OpenCode
-- **Automatic fallback** - Falls back to Claude/Gemini when Codex hits limits
-- **Background execution** - Run long tasks with session monitoring
-- **PTY mode** - Proper terminal emulation for interactive CLIs
-- **Parallel workflows** - Multiple agents via git worktrees or tmux
-- **Agent forking** - Transfer context between different coding agents
-
-## Quick Start
-
-```bash
-# One-shot task (Codex)
-bash pty:true workdir:~/project command:"codex exec 'Add error handling'"
-
-# Fallback to Claude Code
-claude -p "Add error handling to src/api.ts"
-
-# Fallback to Gemini
-gemini "Add error handling to src/api.ts"
-
-# Background with monitoring
-bash pty:true workdir:~/project background:true command:"codex --full-auto 'Build a REST API'"
-process action:log sessionId:XXX
-```
-
-## Requirements
-
-At least one of these CLIs must be installed:
-- `codex` - OpenAI Codex CLI
-- `claude` - Claude Code CLI
-- `gemini` - Gemini CLI
-- `pi` - Pi Coding Agent
-- `opencode` - OpenCode CLI
+- **Codex CLI Integration** — Use `gpt-5.2-codex` in high thinking mode for complex coding tasks
+- **PR Review Workflow** — Checkout PRs and run Codex reviews with GitHub CLI
+- **Dev Persona** — Pragmatic code reviews with clear feedback
+- **Git Workflow Documentation** — Branch, commit, PR conventions
+- **Code Quality Standards** — KISS, YAGNI, DRY, SRP principles
 
 ## Installation
 
-Copy or symlink this skill to your Moltbot skills directory:
-
 ```bash
-# Clone
-git clone https://github.com/kesslerio/coding-agent-moltbot-skill.git
-
-# Symlink to skills
-ln -s /path/to/coding-agent-moltbot-skill ~/.moltbot/skills/coding-agent
+# Clone to OpenClaw skills directory
+cd /home/art/clawd/skills
+git clone https://github.com/kesslerio/coding-agent-clawdhub-skill.git coding-agent
 ```
 
-## Documentation
+## Usage
 
-See [SKILL.md](./SKILL.md) for complete documentation including:
-- Bash tool parameters and process actions
-- Codex, Claude Code, Gemini CLI command reference
-- Fallback strategy and when to use each agent
-- Parallel workflows with git worktrees
-- tmux orchestration for advanced multi-agent control
-- Best practices and learnings
+In OpenClaw, activate with:
+```
+/coding
+```
 
-Reference docs:
-- [Claude Code Reference](./references/claude-code.md)
-- [Gemini CLI Reference](./references/gemini-cli.md)
+Then use Codex commands:
+```bash
+# PR Review
+gh pr checkout <PR>
+codex review --base main --title "PR #N: Description"
+
+# Complex task with high reasoning
+codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
+```
+
+## Files
+
+- `SKILL.md` — Full skill documentation (includes Dev persona)
+- `references/STANDARDS.md` — Coding standards & rules
+- `references/WORKFLOW.md` — Coding workflow & Git integration
+- `references/quick-reference.md` — Command quick reference
+
+## Requirements
+
+- OpenClaw
+- Codex CLI (`gpt-5.2-codex`)
+- GitHub CLI (`gh`)
 
 ## License
 
