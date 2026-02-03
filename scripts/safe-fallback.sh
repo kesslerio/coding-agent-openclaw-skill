@@ -43,8 +43,9 @@ try_codex_mcp() {
   if command -v mcporter &>/dev/null; then
     local sandbox=$([[ "$MODE" == "review" ]] && echo "read-only" || echo "workspace-write")
     local mcp_timeout_ms=$((TIMEOUT * 1000))
+    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
     # Use heredoc-style quoting to handle special chars in prompt
-    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" "approval-policy=untrusted" --timeout "$mcp_timeout_ms" 2>&1; then
+    if mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" "approval-policy=$approval_policy" --timeout "$mcp_timeout_ms" 2>&1; then
       ok "Codex MCP succeeded"
       return 0
     else
@@ -62,8 +63,9 @@ try_claude_mcp() {
   if command -v mcporter &>/dev/null; then
     local subagent=$([[ "$MODE" == "review" ]] && echo "general-purpose" || echo "Bash")
     local mcp_timeout_ms=$((TIMEOUT * 1000))
+    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
     # Use simple quoting - mcporter handles the rest
-    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" "approval-policy=untrusted" --timeout "$mcp_timeout_ms" 2>&1; then
+    if mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" "approval-policy=$approval_policy" --timeout "$mcp_timeout_ms" 2>&1; then
       ok "Claude MCP succeeded"
       return 0
     else
