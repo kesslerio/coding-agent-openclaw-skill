@@ -1,5 +1,18 @@
 # coding-agent Reference
 
+## Contents
+- STOP-AND-VERIFY (Before ANY Implementation)
+- Forbidden Flags & Minimum Timeouts
+- Tool Fallback Chain
+- Wrapper Scripts (Recommended)
+- Claude MCP Commands
+- Pre-Completion Checklist
+- Quick Reference
+- Command Reference
+- Code Quality Standards
+- Issue Priority (P0-P3)
+- tmux for Interactive Sessions
+
 ## ⛔ STOP-AND-VERIFY (Before ANY Implementation)
 
 **Say this out loud before writing/changing any code:**

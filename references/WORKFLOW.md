@@ -1,5 +1,14 @@
 # Coding Workflow & Operations
 
+## Contents
+- Overview
+- Git Workflow
+- Hard Requirements (Violation = Task Failure)
+- GitHub CLI (gh)
+- Codex Workflow
+- Codex MCP (Automated)
+- Agent Utilization
+
 ## Overview
 
 **Roles:**
