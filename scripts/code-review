@@ -43,7 +43,9 @@ echo "MCP failed, falling back to codex CLI..." >&2
 
 # Fallback: codex review command (purpose-built, more reliable)
 # Note: codex review uses --base to compare against a branch
-if timeout "${TIMEOUT_SEC}s" codex review --base main --title "Code Review" 2>&1; then
+# Pass user prompt as title to preserve context (truncated if needed)
+REVIEW_TITLE="${*:0:100}"
+if timeout "${TIMEOUT_SEC}s" codex review --base main --title "$REVIEW_TITLE" 2>&1; then
     exit 0
 fi
 
