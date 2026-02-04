@@ -2,23 +2,63 @@
 # code-implement - Wrapper for code implementation with proper timeout
 # Usage: code-implement "Implement feature X in /path/to/repo"
 #
-# Default timeout: 3 minutes (180000ms)
+# Default timeout: 3 minutes (180000ms for MCP, 180s for CLI)
 # Override with CODE_IMPLEMENT_TIMEOUT env var
+#
+# Strategy (in order of preference):
+# 1. MCP with MCPORTER_DEBUG_HANG=1 (fixes known hanging issues)
+# 2. Fallback to codex --yolo exec (reliable, no MCP)
 
 set -euo pipefail
 
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
 if [[ $# -lt 1 ]]; then
     echo "Usage: code-implement \"<prompt>\"" >&2
-    echo "Example: code-implement \"Implement auth middleware in /home/art/project\"" >&2
+    echo "Example: code-implement \"Implement user auth in /path/to/project\"" >&2
     exit 1
 fi
 
-TIMEOUT="${CODE_IMPLEMENT_TIMEOUT:-180000}"
+TIMEOUT_MS="${CODE_IMPLEMENT_TIMEOUT:-180000}"
 
-echo "Starting implementation with ${TIMEOUT}ms timeout..." >&2
+# [P1] Validate timeout is numeric
+if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
+    echo "Error: CODE_IMPLEMENT_TIMEOUT must be a number (milliseconds)" >&2
+    echo "Got: $TIMEOUT_MS" >&2
+    exit 1
+fi
 
-mcporter call codex.codex \
+TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
+
+# Fix for Codex MCP hanging issues (GitHub #6664, #6127)
+export MCPORTER_DEBUG_HANG="${MCPORTER_DEBUG_HANG:-1}"
+export MCPORTER_CALL_TIMEOUT="$TIMEOUT_MS"
+
+echo "Starting implementation with ${TIMEOUT_SEC}s timeout..." >&2
+
+# Try MCP first (structured output, better integration)
+if mcporter call codex.codex \
     "prompt=$*" \
     'sandbox=workspace-write' \
     'approval-policy=on-failure' \
-    --timeout "$TIMEOUT"
+    --timeout "$TIMEOUT_MS"; then
+    exit 0
+fi
+
+echo "MCP failed, falling back to codex CLI..." >&2
+
+# [P2] Check if codex CLI exists
+if ! command -v codex &> /dev/null; then
+    echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
+    exit 1
+fi
+
+# Fallback: direct CLI (more reliable for long tasks)
+if timeout "${TIMEOUT_SEC}s" codex --yolo exec "$@"; then
+    exit 0
+fi
+
+# [P2] Explicit failure exit code
+echo "Error: All implementation methods failed" >&2
+exit 1

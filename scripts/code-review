@@ -2,10 +2,18 @@
 # code-review - Wrapper for code reviews with proper timeout
 # Usage: code-review "Review PR #123 for bugs, security, quality"
 #
-# Default timeout: 5 minutes (300000ms)
+# Default timeout: 5 minutes (300000ms for MCP, 300s for CLI)
 # Override with CODE_REVIEW_TIMEOUT env var
+#
+# Strategy (in order of preference):
+# 1. MCP with MCPORTER_DEBUG_HANG=1 (fixes known hanging issues)
+# 2. Fallback to codex review (purpose-built for reviews)
+# 3. Fallback to codex --yolo exec (general purpose)
 
 set -euo pipefail
+
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: code-review \"<prompt>\"" >&2
@@ -13,15 +21,60 @@ if [[ $# -lt 1 ]]; then
     exit 1
 fi
 
-TIMEOUT="${CODE_REVIEW_TIMEOUT:-300000}"
+TIMEOUT_MS="${CODE_REVIEW_TIMEOUT:-300000}"
 
-# Ensure standard tools are available on NixOS
-export PATH="$PATH:/run/current-system/sw/bin"
+# [P1] Validate timeout is numeric
+if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
+    echo "Error: CODE_REVIEW_TIMEOUT must be a number (milliseconds)" >&2
+    echo "Got: $TIMEOUT_MS" >&2
+    exit 1
+fi
 
-echo "Starting code review with ${TIMEOUT}ms timeout..." >&2
+TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
 
-mcporter call codex.codex \
+# Fix for Codex MCP hanging issues (GitHub #6664, #6127)
+export MCPORTER_DEBUG_HANG="${MCPORTER_DEBUG_HANG:-1}"
+export MCPORTER_CALL_TIMEOUT="$TIMEOUT_MS"
+
+echo "Starting code review with ${TIMEOUT_SEC}s timeout..." >&2
+
+# Try MCP first (structured output, better integration)
+if mcporter call codex.codex \
     "prompt=$*" \
     'sandbox=read-only' \
     'approval-policy=untrusted' \
-    --timeout "$TIMEOUT"
+    --timeout "$TIMEOUT_MS"; then
+    exit 0
+fi
+
+echo "MCP failed, falling back to codex CLI..." >&2
+
+# [P2] Check if codex CLI exists
+if ! command -v codex &> /dev/null; then
+    echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
+    exit 1
+fi
+
+# [P2] Auto-detect default branch (main or master)
+DEFAULT_BRANCH="main"
+if git rev-parse --abbrev-ref origin/HEAD &> /dev/null; then
+    DEFAULT_BRANCH=$(git rev-parse --abbrev-ref origin/HEAD | sed 's/origin\///')
+elif git show-ref --verify --quiet refs/heads/master; then
+    DEFAULT_BRANCH="master"
+fi
+
+# Fallback: codex review command (purpose-built, more reliable)
+# Pass user prompt as title to preserve context (truncated if needed)
+REVIEW_TITLE="${*:0:100}"
+if timeout "${TIMEOUT_SEC}s" codex review --base "$DEFAULT_BRANCH" --title "$REVIEW_TITLE"; then
+    exit 0
+fi
+
+# Final fallback: exec mode
+if timeout "${TIMEOUT_SEC}s" codex --yolo exec "$@"; then
+    exit 0
+fi
+
+# [P2] Explicit failure exit code
+echo "Error: All review methods failed" >&2
+exit 1
