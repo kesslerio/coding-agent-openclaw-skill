@@ -2,8 +2,13 @@
 # code-review - Wrapper for code reviews with proper timeout
 # Usage: code-review "Review PR #123 for bugs, security, quality"
 #
-# Default timeout: 5 minutes (300000ms)
+# Default timeout: 5 minutes (300000ms for MCP, 300s for CLI)
 # Override with CODE_REVIEW_TIMEOUT env var
+#
+# Strategy (in order of preference):
+# 1. MCP with MCPORTER_DEBUG_HANG=1 (fixes known hanging issues)
+# 2. Fallback to codex review (purpose-built for reviews)
+# 3. Fallback to codex --yolo exec (general purpose)
 
 set -euo pipefail
 
@@ -13,15 +18,34 @@ if [[ $# -lt 1 ]]; then
     exit 1
 fi
 
-TIMEOUT="${CODE_REVIEW_TIMEOUT:-300000}"
+TIMEOUT_MS="${CODE_REVIEW_TIMEOUT:-300000}"
+TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
 
 # Ensure standard tools are available on NixOS
 export PATH="$PATH:/run/current-system/sw/bin"
 
-echo "Starting code review with ${TIMEOUT}ms timeout..." >&2
+# Fix for Codex MCP hanging issues (GitHub #6664, #6127)
+export MCPORTER_DEBUG_HANG=1
+export MCPORTER_CALL_TIMEOUT="$TIMEOUT_MS"
 
-mcporter call codex.codex \
+echo "Starting code review with ${TIMEOUT_SEC}s timeout..." >&2
+
+# Try MCP first (structured output, better integration)
+if mcporter call codex.codex \
     "prompt=$*" \
     'sandbox=read-only' \
     'approval-policy=untrusted' \
-    --timeout "$TIMEOUT"
+    --timeout "$TIMEOUT_MS" 2>&1; then
+    exit 0
+fi
+
+echo "MCP failed, falling back to codex CLI..." >&2
+
+# Fallback: codex review command (purpose-built, more reliable)
+# Note: codex review uses --base to compare against a branch
+if timeout "${TIMEOUT_SEC}s" codex review --base main --title "Code Review" 2>&1; then
+    exit 0
+fi
+
+# Final fallback: exec mode
+timeout "${TIMEOUT_SEC}s" codex --yolo exec "$*"
