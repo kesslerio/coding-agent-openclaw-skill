@@ -3,6 +3,9 @@
 # Enforces branch check and blocks --max-turns
 set -euo pipefail
 
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
 # Configuration
 MIN_IMPL_TIMEOUT=${MIN_IMPL_TIMEOUT:-180}
 DEFAULT_TIMEOUT=${DEFAULT_TIMEOUT:-180}
@@ -80,6 +83,24 @@ shift # Remove CLI name from args
 if ! command -v "$CLI" &>/dev/null; then
   error "CLI '$CLI' not found in PATH"
   exit 1
+fi
+
+# Prefer tmux for codex unless explicitly disabled
+if [[ "$CLI" == "codex" && "${CODEX_TMUX_DISABLE:-0}" != "1" ]]; then
+  if ! command -v tmux &>/dev/null; then
+    error "tmux not found in PATH. Install tmux or set CODEX_TMUX_DISABLE=1 to run direct."
+    exit 1
+  fi
+  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  TMUX_RUN="$SCRIPT_DIR/tmux-run"
+  if [[ ! -x "$TMUX_RUN" ]]; then
+    error "tmux-run not found or not executable: $TMUX_RUN"
+    exit 1
+  fi
+  warn "Running codex implementation in tmux with ${TIMEOUT}s timeout"
+  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+    "$TMUX_RUN" timeout "${TIMEOUT}s" "$CLI" "$@"
+  exit $?
 fi
 
 # For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging

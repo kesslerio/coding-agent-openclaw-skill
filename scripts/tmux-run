@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# tmux-run - Run a command inside tmux with logging and monitoring hints
+# Usage: tmux-run <command...>
+set -euo pipefail
+
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: tmux-run <command...>" >&2
+  exit 1
+fi
+
+if ! command -v tmux &>/dev/null; then
+  echo "Error: tmux not found in PATH" >&2
+  exit 1
+fi
+
+SOCKET_DIR="${CODEX_TMUX_SOCKET_DIR:-${OPENCLAW_TMUX_SOCKET_DIR:-${CLAWDBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/openclaw-tmux-sockets}}}"
+mkdir -p "$SOCKET_DIR"
+SOCKET="${CODEX_TMUX_SOCKET:-$SOCKET_DIR/openclaw.sock}"
+
+SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex}"
+SESSION="${CODEX_TMUX_SESSION:-${SESSION_PREFIX}-$(date +%Y%m%d-%H%M%S)-$$}"
+
+LOG_DIR="${CODEX_TMUX_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux}"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/${SESSION}.log"
+: > "$LOG_FILE"
+
+TARGET="${SESSION}:0.0"
+
+tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
+tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
+tmux -S "$SOCKET" pipe-pane -t "$TARGET" -o "cat >> \"$LOG_FILE\""
+
+cmd_str=$(printf '%q ' "$@")
+cmd_str="${cmd_str% }"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "$cmd_str" Enter
+
+cat >&2 <<EOF
+tmux session started.
+Socket: $SOCKET
+Session: $SESSION
+Log: $LOG_FILE
+To monitor:
+  tmux -S "$SOCKET" attach -t "$SESSION"
+  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
+  tail -f "$LOG_FILE"
+EOF
