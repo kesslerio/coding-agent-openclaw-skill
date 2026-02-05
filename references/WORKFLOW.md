@@ -97,7 +97,7 @@ Before reporting task complete, verify:
 ## Codex Workflow
 
 ### Preferred (tmux)
-Use tmux wrappers so sessions are durable and easy to monitor:
+Use tmux wrappers so sessions are durable and easy to monitor. They are non-blocking by default; set `CODEX_TMUX_WAIT=1` to wait for completion.
 
 ```bash
 # Implementation
@@ -153,12 +153,13 @@ gh pr review <PR> --comment --body "$(cat review.md)"
 
 For automated, durable runs where a TTY is required and logs must be preserved.
 
-**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux.
+**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux. It is non-blocking by default; use `--wait` or `CODEX_TMUX_WAIT=1` to block.
 
 **Workflow:**
 1. **Start**: `./scripts/tmux-run timeout 300s codex --yolo exec "Implement X..."`
 2. **Monitor**: `tmux -S "$SOCKET" attach -t "<session>"`
 3. **Capture**: `tmux -S "$SOCKET" capture-pane -p -J -t "<session>":0.0 -S -200`
+4. **Cleanup**: `tmux -S "$SOCKET" kill-session -t "<session>"`
 
 **Note:** This skill disables MCP usage. All automation is via tmux + CLI.
 

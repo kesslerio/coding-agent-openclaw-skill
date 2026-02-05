@@ -36,6 +36,8 @@ gh pr checkout <PR>
   --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 ```
 
+Note: tmux wrappers are non-blocking. Set `CODEX_TMUX_WAIT=1` to wait for completion.
+
 ## Files
 
 - `SKILL.md` — Full skill documentation (includes Dev persona)

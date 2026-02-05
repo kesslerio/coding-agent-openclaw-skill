@@ -47,9 +47,12 @@ Reviews:        Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCK
 ## Wrapper Scripts (Recommended)
 
 ```bash
-# Preferred: tmux-based wrappers
+# Preferred: tmux-based wrappers (non-blocking)
 ./scripts/code-implement "Implement feature X"
 ./scripts/code-review "Review this PR for bugs"
+
+# Block until completion
+CODEX_TMUX_WAIT=1 ./scripts/code-review "Review this PR for bugs"
 
 # Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
 TIMEOUT=300 ./scripts/safe-review.sh codex review --base main --title "PR Review"
@@ -82,7 +85,7 @@ Use `/coding` in OpenClaw to activate this skill.
   --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 ```
 
-**PR Review (in tmux):**
+**PR Review (in tmux, non-blocking):**
 ```bash
 cd /path/to/repo
 ./scripts/code-review "Review PR #N: bugs, security, quality"
@@ -142,4 +145,7 @@ tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "codex review --base main" E
 # Monitor
 tmux -S "$SOCKET" attach -t "$SESSION"
 tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -200
+
+# Cleanup
+tmux -S "$SOCKET" kill-session -t "$SESSION"
 ```
