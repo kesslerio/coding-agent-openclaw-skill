@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: "Coding assistant with Codex CLI in tmux for reviews, refactoring, and implementation. Use gpt-5.2-codex with high reasoning for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
+description: "Coding assistant with Codex CLI in tmux for reviews, refactoring, and implementation. Use gpt-5.3-codex with high reasoning for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
 metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh","tmux","codex"],"env":[]}}}
 ---
 

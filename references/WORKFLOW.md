@@ -134,7 +134,7 @@ gh pr checkout <PR>
 **Step 2: Standards Review (Required)**
 ```bash
 # Checks against STANDARDS.md
-./scripts/tmux-run timeout 600s codex --yolo exec --model gpt-5.2-codex \
+./scripts/tmux-run timeout 600s codex --yolo exec --model gpt-5.3-codex \
   -c model_reasoning_effort="high" "Review against STANDARDS.md..."
 ```
 

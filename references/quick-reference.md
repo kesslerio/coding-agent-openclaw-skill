@@ -82,7 +82,7 @@ Use `/coding` in OpenClaw to activate this skill.
 **High Thinking Mode (complex tasks, tmux):**
 ```bash
 ./scripts/tmux-run timeout 600s codex --yolo exec \
-  --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
+  --model gpt-5.3-codex -c model_reasoning_effort="high" "Your task"
 ```
 
 **PR Review (in tmux, non-blocking):**

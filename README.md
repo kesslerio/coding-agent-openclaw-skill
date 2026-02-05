@@ -4,7 +4,7 @@ OpenClaw skill for coding assistant with Codex CLI integration. Activates dev pe
 
 ## Features
 
-- **Codex CLI Integration** — Use `gpt-5.2-codex` in high thinking mode for complex coding tasks
+- **Codex CLI Integration** — Use `gpt-5.3-codex` in high thinking mode for complex coding tasks
 - **PR Review Workflow** — Checkout PRs and run Codex reviews with GitHub CLI
 - **Dev Persona** — Pragmatic code reviews with clear feedback
 - **Git Workflow Documentation** — Branch, commit, PR conventions
@@ -33,7 +33,7 @@ gh pr checkout <PR>
 
 # Complex task with high reasoning
 ./scripts/tmux-run timeout 600s codex --yolo exec \
-  --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
+  --model gpt-5.3-codex -c model_reasoning_effort="high" "Your task"
 ```
 
 Note: tmux wrappers are non-blocking. Set `CODEX_TMUX_WAIT=1` to wait for completion.
@@ -48,7 +48,7 @@ Note: tmux wrappers are non-blocking. Set `CODEX_TMUX_WAIT=1` to wait for comple
 ## Requirements
 
 - OpenClaw
-- Codex CLI (`gpt-5.2-codex`)
+- Codex CLI (`gpt-5.3-codex`)
 - GitHub CLI (`gh`)
 - tmux
 - Optional: OpenClaw tmux skill (for `wait-for-text.sh` helpers)
