@@ -3,6 +3,9 @@
 # NEVER falls back to direct edits - that's a Rule 1 violation
 set -euo pipefail
 
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
 # Configuration
 MODE="${1:-impl}"  # impl or review
 shift || true
@@ -17,10 +20,15 @@ if [[ -z "$PROMPT" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 # Timeouts
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
 REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-300}
 TIMEOUT=$([[ "$MODE" == "review" ]] && echo "$REVIEW_TIMEOUT" || echo "$IMPL_TIMEOUT")
+
+# Require tmux by default for Codex
+CODEX_TMUX_REQUIRED=${CODEX_TMUX_REQUIRED:-1}
 
 # Colors
 RED='\033[0;31m'
@@ -37,49 +45,27 @@ info() { echo -e "${CYAN}ℹ️  $1${NC}" >&2; }
 # Track failures (portable array init)
 FAILURES=()
 
-# Try Codex MCP
-try_codex_mcp() {
-  info "Trying Codex MCP..."
-  if command -v mcporter &>/dev/null; then
-    local sandbox=$([[ "$MODE" == "review" ]] && echo "read-only" || echo "workspace-write")
-    local mcp_timeout_ms=$((TIMEOUT * 1000))
-    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
-    # Use heredoc-style quoting to handle special chars in prompt
-    if MCPORTER_CALL_TIMEOUT="$mcp_timeout_ms" mcporter call codex.codex "prompt=$PROMPT" "sandbox=$sandbox" "approval-policy=$approval_policy" 2>&1; then
-      ok "Codex MCP succeeded"
+# Try Codex CLI in tmux
+try_codex_tmux() {
+  info "Trying Codex CLI in tmux..."
+  if [[ "$MODE" == "review" ]]; then
+    if "$SCRIPT_DIR/code-review" "$PROMPT"; then
+      ok "Codex tmux session started"
       return 0
-    else
-      FAILURES+=("Codex MCP: command failed or usage limit")
     fi
   else
-    FAILURES+=("Codex MCP: mcporter not installed")
+    if "$SCRIPT_DIR/code-implement" "$PROMPT"; then
+      ok "Codex tmux session started"
+      return 0
+    fi
   fi
+  FAILURES+=("Codex tmux: failed to start")
   return 1
 }
 
-# Try Claude MCP
-try_claude_mcp() {
-  info "Trying Claude MCP..."
-  if command -v mcporter &>/dev/null; then
-    local subagent=$([[ "$MODE" == "review" ]] && echo "general-purpose" || echo "Bash")
-    local mcp_timeout_ms=$((TIMEOUT * 1000))
-    local approval_policy=$([[ "$MODE" == "review" ]] && echo "untrusted" || echo "on-failure")
-    # Use simple quoting - mcporter handles the rest
-    if MCPORTER_CALL_TIMEOUT="$mcp_timeout_ms" mcporter call claude.Task "prompt=$PROMPT" "subagent_type=$subagent" "approval-policy=$approval_policy" 2>&1; then
-      ok "Claude MCP succeeded"
-      return 0
-    else
-      FAILURES+=("Claude MCP: command failed or connection error")
-    fi
-  else
-    FAILURES+=("Claude MCP: mcporter not installed")
-  fi
-  return 1
-}
-
-# Try Codex CLI
-try_codex_cli() {
-  info "Trying Codex CLI..."
+# Try Codex CLI (direct, no tmux)
+try_codex_cli_direct() {
+  info "Trying Codex CLI (direct)..."
   if command -v codex &>/dev/null; then
     if ! command -v timeout &>/dev/null; then
       FAILURES+=("Codex CLI: timeout not installed")
@@ -170,14 +156,13 @@ main() {
   echo "" >&2
 
   # Try tools in order
-  try_codex_mcp && exit 0
-  warn "Codex MCP unavailable, trying next..."
+  try_codex_tmux && exit 0
+  warn "Codex tmux unavailable, trying next..."
 
-  try_claude_mcp && exit 0
-  warn "Claude MCP unavailable, trying next..."
-
-  try_codex_cli && exit 0
-  warn "Codex CLI unavailable, trying next..."
+  if [[ "$CODEX_TMUX_REQUIRED" != "1" ]]; then
+    try_codex_cli_direct && exit 0
+    warn "Codex CLI unavailable, trying next..."
+  fi
 
   try_claude_cli && exit 0
   warn "Claude CLI unavailable..."

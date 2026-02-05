@@ -5,7 +5,6 @@
 - Forbidden Flags & Minimum Timeouts
 - Tool Fallback Chain
 - Wrapper Scripts (Recommended)
-- Claude MCP Commands
 - Pre-Completion Checklist
 - Quick Reference
 - Command Reference
@@ -18,7 +17,7 @@
 **Say this out loud before writing/changing any code:**
 ```
 STOP. Before I proceed, let me verify:
-□ Am I using Codex MCP/CLI? (not Edit/Write tools)
+□ Am I using Codex CLI in tmux? (not Edit/Write tools)
 □ Am I on a feature branch? (not main)
 □ Will I create a PR before completing this task?
 □ Am I using adequate timeout? (≥300s for reviews)
@@ -39,33 +38,25 @@ STOP. Before I proceed, let me verify:
 ## Tool Fallback Chain
 
 ```
-Implementation: Codex MCP → Claude MCP → Codex CLI → Claude CLI → BLOCKED
-Reviews:        Codex CLI → Claude MCP → Claude CLI → BLOCKED
+Implementation: Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCKED
 
 ⛔ NEVER skip to direct edits - request user override instead
 ```
 
 ## Wrapper Scripts (Recommended)
+
 ```bash
-# Auto-fallback (tries all tools in order)
-./scripts/safe-fallback.sh impl "Implement feature X"
-./scripts/safe-fallback.sh review "Review this PR for bugs"
+# Preferred: tmux-based wrappers (non-blocking)
+./scripts/code-implement "Implement feature X"
+./scripts/code-review "Review this PR for bugs"
 
-# Reviews (enforces 300s min, blocks --max-turns)
-TIMEOUT=300 ./scripts/safe-review.sh claude -p "..."
-TIMEOUT=600 ./scripts/safe-review.sh codex review --base main
+# Block until completion
+CODEX_TMUX_WAIT=1 ./scripts/code-review "Review this PR for bugs"
 
-# Implementation (checks branch, blocks --max-turns)
-TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "..."
-```
-
-## Claude MCP Commands
-```bash
-# Implementation via Claude MCP
-mcporter call claude.Task 'prompt="Implement X"' 'subagent_type="Bash"'
-
-# Review via Claude MCP
-mcporter call claude.Task 'prompt="Review for bugs"' 'subagent_type="general-purpose"'
+# Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
+TIMEOUT=300 ./scripts/safe-review.sh codex review --base main --title "PR Review"
+TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
 
 ## Pre-Completion Checklist
@@ -73,7 +64,7 @@ mcporter call claude.Task 'prompt="Review for bugs"' 'subagent_type="general-pur
 Before marking ANY task complete:
 - [ ] On feature branch? (not main)
 - [ ] PR created with URL?
-- [ ] Used Codex/Claude CLI? (not direct edits)
+- [ ] Used Codex/Claude CLI in tmux? (not direct edits)
 - [ ] Code review posted to PR?
 - [ ] Standards review posted to PR?
 
@@ -88,28 +79,28 @@ Use `/coding` in OpenClaw to activate this skill.
 
 ### Codex Commands
 
-**High Thinking Mode (complex tasks):**
+**High Thinking Mode (complex tasks, tmux):**
 ```bash
-codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
+./scripts/tmux-run timeout 600s codex --yolo exec \
+  --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 ```
 
-**PR Review:**
+**PR Review (in tmux, non-blocking):**
 ```bash
 cd /path/to/repo
-gh pr checkout <PR>
-codex review --base main --title "PR #N: Description"
+./scripts/code-review "Review PR #N: bugs, security, quality"
 ```
 
-**Non-interactive:**
+**Non-interactive (direct, only if tmux unavailable):**
 ```bash
-codex review --commit <SHA> --base <BRANCH> --title "Brief description"
+timeout 300s codex review --base main --title "PR Review"
 ```
 
 ### Git Workflow
 ```bash
 # Checkout and review
 gh pr checkout <PR> --repo owner/repo
-codex review --base main
+./scripts/code-review "Review PR #<PR> for bugs and security"
 
 # Merge (Martin only)
 gh pr merge <PR> --repo owner/repo --admin --merge
@@ -122,7 +113,7 @@ gh pr merge <PR> --repo owner/repo --admin --merge
 | List PRs | `gh pr list --repo owner/repo` |
 | View PR | `gh pr view <PR> --json number,title,state` |
 | Checkout PR | `gh pr checkout <PR>` |
-| Review PR | `codex review --base main --title "PR #N"` |
+| Review PR | `./scripts/code-review "Review PR #N for bugs, security, quality"` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
 
@@ -143,10 +134,18 @@ gh pr merge <PR> --repo owner/repo --admin --merge
 ## tmux for Interactive Sessions
 
 ```bash
-SOCKET="${TMPDIR:-/tmp}/openclaw-tmux-sockets/openclaw.sock"
+SOCKET_DIR="${OPENCLAW_TMUX_SOCKET_DIR:-${CLAWDBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/openclaw-tmux-sockets}}"
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/openclaw.sock"
 SESSION=codex-review
 
-tmux -S "$SOCKET" new-session -d -s "$SESSION"
-tmux -S "$SOCKET" send-keys -t "$SESSION" "codex review --base main" Enter
-tmux -S "$SOCKET" capture-pane -p -t "$SESSION" -S -200
+tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "codex review --base main" Enter
+
+# Monitor
+tmux -S "$SOCKET" attach -t "$SESSION"
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -200
+
+# Cleanup
+tmux -S "$SOCKET" kill-session -t "$SESSION"
 ```

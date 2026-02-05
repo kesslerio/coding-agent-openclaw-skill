@@ -25,15 +25,18 @@ In OpenClaw, activate with:
 /coding
 ```
 
-Then use Codex commands:
+Then use Codex commands (tmux-based):
 ```bash
 # PR Review
 gh pr checkout <PR>
-codex review --base main --title "PR #N: Description"
+./scripts/code-review "Review PR #N: bugs, security, quality"
 
 # Complex task with high reasoning
-codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
+./scripts/tmux-run timeout 600s codex --yolo exec \
+  --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 ```
+
+Note: tmux wrappers are non-blocking. Set `CODEX_TMUX_WAIT=1` to wait for completion.
 
 ## Files
 
@@ -47,6 +50,8 @@ codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" "Your task"
 - OpenClaw
 - Codex CLI (`gpt-5.2-codex`)
 - GitHub CLI (`gh`)
+- tmux
+- Optional: OpenClaw tmux skill (for `wait-for-text.sh` helpers)
 
 ## License
 

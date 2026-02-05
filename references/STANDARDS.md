@@ -83,7 +83,7 @@ During standards review, also verify process compliance:
 
 ### Tool Usage Compliance
 - [ ] If agent CLI specified → verify CLI was used (look for CLI invocation in session log)
-- [ ] Implementation done via Codex MCP (not direct file edits)
+- [ ] Implementation done via Codex CLI in tmux (not direct file edits)
 - [ ] Reviews done via `codex review` or `claude -p`
 - [ ] Tool used is documented in PR description
 
@@ -104,7 +104,7 @@ During standards review, also verify process compliance:
 
 ### Tool Usage
 - [x] Specified tools used
-- [x] Implementation via Codex MCP
+- [x] Implementation via Codex CLI in tmux
 
 ### Review Process
 - [x] Code review posted

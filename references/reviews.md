@@ -3,7 +3,7 @@
 ## Review Workflow
 
 ### New Features (Issue → PR)
-1. Implement with Codex MCP.
+1. Implement with Codex CLI in tmux.
 2. Create PR.
 3. Run Codex review.
 4. Run standards review (references/STANDARDS.md) — required.
@@ -24,13 +24,12 @@
 ## Review Commands
 
 ```bash
-# Code review
-codex review --base main --title "PR #N Review"
+# Code review (tmux)
+./scripts/code-review "PR #N Review"
 
-# Standards review
-mcporter call codex.codex \
-  'prompt="Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."' \
-  'approval-policy=untrusted' 'sandbox=read-only'
+# Standards review (tmux)
+./scripts/tmux-run timeout 600s codex --yolo exec \
+  "Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."
 ```
 
 ## Posting Reviews to GitHub

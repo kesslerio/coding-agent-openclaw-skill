@@ -18,7 +18,7 @@ Edit file.py: add function xyz...
 ```
 Correct:
 ```bash
-codex --yolo exec "Add function xyz to file.py"
+./scripts/code-implement "Add function xyz to file.py"
 ```
 
 ### ❌ Skipping review
@@ -29,19 +29,20 @@ git push && gh pr create && gh pr merge
 Correct:
 ```bash
 gh pr create
-codex review --base main
-mcporter call codex.codex 'prompt="Review against STANDARDS.md"' 'sandbox=read-only'
+./scripts/code-review "Review PR for bugs, security, quality"
+./scripts/tmux-run timeout 600s codex --yolo exec \
+  "Review against STANDARDS.md and report PASS/FAIL per category"
 ```
 
-### ❌ Using terminal for complex work
+### ❌ Using direct CLI for complex work
 Wrong:
 ```bash
 codex exec "Part 1" && codex exec "Part 2"
 ```
 Correct:
 ```bash
-mcporter call codex.codex 'prompt="Part 1"' 'sandbox=workspace-write'
-mcporter call codex.codex-reply 'threadId="..."' 'prompt="Part 2"'
+./scripts/tmux-run timeout 300s codex --yolo exec "Part 1"
+./scripts/tmux-run timeout 300s codex --yolo exec "Part 2"
 ```
 
 ## Real Violation Examples
@@ -51,7 +52,7 @@ mcporter call codex.codex-reply 'threadId="..."' 'prompt="Part 2"'
 - Why wrong: Rule 1 has no exceptions.
 - Fix:
 ```bash
-codex --yolo exec "Fix typo in config.py line 42"
+./scripts/code-implement "Fix typo in config.py line 42"
 ```
 
 ### Example 2: Skipped PR Creation

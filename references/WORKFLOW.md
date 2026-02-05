@@ -6,7 +6,7 @@
 - Hard Requirements (Violation = Task Failure)
 - GitHub CLI (gh)
 - Codex Workflow
-- Codex MCP (Automated)
+- Codex CLI (tmux-based)
 - Agent Utilization
 
 ## Overview
@@ -61,6 +61,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 
 ### 3. Tool Usage Requirement
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool
+- For Codex: **MUST** use tmux wrappers (`scripts/code-implement`, `scripts/code-review`) unless user explicitly requests direct CLI
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
 - **Violation Response**: Stop and switch to specified tool
@@ -95,15 +96,26 @@ Before reporting task complete, verify:
 
 ## Codex Workflow
 
+### Preferred (tmux)
+Use tmux wrappers so sessions are durable and easy to monitor. They are non-blocking by default; set `CODEX_TMUX_WAIT=1` to wait for completion.
+
+```bash
+# Implementation
+./scripts/code-implement "Implement feature X in /path/to/repo"
+
+# Review
+./scripts/code-review "Review PR #N for bugs, security, quality"
+```
+
 ### Implementation
 **Always use `--yolo` (or `--dangerously-bypass-approvals-and-sandbox`) for write access.**
 
 ```bash
 # Implement a feature
-codex --yolo exec "Implement feature X. No questions."
+./scripts/tmux-run timeout 300s codex --yolo exec "Implement feature X. No questions."
 
 # Complex task (high reasoning)
-codex --yolo exec -c model_reasoning_effort="high" "Redesign auth module..."
+./scripts/tmux-run timeout 600s codex --yolo exec -c model_reasoning_effort="high" "Redesign auth module..."
 ```
 
 ### Code Review Process
@@ -116,14 +128,14 @@ codex --yolo exec -c model_reasoning_effort="high" "Redesign auth module..."
 **Step 1: Code Review (Logic/Bugs)**
 ```bash
 gh pr checkout <PR>
-codex review --base main --title "PR #N Review"
+./scripts/code-review "PR #N Review"
 ```
 
 **Step 2: Standards Review (Required)**
 ```bash
 # Checks against STANDARDS.md
-codex exec --model gpt-5.2-codex -c model_reasoning_effort="high" \
-  "Review against STANDARDS.md..."
+./scripts/tmux-run timeout 600s codex --yolo exec --model gpt-5.2-codex \
+  -c model_reasoning_effort="high" "Review against STANDARDS.md..."
 ```
 
 **Step 3: Posting Results**
@@ -137,22 +149,19 @@ gh pr review <PR> --comment --body "$(cat review.md)"
 - **Small Batches**: Don't change 50 files at once.
 - **Clear Exit**: "Reply with DONE when finished."
 
-## Codex MCP (Automated)
+## Codex CLI (tmux-based)
 
-For purely automated, structured tasks where terminal visibility is not required.
+For automated, durable runs where a TTY is required and logs must be preserved.
 
-**Mechanism:** We use the native `codex mcp-server` via `mcporter`.
-
-**Capabilities:**
-- **Stateful Threads**: Uses `threadId` to continue conversations natively.
-- **No Terminal Scraping**: Returns structured JSON responses.
-- **Approval Policies**: Fine-grained control over command execution.
+**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux. It is non-blocking by default; use `--wait` or `CODEX_TMUX_WAIT=1` to block.
 
 **Workflow:**
-1. **Start**: `codex.codex(prompt="...", sandbox="danger-full-access")`
-2. **Continue**: `codex.codex-reply(threadId="...", prompt="...")`
+1. **Start**: `./scripts/tmux-run timeout 300s codex --yolo exec "Implement X..."`
+2. **Monitor**: `tmux -S "$SOCKET" attach -t "<session>"`
+3. **Capture**: `tmux -S "$SOCKET" capture-pane -p -J -t "<session>":0.0 -S -200`
+4. **Cleanup**: `tmux -S "$SOCKET" kill-session -t "<session>"`
 
-**Note:** This is the Supervisor Pattern. The Agent calls Codex via `mcporter` to drive automated coding tasks.
+**Note:** This skill disables MCP usage. All automation is via tmux + CLI.
 
 ## Agent Utilization
 
