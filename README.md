@@ -51,6 +51,7 @@ Note: tmux wrappers are non-blocking. Set `CODEX_TMUX_WAIT=1` to wait for comple
 - Codex CLI (`gpt-5.2-codex`)
 - GitHub CLI (`gh`)
 - tmux
+- Optional: OpenClaw tmux skill (for `wait-for-text.sh` helpers)
 
 ## License
 

@@ -65,7 +65,7 @@ Cleanup suggestions:
 - Kill a single session: `tmux -S "$SOCKET" kill-session -t "$SESSION"`
 - Remove old logs: `find "$LOG_DIR" -type f -mtime +7 -delete`
 
-If you have the OpenClaw tmux skill installed, use its helper:
+Optional: If you have the OpenClaw tmux skill installed, use its helper:
 - `{baseDir}/scripts/wait-for-text.sh` to wait for prompts or DONE markers
 
 ## CLI Direct (Only If tmux Unavailable)
