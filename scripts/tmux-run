@@ -64,6 +64,7 @@ LOG_DIR="${CODEX_TMUX_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tm
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/${SESSION}.log"
 : > "$LOG_FILE"
+EXIT_FILE="$LOG_DIR/${SESSION}.exit"
 
 TARGET="${SESSION}:0.0"
 
@@ -73,6 +74,7 @@ if ! tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell; then
 fi
 tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
 if ! tmux -S "$SOCKET" pipe-pane -t "$TARGET" -o "cat >> \"$LOG_FILE\""; then
+  tmux -S "$SOCKET" kill-session -t "$SESSION" || true
   echo "Error: Failed to attach pipe-pane for logging" >&2
   exit 1
 fi
@@ -80,7 +82,7 @@ fi
 cmd_str=$(printf '%q ' "$@")
 cmd_str="${cmd_str% }"
 if [[ "$WAIT" == "1" ]]; then
-  cmd_str="$cmd_str; tmux -S \"$SOCKET\" wait-for -S \"$SESSION.done\""
+  cmd_str="$cmd_str; rc=$?; echo \"$rc\" > \"$EXIT_FILE\"; tmux -S \"$SOCKET\" wait-for -S \"$SESSION.done\""
 fi
 if ! tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "$cmd_str" Enter; then
   echo "Error: Failed to send command to tmux session" >&2
@@ -115,7 +117,20 @@ if [[ "$WAIT" == "1" ]]; then
     tmux -S "$SOCKET" wait-for "$SESSION.done"
   fi
 
+  if [[ -f "$EXIT_FILE" ]]; then
+    rc="$(cat "$EXIT_FILE" 2>/dev/null || echo 1)"
+    if [[ ! "$rc" =~ ^[0-9]+$ ]]; then
+      echo "Warning: Invalid exit code in $EXIT_FILE (got: $rc)" >&2
+      rc=1
+    fi
+  else
+    echo "Warning: Exit code file not found: $EXIT_FILE" >&2
+    rc=1
+  fi
+
   if [[ "$CLEANUP" == "1" ]]; then
     tmux -S "$SOCKET" kill-session -t "$SESSION" || true
   fi
+
+  exit "$rc"
 fi
