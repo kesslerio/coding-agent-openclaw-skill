@@ -272,7 +272,7 @@ gh pr checkout <PR_NUMBER> --repo owner/repo
 mcporter call codex.codex 'prompt="Review this PR thoroughly. Report all issues with file:line refs."' 'sandbox=read-only'
 
 # 2. Post as proper GitHub PR review
-gh pr review <PR_NUMBER> --repo owner/repo --comment --body "## Codex Review\n\n**P2 Issues:**\n- Issue — \`file.py:123\`\n\n---\n🤖 *Reviewed by NiemandBot*"
+gh pr review <PR_NUMBER> --repo owner/repo --comment --body "## Codex Review\n\n**P2 Issues:**\n- Issue — \`file.py:123\`\n\n---\n🤖 *Automated Code Review*"
 ```
 
 ### GitHub Review Actions
@@ -315,7 +315,7 @@ mcporter call codex.codex 'prompt="..."' 'sandbox=workspace-write'
 
 ## Git Workflow
 
-**Note:** Per references/WORKFLOW.md, Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested by user.
+**Note:** Per references/WORKFLOW.md, the AI agent does NOT create branches, commit code, or merge PRs unless explicitly requested by user.
 
 ### When User Says "Take to PR" or Similar:
 1. Create feature branch

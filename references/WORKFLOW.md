@@ -4,7 +4,7 @@
 
 **Roles:**
 - **@kesslerIO (Martin)**: Human Owner. Approves P0/P1 changes.
-- **@niemandBot (Niemand)**: AI Agent. Reviews code, runs checks, implements features.
+- **AI Agent**: Reviews code, runs checks, implements features.
 
 **Philosophy:**
 - **Plan First**: Always discuss approach before implementation.
@@ -14,7 +14,7 @@
 
 ## Git Workflow
 
-**Note:** Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested.
+**Note:** The AI agent does NOT create branches, commit code, or merge PRs unless explicitly requested.
 
 ### Standard Flow
 1. **Create Branch**: `git checkout -b type/description`
