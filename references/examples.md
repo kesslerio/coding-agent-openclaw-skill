@@ -30,7 +30,7 @@ Correct:
 ```bash
 gh pr create
 ./scripts/code-review "Review PR for bugs, security, quality"
-./scripts/tmux-run timeout 600s codex --yolo exec \
+./scripts/tmux-run timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
   "Review against STANDARDS.md and report PASS/FAIL per category"
 ```
 

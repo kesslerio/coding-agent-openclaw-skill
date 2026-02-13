@@ -20,7 +20,7 @@ STOP. Before I proceed, let me verify:
 □ Am I using Codex CLI in tmux? (not Edit/Write tools)
 □ Am I on a feature branch? (not main)
 □ Will I create a PR before completing this task?
-□ Am I using adequate timeout? (recommended: 600s for reviews)
+□ Am I using adequate timeout? (recommended: 1200s for reviews)
 □ Am I avoiding --max-turns? (let it complete naturally)
 ```
 **If any box is unchecked → STOP and fix before proceeding.**
@@ -29,10 +29,10 @@ STOP. Before I proceed, let me verify:
 
 ```
 ❌ FORBIDDEN: --max-turns (any value)
-❌ FORBIDDEN: timeout < 300s for reviews
+❌ FORBIDDEN: timeout < 600s for reviews
 
-✅ Reviews: TIMEOUT=300 minimum, 600 recommended
-✅ Architecture: TIMEOUT=600 minimum
+✅ Reviews: TIMEOUT=600 minimum, 1200 recommended
+✅ Architecture: TIMEOUT=1200 recommended
 ```
 
 ## Tool Fallback Chain
@@ -47,16 +47,13 @@ Reviews:        Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCK
 ## Wrapper Scripts (Recommended)
 
 ```bash
-# Preferred: tmux-based wrappers (non-blocking)
+# Preferred: tmux-based wrappers
 ./scripts/code-implement "Implement feature X"
 ./scripts/code-review "Review this PR for bugs"
 ./scripts/code-review --timeout 900 --reasoning-effort medium "Review this PR for bugs"
 
-# Block until completion
-CODEX_TMUX_WAIT=1 ./scripts/code-review "Review this PR for bugs"
-
 # Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
-TIMEOUT=300 ./scripts/safe-review.sh codex review --base main --title "PR Review"
+TIMEOUT=1200 ./scripts/safe-review.sh codex review --base main --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
 
@@ -80,13 +77,13 @@ Use `/coding` in OpenClaw to activate this skill.
 
 ### Codex Commands
 
-**High Thinking Mode (complex tasks, tmux):**
+**Stable Reasoning Mode (complex tasks, tmux):**
 ```bash
 ./scripts/tmux-run timeout 600s codex --yolo exec \
-  --model gpt-5.3-codex -c model_reasoning_effort="high" "Your task"
+  --model gpt-5.3-codex -c model_reasoning_effort="medium" "Your task"
 ```
 
-**PR Review (in tmux, non-blocking):**
+**PR Review (in tmux, blocking):**
 ```bash
 cd /path/to/repo
 ./scripts/code-review "Review PR #N: bugs, security, quality"
@@ -94,7 +91,7 @@ cd /path/to/repo
 
 **Non-interactive (direct, only if tmux unavailable):**
 ```bash
-timeout 600s codex review --base main --title "PR Review"
+timeout 1200s codex -c 'model_reasoning_effort="medium"' review --base main --title "PR Review"
 ```
 
 ### Git Workflow

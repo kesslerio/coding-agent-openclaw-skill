@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Timeouts
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
-REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-600}
+REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-1200}
 TIMEOUT=$([[ "$MODE" == "review" ]] && echo "$REVIEW_TIMEOUT" || echo "$IMPL_TIMEOUT")
 
 # Require tmux by default for Codex
@@ -94,7 +94,7 @@ try_codex_cli_direct() {
           base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
         fi
       fi
-      if timeout "${TIMEOUT}s" codex review --base "$base_branch" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex -c 'model_reasoning_effort="medium"' review --base "$base_branch" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else

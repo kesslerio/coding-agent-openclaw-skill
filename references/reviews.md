@@ -28,7 +28,7 @@
 ./scripts/code-review "PR #N Review"
 
 # Standards review (tmux)
-./scripts/tmux-run timeout 600s codex --yolo exec \
+./scripts/tmux-run timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
   "Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."
 ```
 

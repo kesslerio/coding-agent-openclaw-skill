@@ -97,7 +97,7 @@ Before reporting task complete, verify:
 ## Codex Workflow
 
 ### Preferred (tmux)
-Use tmux wrappers so sessions are durable and easy to monitor. They are non-blocking by default; set `CODEX_TMUX_WAIT=1` to wait for completion.
+Use tmux wrappers so sessions are durable and easy to monitor. `code-review` is blocking by default now, so orchestrators wait for final findings.
 
 ```bash
 # Implementation
@@ -114,8 +114,8 @@ Use tmux wrappers so sessions are durable and easy to monitor. They are non-bloc
 # Implement a feature
 ./scripts/tmux-run timeout 300s codex --yolo exec "Implement feature X. No questions."
 
-# Complex task (high reasoning)
-./scripts/tmux-run timeout 600s codex --yolo exec -c model_reasoning_effort="high" "Redesign auth module..."
+# Complex task (stable medium reasoning)
+./scripts/tmux-run timeout 600s codex --yolo exec -c model_reasoning_effort="medium" "Redesign auth module..."
 ```
 
 ### Code Review Process
@@ -136,7 +136,7 @@ gh pr checkout <PR>
 ```bash
 # Checks against STANDARDS.md
 ./scripts/tmux-run timeout 600s codex --yolo exec --model gpt-5.3-codex \
-  -c model_reasoning_effort="high" "Review against STANDARDS.md..."
+  -c model_reasoning_effort="medium" "Review against STANDARDS.md..."
 ```
 
 **Step 3: Posting Results**
@@ -154,7 +154,7 @@ gh pr review <PR> --comment --body "$(cat review.md)"
 
 For automated, durable runs where a TTY is required and logs must be preserved.
 
-**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux. It is non-blocking by default; use `--wait` or `CODEX_TMUX_WAIT=1` to block.
+**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux. For review workflows, use blocking mode so completion status is accurate.
 
 **Workflow:**
 1. **Start**: `./scripts/tmux-run timeout 300s codex --yolo exec "Implement X..."`
