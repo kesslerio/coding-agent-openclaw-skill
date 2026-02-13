@@ -159,7 +159,7 @@ For automated, durable runs where a TTY is required and logs must be preserved.
 **Workflow:**
 1. **Start**: `./scripts/tmux-run timeout 300s codex --yolo exec "Implement X..."`
 2. **Monitor**: `tmux -S "$SOCKET" attach -t "<session>"`
-3. **Capture**: `tmux -S "$SOCKET" capture-pane -p -J -t "<session>":0.0 -S -200`
+3. **Capture**: `tmux -S "$SOCKET" capture-pane -p -J -t "<session>:<window>.<pane>" -S -200`
 4. **Cleanup**: `tmux -S "$SOCKET" kill-session -t "<session>"`
 
 **Note:** This skill disables MCP usage. All automation is via tmux + CLI.

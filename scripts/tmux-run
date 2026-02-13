@@ -66,13 +66,30 @@ LOG_FILE="$LOG_DIR/${SESSION}.log"
 : > "$LOG_FILE"
 EXIT_FILE="$LOG_DIR/${SESSION}.exit"
 
-TARGET="${SESSION}:0.0"
-
 if ! tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell; then
   echo "Error: Failed to create tmux session on socket: $SOCKET" >&2
   exit 1
 fi
 tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
+
+# Resolve the actual first pane target. Do not assume :0.0 because tmux
+# base-index and pane-base-index can be non-zero (for example 1.1).
+FIRST_WINDOW="$(tmux -S "$SOCKET" list-windows -t "$SESSION" -F '#{window_index}' 2>/dev/null | head -n 1 || true)"
+if [[ -z "$FIRST_WINDOW" ]]; then
+  tmux -S "$SOCKET" kill-session -t "$SESSION" || true
+  echo "Error: Failed to resolve tmux window index for session: $SESSION" >&2
+  exit 1
+fi
+
+FIRST_PANE="$(tmux -S "$SOCKET" list-panes -t "${SESSION}:${FIRST_WINDOW}" -F '#{pane_index}' 2>/dev/null | head -n 1 || true)"
+if [[ -z "$FIRST_PANE" ]]; then
+  tmux -S "$SOCKET" kill-session -t "$SESSION" || true
+  echo "Error: Failed to resolve tmux pane index for session: $SESSION" >&2
+  exit 1
+fi
+
+TARGET="${SESSION}:${FIRST_WINDOW}.${FIRST_PANE}"
+
 if ! tmux -S "$SOCKET" pipe-pane -t "$TARGET" -o "cat >> \"$LOG_FILE\""; then
   tmux -S "$SOCKET" kill-session -t "$SESSION" || true
   echo "Error: Failed to attach pipe-pane for logging" >&2
