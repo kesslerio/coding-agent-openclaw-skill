@@ -80,12 +80,16 @@ During standards review, also verify process compliance:
 - [ ] Commits follow conventional format (`type(scope): description`)
 - [ ] No force pushes to shared branches
 - [ ] No direct commits to main
+- [ ] PR/issue titles follow repo conventions
+- [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`
+- [ ] `Tests` section lists exact commands run
 
 ### Tool Usage Compliance
 - [ ] If agent CLI specified → verify CLI was used (look for CLI invocation in session log)
 - [ ] Implementation done via Codex CLI in tmux (not direct file edits)
 - [ ] Reviews done via `codex review` or `claude -p`
 - [ ] Tool used is documented in PR description
+- [ ] If AI-assisted, PR documents testing level and prompt/session log reference
 
 ### Review Process Compliance
 - [ ] Code/logic review completed

@@ -94,6 +94,18 @@ Before reporting task complete, verify:
 - **Review PR**: `gh pr review <number> --approve`
 - **Merge PR**: `gh pr merge <number> --admin --merge --delete-branch`
 
+### Issue/PR Hygiene (Required)
+- Keep one logical change per PR.
+- Search before opening issues: `gh issue list --search "<keywords>"`.
+- PR title default: `type(scope): imperative summary` (unless repo override).
+- Issue title defaults:
+  - Feature: `feat: <capability> (for <surface>)`
+  - Bug: `bug: <symptom> when <condition>`
+  - Tracking: `TODO: <cleanup> after <dependency>`
+- PR body sections (required): `What`, `Why`, `Tests`, `AI Assistance`.
+- `Tests`: list exact commands run.
+- `AI Assistance`: used/not used, testing level, prompt/session log link, and "I understand this code."
+
 ## Codex Workflow
 
 ### Preferred (tmux)

@@ -44,6 +44,17 @@ Note: `code-review` now blocks by default and cleans up its tmux session when co
 - `references/STANDARDS.md` — Coding standards & rules
 - `references/WORKFLOW.md` — Coding workflow & Git integration
 - `references/quick-reference.md` — Command quick reference
+- `references/reviews.md` — Review + PR/issue writing patterns
+
+## GitHub Hygiene
+
+- PR titles: `type(scope): imperative summary` (or repo override).
+- Issue titles:
+  - Feature: `feat: <capability> (for <surface>)`
+  - Bug: `bug: <symptom> when <condition>`
+  - Tracking: `TODO: <cleanup> after <dependency>`
+- PR bodies must include: `What`, `Why`, `Tests`, `AI Assistance`.
+- `Tests` should be exact commands; `AI Assistance` should include prompt/session link when available.
 
 ## Requirements
 

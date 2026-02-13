@@ -18,6 +18,7 @@ Trigger this skill when the user wants:
 - Never write code directly. Use Codex CLI in tmux (no MCP).
 - Always use a feature branch for changes.
 - Always create a PR before completion.
+- Always follow GitHub hygiene: precise titles, structured bodies, explicit test commands, AI disclosure.
 - Never use `--max-turns` flags.
 - Use adequate timeouts for reviews and implementations.
 

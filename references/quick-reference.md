@@ -65,6 +65,8 @@ Before marking ANY task complete:
 - [ ] Used Codex/Claude CLI in tmux? (not direct edits)
 - [ ] Code review posted to PR?
 - [ ] Standards review posted to PR?
+- [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
+- [ ] Issue/PR title follows repo conventions?
 
 **Unchecked box = Task NOT complete.**
 
@@ -102,6 +104,33 @@ gh pr checkout <PR> --repo owner/repo
 
 # Merge (Martin only)
 gh pr merge <PR> --repo owner/repo --admin --merge
+```
+
+### Issue/PR Title Patterns
+```text
+PR:    type(scope): imperative summary
+Issue: feat: <capability> (for <surface>)
+Issue: bug: <symptom> when <condition>
+Issue: TODO: <cleanup> after <dependency>
+```
+
+### PR Body Skeleton
+```markdown
+## What
+- ...
+
+## Why
+- ...
+
+## Tests
+- `command 1`
+- `command 2`
+
+## AI Assistance
+- AI-assisted: yes/no
+- Testing level: untested/lightly tested/fully tested
+- Prompt/session log: <link or note>
+- I understand this code: yes
 ```
 
 ## Command Reference

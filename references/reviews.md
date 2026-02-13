@@ -21,6 +21,23 @@
 2. Classify findings by severity (P0–P3).
 3. Create issues with file:line references.
 
+## Issue/PR Authoring Standard (Peter-style)
+
+### PR Titles
+- Default: `type(scope): imperative summary`
+- Use repo-specific override only when documented (e.g., `Type: Description #issue`)
+
+### Issue Titles
+- Feature: `feat: <capability> (for <surface>)`
+- Bug: `bug: <symptom> when <condition>`
+- Tracking: `TODO: <cleanup> after <dependency>`
+
+### PR Body Sections (required)
+1. `What` (3-6 concrete bullets)
+2. `Why` (impact/reason)
+3. `Tests` (exact commands run)
+4. `AI Assistance` (used/not used, testing level, prompt/session log, understanding confirmation)
+
 ## Review Commands
 
 ```bash
