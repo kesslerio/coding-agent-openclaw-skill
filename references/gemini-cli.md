@@ -1,6 +1,11 @@
 # Gemini CLI Reference
 
-Detailed reference for Gemini CLI as a fallback coding agent.
+Optional reference for Gemini CLI. This skill does not use Gemini by default.
+To enable Gemini as a fallback in `scripts/safe-fallback.sh`, set:
+
+```bash
+export GEMINI_FALLBACK_ENABLE=1
+```
 
 ## Contents
 - Basic usage

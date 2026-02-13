@@ -24,7 +24,7 @@ Trigger this skill when the user wants:
 ## Quick Start
 
 ```bash
-# Code review (5 min timeout)
+# Code review (10 min timeout, auto medium reasoning for large diffs)
 "${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
 
 # Implementation (3 min timeout)

@@ -13,7 +13,7 @@
 The wrapper scripts run Codex inside tmux and emit monitoring info. They start a tmux session and return immediately (non-blocking) unless `CODEX_TMUX_WAIT=1` is set.
 
 ```bash
-# Review (5 min timeout, tmux)
+# Review (10 min timeout default, tmux)
 "${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
 
 # Implementation (3 min timeout, tmux)
@@ -55,7 +55,7 @@ CODEX_TMUX_SESSION_PREFIX=codex-impl \
 
 # Run a review in tmux and wait for completion
 CODEX_TMUX_SESSION_PREFIX=codex-review \
-  ./scripts/tmux-run --wait timeout 300s codex review --base main --title "PR Review"
+  ./scripts/tmux-run --wait timeout 600s codex review --base main --title "PR Review"
 ```
 
 Logs are stored in:
@@ -82,7 +82,7 @@ codex review --base main --title "PR Review"
 
 | Task Type | Minimum | Recommended |
 |-----------|---------|-------------|
-| Code review | 180s | 300s |
+| Code review | 300s | 600s |
 | Architectural review | 300s | 600s |
 | Single-file implementation | 120s | 180s |
 | Multi-file implementation | 300s | 600s |
@@ -103,5 +103,9 @@ codex review --base main --title "PR Review"
 | `CODEX_TMUX_WAIT_TIMEOUT` | Optional wait timeout (seconds) | unset |
 | `CODEX_TMUX_DISABLE` | Disable tmux and run direct CLI | `0` |
 | `CODEX_TMUX_REQUIRED` | Require tmux for Codex (safe-fallback) | `1` |
-| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms) | `300000` |
+| `GEMINI_FALLBACK_ENABLE` | Enable Gemini fallback in `safe-fallback.sh` | `0` |
+| `CODE_REVIEW_TIMEOUT_SEC` | Review wrapper timeout (seconds) | `600` |
+| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms, legacy) | `600000` |
+| `CODE_REVIEW_REASONING_EFFORT` | Force review reasoning effort | unset |
+| `CODE_REVIEW_DIFF_THRESHOLD` | Auto-medium threshold (changed lines) | `500` |
 | `CODE_IMPLEMENT_TIMEOUT` | Implement wrapper timeout (ms) | `180000` |
