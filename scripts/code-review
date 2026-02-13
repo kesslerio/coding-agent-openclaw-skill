@@ -19,7 +19,7 @@ export PATH="$PATH:/run/current-system/sw/bin"
 
 usage() {
     cat >&2 <<'EOF'
-Usage: code-review [options] "<prompt>"
+Usage: code-review [options] "<review title/instructions>"
 
 Options:
   --timeout <seconds>               Review timeout in seconds (default: 600)
@@ -32,6 +32,10 @@ Environment overrides:
   CODE_REVIEW_TIMEOUT               Timeout in milliseconds (legacy)
   CODE_REVIEW_REASONING_EFFORT      Reasoning effort override
   CODE_REVIEW_DIFF_THRESHOLD        Auto-threshold for changed lines
+
+Notes:
+  Codex v0.100.0 rejects [PROMPT] when --base is provided for `codex review`.
+  This wrapper uses your text for --title/context and runs review against --base.
 EOF
 }
 
@@ -211,11 +215,13 @@ if [[ ! -x "$TMUX_RUN" ]]; then
     exit 1
 fi
 
+# Codex v0.100.0 parser currently rejects:
+#   codex review --base <branch> [PROMPT]
+# Keep --base and pass context through --title for compatibility.
 CODEX_ARGS=(review --base "$DEFAULT_BRANCH" --title "$REVIEW_TITLE")
 if [[ -n "$SELECTED_REASONING" ]]; then
     CODEX_ARGS=(-c "model_reasoning_effort=\"$SELECTED_REASONING\"" "${CODEX_ARGS[@]}")
 fi
-CODEX_ARGS+=("$REVIEW_PROMPT")
 
 CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-review}" \
   "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex "${CODEX_ARGS[@]}"
