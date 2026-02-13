@@ -75,7 +75,16 @@ if [[ "$CLI" == "codex" && "${CODEX_TMUX_DISABLE:-0}" != "1" ]]; then
     exit 1
   fi
   EXTRA_CODEX_ARGS=("$@")
-  if [[ " ${EXTRA_CODEX_ARGS[*]} " != *"model_reasoning_effort"* ]]; then
+  has_reasoning=false
+  for ((i=0; i<${#EXTRA_CODEX_ARGS[@]}; i++)); do
+    if [[ "${EXTRA_CODEX_ARGS[i]}" == "-c" ]] && [[ $((i + 1)) -lt ${#EXTRA_CODEX_ARGS[@]} ]]; then
+      if [[ "${EXTRA_CODEX_ARGS[i+1]}" == model_reasoning_effort=* ]]; then
+        has_reasoning=true
+        break
+      fi
+    fi
+  done
+  if [[ "$has_reasoning" == false ]]; then
     EXTRA_CODEX_ARGS=(-c 'model_reasoning_effort="medium"' "${EXTRA_CODEX_ARGS[@]}")
     warn "No reasoning effort set; defaulting Codex to medium for review stability"
   fi
