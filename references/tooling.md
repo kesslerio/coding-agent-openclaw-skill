@@ -38,7 +38,8 @@ SESSION="codex-review-$(date +%Y%m%d-%H%M%S)"
 # Start session and run codex
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex review --base main" Enter
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex review --base main"
+tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
 tmux -S "$SOCKET" attach -t "$SESSION"

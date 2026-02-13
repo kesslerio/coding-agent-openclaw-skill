@@ -99,10 +99,14 @@ fi
 cmd_str=$(printf '%q ' "$@")
 cmd_str="${cmd_str% }"
 if [[ "$WAIT" == "1" ]]; then
-  cmd_str="$cmd_str; rc=\\$?; echo \"\\$rc\" > \"$EXIT_FILE\"; tmux -S \"$SOCKET\" wait-for -S \"$SESSION.done\""
+  cmd_str="$cmd_str; __tmux_run_rc=\$?; printf '%s\n' \"\${__tmux_run_rc}\" > \"$EXIT_FILE\"; tmux -S \"$SOCKET\" wait-for -S \"$SESSION.done\""
 fi
-if ! tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "$cmd_str" Enter; then
-  echo "Error: Failed to send command to tmux session" >&2
+if ! tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "$cmd_str"; then
+  echo "Error: Failed to send command text to tmux session" >&2
+  exit 1
+fi
+if ! tmux -S "$SOCKET" send-keys -t "$TARGET" Enter; then
+  echo "Error: Failed to send Enter key to tmux session" >&2
   exit 1
 fi
 
