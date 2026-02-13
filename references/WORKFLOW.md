@@ -60,7 +60,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 - **Violation Response**: Refuse to mark task complete without PR URL
 
 ### 3. Tool Usage Requirement
-- When user specifies "use claude/codex/gemini": **MUST** use that CLI tool
+- When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
 - For Codex: **MUST** use tmux wrappers (`scripts/code-implement`, `scripts/code-review`) unless user explicitly requests direct CLI
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
@@ -122,8 +122,9 @@ Use tmux wrappers so sessions are durable and easy to monitor. They are non-bloc
 
 **Hierarchy:**
 1. **Codex**: Primary reviewer (`codex review`).
-2. **Gemini**: Fallback if Codex hits limits (`gemini code-review`).
-3. **Sub-agent**: Last resort for orchestration.
+2. **Claude**: Default fallback if Codex is unavailable.
+3. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
+4. **Sub-agent**: Last resort for orchestration.
 
 **Step 1: Code Review (Logic/Bugs)**
 ```bash

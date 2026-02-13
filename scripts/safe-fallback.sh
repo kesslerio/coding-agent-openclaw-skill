@@ -24,11 +24,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Timeouts
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
-REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-300}
+REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-600}
 TIMEOUT=$([[ "$MODE" == "review" ]] && echo "$REVIEW_TIMEOUT" || echo "$IMPL_TIMEOUT")
 
 # Require tmux by default for Codex
 CODEX_TMUX_REQUIRED=${CODEX_TMUX_REQUIRED:-1}
+# Gemini fallback is opt-in only.
+GEMINI_FALLBACK_ENABLE=${GEMINI_FALLBACK_ENABLE:-0}
+if [[ "$GEMINI_FALLBACK_ENABLE" != "0" && "$GEMINI_FALLBACK_ENABLE" != "1" ]]; then
+  echo "Error: GEMINI_FALLBACK_ENABLE must be 0 or 1" >&2
+  exit 1
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -129,6 +135,31 @@ try_claude_cli() {
   return 1
 }
 
+# Try Gemini CLI (opt-in only)
+try_gemini_cli() {
+  if [[ "$GEMINI_FALLBACK_ENABLE" != "1" ]]; then
+    FAILURES+=("Gemini CLI: disabled (set GEMINI_FALLBACK_ENABLE=1 to enable)")
+    return 1
+  fi
+
+  info "Trying Gemini CLI (timeout: ${TIMEOUT}s)..."
+  if command -v gemini &>/dev/null; then
+    if command -v timeout &>/dev/null; then
+      if timeout "${TIMEOUT}s" gemini -y "$PROMPT" 2>/dev/null; then
+        ok "Gemini CLI succeeded"
+        return 0
+      else
+        FAILURES+=("Gemini CLI: timeout or error (${TIMEOUT}s)")
+      fi
+    else
+      FAILURES+=("Gemini CLI: timeout command not available")
+    fi
+  else
+    FAILURES+=("Gemini CLI: gemini not installed")
+  fi
+  return 1
+}
+
 # Report blocker (all to stderr)
 report_blocker() {
   echo "" >&2
@@ -152,6 +183,7 @@ report_blocker() {
 main() {
   # All status to stderr so stdout only has tool output
   echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
+  echo "Gemini fallback: $GEMINI_FALLBACK_ENABLE" >&2
   echo "Prompt: $PROMPT" >&2
   echo "" >&2
 
@@ -166,6 +198,9 @@ main() {
 
   try_claude_cli && exit 0
   warn "Claude CLI unavailable..."
+
+  try_gemini_cli && exit 0
+  warn "Gemini CLI unavailable..."
 
   # All tools failed
   report_blocker
