@@ -35,7 +35,8 @@ Environment overrides:
 
 Notes:
   Codex v0.100.0 rejects [PROMPT] when --base is provided for `codex review`.
-  This wrapper uses your text for --title/context and runs review against --base.
+  This wrapper intentionally passes no positional prompt, uses your text for
+  --title/context, and runs review against --base.
 EOF
 }
 
