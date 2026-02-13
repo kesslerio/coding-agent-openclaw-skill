@@ -7,8 +7,8 @@ set -euo pipefail
 export PATH="$PATH:/run/current-system/sw/bin"
 
 # Configuration
-MIN_REVIEW_TIMEOUT=${MIN_REVIEW_TIMEOUT:-300}
-DEFAULT_TIMEOUT=${DEFAULT_TIMEOUT:-300}
+MIN_REVIEW_TIMEOUT=${MIN_REVIEW_TIMEOUT:-600}
+DEFAULT_TIMEOUT=${DEFAULT_TIMEOUT:-1200}
 
 # Colors
 RED='\033[0;31m'
@@ -74,9 +74,15 @@ if [[ "$CLI" == "codex" && "${CODEX_TMUX_DISABLE:-0}" != "1" ]]; then
     error "tmux-run not found or not executable: $TMUX_RUN"
     exit 1
   fi
-  warn "Running codex review in tmux with ${TIMEOUT}s timeout"
+  EXTRA_CODEX_ARGS=("$@")
+  if [[ " ${EXTRA_CODEX_ARGS[*]} " != *"model_reasoning_effort"* ]]; then
+    EXTRA_CODEX_ARGS=(-c 'model_reasoning_effort="medium"' "${EXTRA_CODEX_ARGS[@]}")
+    warn "No reasoning effort set; defaulting Codex to medium for review stability"
+  fi
+
+  warn "Running codex review in tmux with ${TIMEOUT}s timeout (blocking)"
   CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-review}" \
-    "$TMUX_RUN" timeout "${TIMEOUT}s" "$CLI" "$@"
+    "$TMUX_RUN" --wait --cleanup timeout "${TIMEOUT}s" "$CLI" "${EXTRA_CODEX_ARGS[@]}"
   exit $?
 fi
 

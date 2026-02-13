@@ -10,10 +10,10 @@
 
 ## Wrapper Scripts (Recommended)
 
-The wrapper scripts run Codex inside tmux and emit monitoring info. They start a tmux session and return immediately (non-blocking) unless `CODEX_TMUX_WAIT=1` is set.
+The wrapper scripts run Codex inside tmux and emit monitoring info. `code-review` now runs in blocking mode by default (`--wait --cleanup`) so automation receives final review output.
 
 ```bash
-# Review (10 min timeout default, tmux)
+# Review (20 min timeout default, tmux, blocking)
 "${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
 
 # Implementation (3 min timeout, tmux)
@@ -47,7 +47,7 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 
 ## tmux-run Helper
 
-`scripts/tmux-run` standardizes sockets, logging, and session names. It is non-blocking by default.
+`scripts/tmux-run` standardizes sockets, logging, and session names. It is non-blocking by default unless `--wait` is passed.
 
 ```bash
 # Run an implementation command in tmux (non-blocking)
@@ -83,8 +83,8 @@ codex review --base main --title "PR Review"
 
 | Task Type | Minimum | Recommended |
 |-----------|---------|-------------|
-| Code review | 300s | 600s |
-| Architectural review | 300s | 600s |
+| Code review | 600s | 1200s |
+| Architectural review | 600s | 1200s |
 | Single-file implementation | 120s | 180s |
 | Multi-file implementation | 300s | 600s |
 
@@ -105,8 +105,8 @@ codex review --base main --title "PR Review"
 | `CODEX_TMUX_DISABLE` | Disable tmux and run direct CLI | `0` |
 | `CODEX_TMUX_REQUIRED` | Require tmux for Codex (safe-fallback) | `1` |
 | `GEMINI_FALLBACK_ENABLE` | Enable Gemini fallback in `safe-fallback.sh` | `0` |
-| `CODE_REVIEW_TIMEOUT_SEC` | Review wrapper timeout (seconds) | `600` |
-| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms, legacy) | `600000` |
+| `CODE_REVIEW_TIMEOUT_SEC` | Review wrapper timeout (seconds) | `1200` |
+| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms, legacy) | `1200000` |
 | `CODE_REVIEW_REASONING_EFFORT` | Force review reasoning effort | unset |
 | `CODE_REVIEW_DIFF_THRESHOLD` | Auto-medium threshold (changed lines) | `500` |
 | `CODE_IMPLEMENT_TIMEOUT` | Implement wrapper timeout (ms) | `180000` |

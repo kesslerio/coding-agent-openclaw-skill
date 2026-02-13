@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: "Coding assistant with Codex CLI in tmux for reviews, refactoring, and implementation. Use gpt-5.3-codex with high reasoning for complex tasks. Activates dev persona for pragmatic, experienced developer guidance."
+description: "Coding assistant with Codex CLI in tmux for reviews, refactoring, and implementation. Uses stable review defaults (medium reasoning, blocking tmux, longer timeout) to avoid aborted review runs. Activates dev persona for pragmatic, experienced developer guidance."
 metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh","tmux","codex"],"env":[]}}}
 ---
 
@@ -24,7 +24,7 @@ Trigger this skill when the user wants:
 ## Quick Start
 
 ```bash
-# Code review (10 min timeout, auto medium reasoning for large diffs)
+# Code review (20 min timeout, medium reasoning, blocking)
 "${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
 
 # Implementation (3 min timeout)
