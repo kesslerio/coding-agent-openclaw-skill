@@ -51,19 +51,17 @@ info() { echo -e "${CYAN}ℹ️  $1${NC}" >&2; }
 # Track failures (portable array init)
 FAILURES=()
 
-# Try Codex CLI in tmux
+# Try Codex CLI in tmux (implementation only — reviews use direct CLI)
 try_codex_tmux() {
-  info "Trying Codex CLI in tmux..."
   if [[ "$MODE" == "review" ]]; then
-    if "$SCRIPT_DIR/code-review" "$PROMPT"; then
-      ok "Codex tmux session started"
-      return 0
-    fi
-  else
-    if "$SCRIPT_DIR/code-implement" "$PROMPT"; then
-      ok "Codex tmux session started"
-      return 0
-    fi
+    # Reviews don't need tmux — delegate to direct CLI
+    try_codex_cli_direct
+    return $?
+  fi
+  info "Trying Codex CLI in tmux..."
+  if "$SCRIPT_DIR/code-implement" "$PROMPT"; then
+    ok "Codex tmux session started"
+    return 0
   fi
   FAILURES+=("Codex tmux: failed to start")
   return 1
@@ -94,7 +92,7 @@ try_codex_cli_direct() {
           base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
         fi
       fi
-      if timeout "${TIMEOUT}s" codex -c 'model_reasoning_effort="medium"' review --base "$base_branch" --title "${PROMPT:0:100}" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else

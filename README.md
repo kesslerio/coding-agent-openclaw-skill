@@ -6,8 +6,7 @@ OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Prima
 
 - **Session Resume Workflows** — Multi-phase issue → implement → PR → review → fix cycles with full context preservation
 - **Agent CLI Integration** — Direct CLI execution with permission bypass (`--yolo`, `--dangerously-skip-permissions`)
-- **Auto-Reasoning** — Diff-size-based reasoning effort scaling for reviews (threshold: 500 changed lines)
-- **PR Review Workflow** — Checkout PRs and run reviews with auto-blocking and cleanup
+- **PR Review Workflow** — Direct CLI reviews with proper timeouts
 - **Dev Persona** — Pragmatic code reviews with clear feedback
 - **Git Workflow Documentation** — Branch, commit, PR conventions
 - **Code Quality Standards** — KISS, YAGNI, DRY, SRP principles
@@ -47,13 +46,16 @@ codex exec resume --last
 claude -p -c "Fix the review findings"
 ```
 
-### Wrapper Scripts (Secondary)
+### Reviews (Direct CLI)
 
 ```bash
-# PR Review (10 min timeout, blocking, auto-reasoning)
 gh pr checkout <PR>
-./scripts/code-review "Review PR #N: bugs, security, quality"
+timeout 600s codex review --base <base> --title "Review PR #N"
+```
 
+### Wrapper Scripts (Implementation)
+
+```bash
 # Implementation (3 min timeout, tmux)
 ./scripts/code-implement "Implement feature X"
 ```

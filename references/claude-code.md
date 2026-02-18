@@ -228,6 +228,6 @@ claude -p -c --dangerously-skip-permissions "Add integration tests for registrat
 | `codex exec "prompt"` | `claude -p "prompt"` |
 | `codex exec --full-auto "prompt"` | `claude -p --permission-mode acceptEdits "prompt"` |
 | `codex --yolo "prompt"` | `claude -p --dangerously-skip-permissions "prompt"` |
-| `codex review --base main` | `claude -p "Review changes vs main branch"` |
+| `codex review --base <base>` | `claude -p "Review changes vs <base> branch"` |
 | `codex exec resume --last` | `claude -p -c "prompt"` |
 | `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |

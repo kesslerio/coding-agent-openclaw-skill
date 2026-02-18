@@ -63,7 +63,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 ### 3. Tool Usage Requirement
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
 - **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
-- For reviews: prefer `scripts/code-review` wrapper or direct `codex review`
+- For reviews: use direct `codex review --base <base>` or `claude -p`
 - For implementation: prefer direct CLI (`codex --yolo exec`) or `scripts/code-implement`
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
@@ -123,7 +123,7 @@ codex --yolo exec "Implement feature X. No questions."
 claude -p --dangerously-skip-permissions "Implement feature X"
 
 # Review (Codex)
-codex review --base main --title "PR Review"
+codex review --base <base> --title "PR Review"
 
 # Review (Claude)
 claude -p --model opus "Review changes vs main branch for bugs, security, quality"
@@ -131,20 +131,17 @@ claude -p --model opus "Review changes vs main branch for bugs, security, qualit
 
 ### Secondary: tmux Wrappers
 
-For durable sessions with logging and monitoring:
+For durable implementation sessions with logging and monitoring:
 
 ```bash
-# Implementation
+# Implementation (tmux)
 ./scripts/code-implement "Implement feature X in /path/to/repo"
-
-# Review (blocking, auto-reasoning)
-./scripts/code-review "Review PR #N for bugs, security, quality"
 ```
 
 ### Code Review Process
 
 **Hierarchy:**
-1. **Codex**: Primary reviewer (`codex review` or `scripts/code-review`).
+1. **Codex**: Primary reviewer (`codex review --base <base>`).
 2. **Claude**: Default fallback if Codex is unavailable.
 3. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
 4. **Sub-agent**: Last resort for orchestration.
@@ -152,7 +149,7 @@ For durable sessions with logging and monitoring:
 **Step 1: Code Review (Logic/Bugs)**
 ```bash
 gh pr checkout <PR>
-./scripts/code-review "PR #N Review"
+timeout 600s codex review --base <base> --title "PR #N Review"
 ```
 
 **Step 2: Standards Review (Required)**
@@ -180,7 +177,7 @@ codex --yolo exec "Implement feature described in issue #42. No questions."
 gh pr create --title "feat(auth): add JWT validation" --body "..."
 
 # Phase 3: Review
-./scripts/code-review "Review PR #N: bugs, security, quality"
+timeout 600s codex review --base <base> --title "Review PR #N"
 
 # Phase 4: Fix review findings (resume preserves context)
 codex exec resume --last
@@ -188,7 +185,7 @@ codex exec resume --last
 claude -p --resume <session-id> "Fix the review findings"
 
 # Phase 5: Re-review after fixes
-./scripts/code-review "Re-review PR #N after fixes"
+timeout 600s codex review --base <base> --title "Re-review PR #N"
 
 # Phase 6: Merge
 gh pr merge --merge --delete-branch

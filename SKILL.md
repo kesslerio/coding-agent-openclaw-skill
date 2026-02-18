@@ -32,13 +32,10 @@ claude -p -c "Follow up"    # continue most recent session
 
 ### Secondary: tmux Wrappers (Optional)
 
-For long-running tasks where TTY logging and session durability are needed:
+For long-running implementation tasks where TTY logging and session durability are needed:
 
 ```bash
-# Review (10 min timeout, blocking, auto-reasoning)
-"${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
-
-# Implementation (3 min timeout)
+# Implementation (3 min timeout, tmux)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
 ```
 
@@ -48,10 +45,13 @@ Full issue → implement → PR → review → fix cycle using session resume:
 
 1. **Implement**: `codex --yolo exec "Implement feature from issue #N"`
 2. **Create PR**: `gh pr create --title "feat: ..." --body "..."`
-3. **Review**: `./scripts/code-review "Review PR #N"`
+3. **Review**: `timeout 600s codex review --base <base> --title "Review PR #N"`
 4. **Fix issues**: `codex exec resume --last` (context preserved)
-5. **Re-review**: `./scripts/code-review "Re-review PR #N after fixes"`
+5. **Re-review**: `timeout 600s codex review --base <base> --title "Re-review PR #N"`
 6. **Merge**: `gh pr merge`
+
+> **`<base>`** = repo's default branch (main, master, or trunk). Detect with:
+> `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'`
 
 ## Non-Negotiable Rules (Summary)
 
@@ -66,7 +66,7 @@ Full issue → implement → PR → review → fix cycle using session resume:
 
 ```
 Implementation: Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
-Reviews:        Codex CLI (tmux/code-review) → Codex CLI (direct) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
 
 ⛔ NEVER skip to direct edits — request user override instead
 ```

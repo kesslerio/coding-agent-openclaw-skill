@@ -32,7 +32,7 @@ STOP. Before I proceed, let me verify:
 ❌ FORBIDDEN: --max-turns (any value)
 ❌ FORBIDDEN: timeout < 600s for reviews
 
-✅ Reviews: TIMEOUT=600 minimum (auto-reasoning handles scaling)
+✅ Reviews: TIMEOUT=600 minimum
 ✅ Architecture: TIMEOUT=600 minimum
 ```
 
@@ -40,7 +40,7 @@ STOP. Before I proceed, let me verify:
 
 ```
 Implementation: Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
-Reviews:        Codex CLI (tmux/code-review) → Codex CLI (direct) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
 
 ⛔ NEVER skip to direct edits — request user override instead
 ```
@@ -82,15 +82,11 @@ claude --resume
 ## Wrapper Scripts (Secondary)
 
 ```bash
-# Review (10 min timeout, blocking, auto-reasoning)
-./scripts/code-review "Review this PR for bugs"
-./scripts/code-review --timeout 900 --reasoning-effort medium "Review this PR for bugs"
-
 # Implementation (3 min timeout, tmux)
 ./scripts/code-implement "Implement feature X"
 
 # Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
-TIMEOUT=600 ./scripts/safe-review.sh codex review --base main --title "PR Review"
+TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
 
@@ -136,22 +132,17 @@ claude -p --dangerously-skip-permissions "Your task"
 claude -p -c "Follow up prompt"
 ```
 
-**PR Review (wrapper, blocking):**
+**PR Review (direct CLI):**
 ```bash
 cd /path/to/repo
-./scripts/code-review "Review PR #N: bugs, security, quality"
-```
-
-**Non-interactive review (direct, only if tmux unavailable):**
-```bash
-timeout 600s codex -c 'model_reasoning_effort="medium"' review --base main --title "PR Review"
+timeout 600s codex review --base <base> --title "Review PR #N"
 ```
 
 ### Git Workflow
 ```bash
 # Checkout and review
 gh pr checkout <PR> --repo owner/repo
-./scripts/code-review "Review PR #<PR> for bugs and security"
+timeout 600s codex review --base <base> --title "Review PR #<PR>"
 
 # Merge (Martin only)
 gh pr merge <PR> --repo owner/repo --admin --merge
@@ -191,7 +182,7 @@ Issue: TODO: <cleanup> after <dependency>
 | List PRs | `gh pr list --repo owner/repo` |
 | View PR | `gh pr view <PR> --json number,title,state` |
 | Checkout PR | `gh pr checkout <PR>` |
-| Review PR | `./scripts/code-review "Review PR #N for bugs, security, quality"` |
+| Review PR | `timeout 600s codex review --base <base> --title "PR #N Review"` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
 | Resume Codex | `codex exec resume --last` |
@@ -220,11 +211,11 @@ For durable TTY sessions with logging. See `references/tooling.md` for full tmux
 SOCKET_DIR="${OPENCLAW_TMUX_SOCKET_DIR:-${CLAWDBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/openclaw-tmux-sockets}}"
 mkdir -p "$SOCKET_DIR"
 SOCKET="$SOCKET_DIR/openclaw.sock"
-SESSION=codex-review
+SESSION=codex-impl
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex review --base main"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
