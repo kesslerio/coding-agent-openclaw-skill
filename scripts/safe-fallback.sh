@@ -94,7 +94,7 @@ try_codex_cli_direct() {
           base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
         fi
       fi
-      if timeout "${TIMEOUT}s" codex -c 'model_reasoning_effort="medium"' review --base "$base_branch" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex -c 'model_reasoning_effort="medium"' review --base "$base_branch" --title "${PROMPT:0:100}" 2>/dev/null; then
         ok "Codex CLI review succeeded"
         return 0
       else
