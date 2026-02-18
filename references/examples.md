@@ -29,20 +29,20 @@ git push && gh pr create && gh pr merge
 Correct:
 ```bash
 gh pr create
-./scripts/code-review "Review PR for bugs, security, quality"
+timeout 600s codex review --base <base> --title "PR Review"
 ./scripts/tmux-run timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
   "Review against STANDARDS.md and report PASS/FAIL per category"
 ```
 
-### ❌ Using direct CLI for complex work
+### ❌ Chaining without timeouts
 Wrong:
 ```bash
 codex exec "Part 1" && codex exec "Part 2"
 ```
 Correct:
 ```bash
-./scripts/tmux-run timeout 300s codex --yolo exec "Part 1"
-./scripts/tmux-run timeout 300s codex --yolo exec "Part 2"
+timeout 300s codex --yolo exec "Part 1"
+timeout 300s codex --yolo exec "Part 2"
 ```
 
 ## Real Violation Examples

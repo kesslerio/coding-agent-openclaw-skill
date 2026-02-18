@@ -62,39 +62,6 @@ if ! command -v "$CLI" &>/dev/null; then
   exit 1
 fi
 
-# Prefer tmux for codex unless explicitly disabled
-if [[ "$CLI" == "codex" && "${CODEX_TMUX_DISABLE:-0}" != "1" ]]; then
-  if ! command -v tmux &>/dev/null; then
-    error "tmux not found in PATH. Install tmux or set CODEX_TMUX_DISABLE=1 to run direct."
-    exit 1
-  fi
-  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  TMUX_RUN="$SCRIPT_DIR/tmux-run"
-  if [[ ! -x "$TMUX_RUN" ]]; then
-    error "tmux-run not found or not executable: $TMUX_RUN"
-    exit 1
-  fi
-  EXTRA_CODEX_ARGS=("$@")
-  has_reasoning=false
-  for ((i=0; i<${#EXTRA_CODEX_ARGS[@]}; i++)); do
-    if [[ "${EXTRA_CODEX_ARGS[i]}" == "-c" ]] && [[ $((i + 1)) -lt ${#EXTRA_CODEX_ARGS[@]} ]]; then
-      if [[ "${EXTRA_CODEX_ARGS[i+1]}" == model_reasoning_effort=* ]]; then
-        has_reasoning=true
-        break
-      fi
-    fi
-  done
-  if [[ "$has_reasoning" == false ]]; then
-    EXTRA_CODEX_ARGS=(-c 'model_reasoning_effort="medium"' "${EXTRA_CODEX_ARGS[@]}")
-    warn "No reasoning effort set; defaulting Codex to medium for review stability"
-  fi
-
-  warn "Running codex review in tmux with ${TIMEOUT}s timeout (blocking)"
-  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-review}" \
-    "$TMUX_RUN" --wait --cleanup timeout "${TIMEOUT}s" "$CLI" "${EXTRA_CODEX_ARGS[@]}"
-  exit $?
-fi
-
 # For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging
 EXTRA_ARGS=()
 if [[ "$CLI" == "claude" ]]; then

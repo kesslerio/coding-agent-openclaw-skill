@@ -1,14 +1,16 @@
 # Claude Code CLI Reference
 
-Detailed reference for Claude Code as a fallback when Codex is unavailable.
+Detailed reference for Claude Code as a fallback when Codex is unavailable, or as primary CLI for Claude-based workflows.
 
 ## Contents
 - Non-interactive mode flags
+- Session resume (non-interactive)
 - Model selection
 - Permission modes
 - Budget controls
 - Output formats
 - Examples
+- Codex → Claude mapping
 
 ---
 
@@ -38,6 +40,59 @@ claude -p "Your prompt here"
 | `--add-dir <dirs>` | Additional directories to allow access |
 | `-c, --continue` | Continue most recent conversation |
 | `-r, --resume <id>` | Resume specific session |
+| `--resume` | Interactive session picker (no ID = browse) |
+
+---
+
+## Session Resume (Non-Interactive)
+
+Session resume restores full conversation context from disk. Use this for multi-phase workflows where context must persist across separate CLI invocations.
+
+### Continue Most Recent Session
+
+```bash
+# Continue the last conversation with a new prompt
+claude -p -c "Fix the review findings from the previous session"
+
+# Continue without a new prompt (re-runs last context)
+claude -p -c
+```
+
+### Resume Specific Session
+
+```bash
+# Browse sessions interactively to find the ID
+claude --resume
+
+# Resume a specific session by ID
+claude -p --resume abc123 "Address the security concern raised in review"
+```
+
+### Session Storage
+
+Sessions persist to `~/.claude/projects/<project>/sessions/`. Each session contains the full conversation history, tool calls, and file context.
+
+### When to Use Resume
+
+| Scenario | Command |
+|----------|---------|
+| Fix review findings | `claude -p -c "Fix the issues from code review"` |
+| Continue implementation | `claude -p --resume <id> "Continue implementing the auth module"` |
+| Follow-up on same PR | `claude -p -c "Now add tests for the changes"` |
+| Unrelated new task | `claude -p "New task prompt"` (fresh session) |
+
+### Multi-Phase Example
+
+```bash
+# Phase 1: Implement
+claude -p --dangerously-skip-permissions "Implement JWT auth middleware"
+
+# Phase 2: Fix review findings (context preserved)
+claude -p -c --dangerously-skip-permissions "Fix the review findings: add token expiry check"
+
+# Phase 3: Add tests (context preserved)
+claude -p -c --dangerously-skip-permissions "Add unit tests for the JWT middleware"
+```
 
 ---
 
@@ -129,8 +184,8 @@ claude -p -c "Follow up on the previous task"
 # Resume specific session
 claude -p -r session-id "Continue from here"
 
-# List sessions
-claude --list-sessions
+# Browse/pick sessions interactively
+claude --resume
 ```
 
 ---
@@ -152,9 +207,16 @@ claude -p --dangerously-skip-permissions "Build a REST API with CRUD endpoints f
 claude -p --model opus --max-budget-usd 1 "Review this PR for security issues"
 ```
 
-### Background Task (with PTY)
+### Multi-Phase Implementation
 ```bash
-bash pty:true workdir:~/project background:true command:"claude 'Build the authentication module'"
+# Phase 1: Implement
+claude -p --dangerously-skip-permissions "Implement the user registration endpoint"
+
+# Phase 2: Fix issues (resume context)
+claude -p -c --dangerously-skip-permissions "Fix the validation error in registration"
+
+# Phase 3: Add tests
+claude -p -c --dangerously-skip-permissions "Add integration tests for registration"
 ```
 
 ---
@@ -166,4 +228,6 @@ bash pty:true workdir:~/project background:true command:"claude 'Build the authe
 | `codex exec "prompt"` | `claude -p "prompt"` |
 | `codex exec --full-auto "prompt"` | `claude -p --permission-mode acceptEdits "prompt"` |
 | `codex --yolo "prompt"` | `claude -p --dangerously-skip-permissions "prompt"` |
-| `codex review --base main` | `claude -p "Review changes vs main branch"` |
+| `codex review --base <base>` | `claude -p "Review changes vs <base> branch"` |
+| `codex exec resume --last` | `claude -p -c "prompt"` |
+| `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |

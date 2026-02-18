@@ -138,6 +138,9 @@ if [[ "$WAIT" == "1" ]]; then
     tmux -S "$SOCKET" wait-for "$SESSION.done"
   fi
 
+  # Dump pane content to stdout so callers can capture it
+  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S - 2>/dev/null || true
+
   if [[ -f "$EXIT_FILE" ]]; then
     rc="$(cat "$EXIT_FILE" 2>/dev/null || echo 1)"
     if [[ ! "$rc" =~ ^[0-9]+$ ]]; then

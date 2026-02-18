@@ -5,8 +5,9 @@
 - Git Workflow
 - Hard Requirements (Violation = Task Failure)
 - GitHub CLI (gh)
-- Codex Workflow
-- Codex CLI (tmux-based)
+- Agent Workflow
+- Multi-Phase Workflow (Session Resume)
+- Agent CLI Reference
 - Agent Utilization
 
 ## Overview
@@ -19,7 +20,7 @@
 - **Plan First**: Always discuss approach before implementation.
 - **Surface Decisions**: Present options with trade-offs.
 - **Confirm Alignment**: Ensure agreement before coding.
-- **No Direct Edits**: Use Codex/Agents to write code.
+- **No Direct Edits**: Use agent CLIs (Codex/Claude) to write code.
 
 ## Git Workflow
 
@@ -27,12 +28,12 @@
 
 ### Standard Flow
 1. **Create Branch**: `git checkout -b type/description`
-2. **Implement**: Use Codex (see below)
+2. **Implement**: Use agent CLI (see below)
 3. **Commit**: `git commit -m "type(scope): description"`
 4. **Push**: `git push -u origin branch-name`
 5. **PR**: `gh pr create`
-6. **Review**: Run Codex review (see below)
-7. **Fix**: Address issues
+6. **Review**: Run code review (see below)
+7. **Fix**: Address issues (resume session for context)
 8. **Merge**: `gh pr merge`
 
 ### Commit Types
@@ -61,7 +62,9 @@ These are non-negotiable requirements. Violating any of these means the task has
 
 ### 3. Tool Usage Requirement
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
-- For Codex: **MUST** use tmux wrappers (`scripts/code-implement`, `scripts/code-review`) unless user explicitly requests direct CLI
+- **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
+- For reviews: use direct `codex review --base <base>` or `claude -p`
+- For implementation: prefer direct CLI (`codex --yolo exec`) or `scripts/code-implement`
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
 - **Violation Response**: Stop and switch to specified tool
@@ -76,7 +79,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 Before reporting task complete, verify:
 - [ ] Changes on feature branch (not main)?
 - [ ] PR created and URL available?
-- [ ] Correct tools used (as specified by user)?
+- [ ] Correct tools used (agent CLI, direct or tmux)?
 - [ ] Code review completed and posted?
 - [ ] Standards review completed and posted?
 
@@ -106,34 +109,39 @@ Before reporting task complete, verify:
 - `Tests`: list exact commands run.
 - `AI Assistance`: used/not used, testing level, prompt/session log link, and "I understand this code."
 
-## Codex Workflow
+## Agent Workflow
 
-### Preferred (tmux)
-Use tmux wrappers so sessions are durable and easy to monitor. `code-review` is blocking by default now, so orchestrators wait for final findings.
+### Primary: Direct CLI
+
+Use agent CLIs directly for most tasks. Session resume preserves full context across phases.
 
 ```bash
-# Implementation
-./scripts/code-implement "Implement feature X in /path/to/repo"
+# Implementation (Codex)
+codex --yolo exec "Implement feature X. No questions."
 
-# Review
-./scripts/code-review "Review PR #N for bugs, security, quality"
+# Implementation (Claude)
+claude -p --dangerously-skip-permissions "Implement feature X"
+
+# Review (Codex)
+codex review --base <base> --title "PR Review"
+
+# Review (Claude)
+claude -p --model opus "Review changes vs main branch for bugs, security, quality"
 ```
 
-### Implementation
-**Always use `--yolo` (or `--dangerously-bypass-approvals-and-sandbox`) for write access.**
+### Secondary: tmux Wrappers
+
+For durable implementation sessions with logging and monitoring:
 
 ```bash
-# Implement a feature
-./scripts/tmux-run timeout 300s codex --yolo exec "Implement feature X. No questions."
-
-# Complex task (stable medium reasoning)
-./scripts/tmux-run timeout 600s codex --yolo exec -c model_reasoning_effort="medium" "Redesign auth module..."
+# Implementation (tmux)
+./scripts/code-implement "Implement feature X in /path/to/repo"
 ```
 
 ### Code Review Process
 
 **Hierarchy:**
-1. **Codex**: Primary reviewer (`codex review`).
+1. **Codex**: Primary reviewer (`codex review --base <base>`).
 2. **Claude**: Default fallback if Codex is unavailable.
 3. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
 4. **Sub-agent**: Last resort for orchestration.
@@ -141,13 +149,12 @@ Use tmux wrappers so sessions are durable and easy to monitor. `code-review` is 
 **Step 1: Code Review (Logic/Bugs)**
 ```bash
 gh pr checkout <PR>
-./scripts/code-review "PR #N Review"
+timeout 600s codex review --base <base> --title "PR #N Review"
 ```
 
 **Step 2: Standards Review (Required)**
 ```bash
-# Checks against STANDARDS.md
-./scripts/tmux-run timeout 600s codex --yolo exec --model gpt-5.3-codex \
+codex --yolo exec --model gpt-5.3-codex \
   -c model_reasoning_effort="medium" "Review against STANDARDS.md..."
 ```
 
@@ -156,25 +163,86 @@ gh pr checkout <PR>
 gh pr review <PR> --comment --body "$(cat review.md)"
 ```
 
+## Multi-Phase Workflow (Session Resume)
+
+For complex tasks spanning multiple phases, use session resume to preserve full context:
+
+### Issue → Implement → PR → Review → Fix → Merge
+
+```bash
+# Phase 1: Implement from issue
+codex --yolo exec "Implement feature described in issue #42. No questions."
+
+# Phase 2: Create PR
+gh pr create --title "feat(auth): add JWT validation" --body "..."
+
+# Phase 3: Review
+timeout 600s codex review --base <base> --title "Review PR #N"
+
+# Phase 4: Fix review findings (resume preserves context)
+codex exec resume --last
+# Or with Claude:
+claude -p --resume <session-id> "Fix the review findings"
+
+# Phase 5: Re-review after fixes
+timeout 600s codex review --base <base> --title "Re-review PR #N"
+
+# Phase 6: Merge
+gh pr merge --merge --delete-branch
+```
+
+### Session Resume Commands
+
+| Phase | Codex | Claude Code |
+|-------|-------|-------------|
+| Resume last | `codex exec resume --last` | `claude -p -c "prompt"` |
+| Resume specific | `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |
+| List/pick session | — | `claude --resume` (interactive picker) |
+
+### When to Resume vs Start Fresh
+
+- **Resume**: Fix review findings, continue implementation, follow-up on same codebase
+- **Fresh**: New issue, different repo, unrelated task
+
 ### Prompt Engineering Best Practices
 - **Be Specific**: "Implement X using Y library" vs "Add X".
 - **No Confirmation**: "Do not ask for confirmation. Just implement."
 - **Small Batches**: Don't change 50 files at once.
 - **Clear Exit**: "Reply with DONE when finished."
 
-## Codex CLI (tmux-based)
+## Agent CLI Reference
 
-For automated, durable runs where a TTY is required and logs must be preserved.
+### Codex CLI
 
-**Mechanism:** Use `scripts/tmux-run` to launch Codex CLI inside tmux. For review workflows, use blocking mode so completion status is accurate.
+For automated runs with full autonomy:
 
-**Workflow:**
-1. **Start**: `./scripts/tmux-run timeout 300s codex --yolo exec "Implement X..."`
-2. **Monitor**: `tmux -S "$SOCKET" attach -t "<session>"`
-3. **Capture**: `tmux -S "$SOCKET" capture-pane -p -J -t "<session>:<window>.<pane>" -S -200`
-4. **Cleanup**: `tmux -S "$SOCKET" kill-session -t "<session>"`
+```bash
+# Implementation (full autonomy)
+codex --yolo exec "Implement feature X. No questions."
 
-**Note:** This skill disables MCP usage. All automation is via tmux + CLI.
+# With reasoning effort
+codex -c 'model_reasoning_effort="medium"' --yolo exec "Complex refactor..."
+
+# Resume last session
+codex exec resume --last
+```
+
+### Claude Code CLI
+
+```bash
+# Implementation (full autonomy)
+claude -p --dangerously-skip-permissions "Implement feature X"
+
+# With model selection
+claude -p --model opus --dangerously-skip-permissions "Complex task"
+
+# Resume/continue
+claude -p -c "Follow up on the previous task"
+claude -p --resume <session-id> "Continue from here"
+```
+
+See `references/claude-code.md` for full Claude Code reference.
+See `references/tooling.md` for tmux wrappers, timeouts, and environment variables.
 
 ## Agent Utilization
 

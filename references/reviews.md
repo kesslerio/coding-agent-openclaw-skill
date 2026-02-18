@@ -3,7 +3,7 @@
 ## Review Workflow
 
 ### New Features (Issue → PR)
-1. Implement with Codex CLI in tmux.
+1. Implement with agent CLI.
 2. Create PR.
 3. Run Codex review.
 4. Run standards review (references/STANDARDS.md) — required.
@@ -41,8 +41,8 @@
 ## Review Commands
 
 ```bash
-# Code review (tmux)
-./scripts/code-review "PR #N Review"
+# Code review (direct CLI)
+timeout 600s codex review --base <base> --title "PR #N Review"
 
 # Standards review (tmux)
 ./scripts/tmux-run timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
