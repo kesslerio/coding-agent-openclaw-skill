@@ -40,7 +40,7 @@ claude -p "Your prompt here"
 | `--add-dir <dirs>` | Additional directories to allow access |
 | `-c, --continue` | Continue most recent conversation |
 | `-r, --resume <id>` | Resume specific session |
-| `--list-sessions` | List all available sessions |
+| `--resume` | Interactive session picker (no ID = browse) |
 
 ---
 
@@ -61,8 +61,8 @@ claude -p -c
 ### Resume Specific Session
 
 ```bash
-# List available sessions to find the ID
-claude --list-sessions
+# Browse sessions interactively to find the ID
+claude --resume
 
 # Resume a specific session by ID
 claude -p --resume abc123 "Address the security concern raised in review"
@@ -184,8 +184,8 @@ claude -p -c "Follow up on the previous task"
 # Resume specific session
 claude -p -r session-id "Continue from here"
 
-# List sessions
-claude --list-sessions
+# Browse/pick sessions interactively
+claude --resume
 ```
 
 ---
@@ -230,4 +230,4 @@ claude -p -c --dangerously-skip-permissions "Add integration tests for registrat
 | `codex --yolo "prompt"` | `claude -p --dangerously-skip-permissions "prompt"` |
 | `codex review --base main` | `claude -p "Review changes vs main branch"` |
 | `codex exec resume --last` | `claude -p -c "prompt"` |
-| `codex exec resume --session <id>` | `claude -p --resume <id> "prompt"` |
+| `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |

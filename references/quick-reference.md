@@ -76,7 +76,7 @@ claude -p -c "Fix the review findings"
 claude -p --resume <session-id> "Continue implementation"
 
 # List sessions
-claude --list-sessions
+claude --resume
 ```
 
 ## Wrapper Scripts (Secondary)
@@ -196,7 +196,7 @@ Issue: TODO: <cleanup> after <dependency>
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
 | Resume Codex | `codex exec resume --last` |
 | Resume Claude | `claude -p -c "prompt"` |
-| List Claude sessions | `claude --list-sessions` |
+| Pick Claude session | `claude --resume` (interactive) |
 
 ## Code Quality Standards
 

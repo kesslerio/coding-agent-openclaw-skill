@@ -31,7 +31,7 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 | `claude -p --permission-mode acceptEdits "prompt"` | Auto-accept edits only |
 | `claude -p -c "follow up"` | Continue most recent session |
 | `claude -p --resume <id> "follow up"` | Resume specific session |
-| `claude --list-sessions` | List available sessions |
+| `claude --resume` | Interactive session picker |
 
 ### Permission Bypass
 
@@ -50,7 +50,7 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 | Codex | `codex exec resume --last` | Resume last session |
 | Claude | `claude -p -c "prompt"` | Continue most recent conversation |
 | Claude | `claude -p --resume <id> "prompt"` | Resume specific session by ID |
-| Claude | `claude --list-sessions` | List all sessions |
+| Claude | `claude --resume` | Interactive session picker |
 
 Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/sessions/`) and survive process restarts.
 

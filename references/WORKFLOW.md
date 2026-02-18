@@ -199,8 +199,8 @@ gh pr merge --merge --delete-branch
 | Phase | Codex | Claude Code |
 |-------|-------|-------------|
 | Resume last | `codex exec resume --last` | `claude -p -c "prompt"` |
-| Resume specific | `codex exec resume --session <id>` | `claude -p --resume <id> "prompt"` |
-| List sessions | — | `claude --list-sessions` |
+| Resume specific | `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |
+| List/pick session | — | `claude --resume` (interactive picker) |
 
 ### When to Resume vs Start Fresh
 
