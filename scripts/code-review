@@ -178,24 +178,23 @@ if [[ -n "$SELECTED_REASONING" ]] && ! validate_reasoning_effort "$SELECTED_REAS
     exit 1
 fi
 
+# Resolve base ref (local branch or remote-tracking)
+DIFF_BASE="$DEFAULT_BRANCH"
+if ! git rev-parse --verify "$DIFF_BASE" &> /dev/null && git rev-parse --verify "origin/$DIFF_BASE" &> /dev/null; then
+    DIFF_BASE="origin/$DIFF_BASE"
+fi
+
 CHANGED_LINES=0
-if [[ -z "$SELECTED_REASONING" ]]; then
-    DIFF_BASE="$DEFAULT_BRANCH"
-    if ! git rev-parse --verify "$DIFF_BASE" &> /dev/null && git rev-parse --verify "origin/$DIFF_BASE" &> /dev/null; then
-        DIFF_BASE="origin/$DIFF_BASE"
-    fi
-
-    if git rev-parse --verify "$DIFF_BASE" &> /dev/null; then
-        while IFS=$'\t' read -r added deleted _rest; do
-            if [[ "$added" == "-" || "$deleted" == "-" ]]; then
-                continue
-            fi
-            CHANGED_LINES=$((CHANGED_LINES + added + deleted))
-        done < <(git diff --numstat "$DIFF_BASE"...HEAD)
-
-        if [[ "$CHANGED_LINES" -gt "$AUTO_REASONING_THRESHOLD" ]]; then
-            SELECTED_REASONING="medium"
+if [[ -z "$SELECTED_REASONING" ]] && git rev-parse --verify "$DIFF_BASE" &> /dev/null; then
+    while IFS=$'\t' read -r added deleted _rest; do
+        if [[ "$added" == "-" || "$deleted" == "-" ]]; then
+            continue
         fi
+        CHANGED_LINES=$((CHANGED_LINES + added + deleted))
+    done < <(git diff --numstat "$DIFF_BASE"...HEAD)
+
+    if [[ "$CHANGED_LINES" -gt "$AUTO_REASONING_THRESHOLD" ]]; then
+        SELECTED_REASONING="medium"
     fi
 fi
 
@@ -219,7 +218,7 @@ fi
 # Codex v0.100.0 parser currently rejects:
 #   codex review --base <branch> [PROMPT]
 # Keep --base and pass context through --title for compatibility.
-CODEX_ARGS=(review --base "$DEFAULT_BRANCH" --title "$REVIEW_TITLE")
+CODEX_ARGS=(review --base "$DIFF_BASE" --title "$REVIEW_TITLE")
 if [[ -n "$SELECTED_REASONING" ]]; then
     CODEX_ARGS=(-c "model_reasoning_effort=\"$SELECTED_REASONING\"" "${CODEX_ARGS[@]}")
 fi

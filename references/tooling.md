@@ -52,7 +52,7 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 | Claude | `claude -p --resume <id> "prompt"` | Resume specific session by ID |
 | Claude | `claude --resume` | Interactive session picker |
 
-Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/sessions/`) and survive process restarts.
+Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/projects/<project>/`) and survive process restarts.
 
 ## Wrapper Scripts (Recommended for Reviews)
 
