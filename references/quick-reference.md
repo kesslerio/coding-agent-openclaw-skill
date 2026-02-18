@@ -85,7 +85,7 @@ claude --resume
 # Implementation (3 min timeout, tmux)
 ./scripts/code-implement "Implement feature X"
 
-# Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
+# Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
