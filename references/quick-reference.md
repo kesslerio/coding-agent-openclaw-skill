@@ -4,23 +4,24 @@
 - STOP-AND-VERIFY (Before ANY Implementation)
 - Forbidden Flags & Minimum Timeouts
 - Tool Fallback Chain
-- Wrapper Scripts (Recommended)
+- Direct CLI Commands (Primary)
+- Wrapper Scripts (Secondary)
 - Pre-Completion Checklist
 - Quick Reference
 - Command Reference
 - Code Quality Standards
 - Issue Priority (P0-P3)
-- tmux for Interactive Sessions
+- tmux for Interactive Sessions (Optional)
 
-## ⛔ STOP-AND-VERIFY (Before ANY Implementation)
+## STOP-AND-VERIFY (Before ANY Implementation)
 
 **Say this out loud before writing/changing any code:**
 ```
 STOP. Before I proceed, let me verify:
-□ Am I using Codex CLI in tmux? (not Edit/Write tools)
+□ Am I using an agent CLI (Codex/Claude)? (not Edit/Write tools)
 □ Am I on a feature branch? (not main)
 □ Will I create a PR before completing this task?
-□ Am I using adequate timeout? (recommended: 1200s for reviews)
+□ Am I using adequate timeout? (minimum: 600s for reviews)
 □ Am I avoiding --max-turns? (let it complete naturally)
 ```
 **If any box is unchecked → STOP and fix before proceeding.**
@@ -31,29 +32,65 @@ STOP. Before I proceed, let me verify:
 ❌ FORBIDDEN: --max-turns (any value)
 ❌ FORBIDDEN: timeout < 600s for reviews
 
-✅ Reviews: TIMEOUT=600 minimum, 1200 recommended
-✅ Architecture: TIMEOUT=1200 recommended
+✅ Reviews: TIMEOUT=600 minimum (auto-reasoning handles scaling)
+✅ Architecture: TIMEOUT=600 minimum
 ```
 
 ## Tool Fallback Chain
 
 ```
-Implementation: Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCKED
-Reviews:        Codex CLI (tmux) → Codex CLI (direct) → Claude CLI → BLOCKED
+Implementation: Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (tmux/code-review) → Codex CLI (direct) → Claude CLI → BLOCKED
 
-⛔ NEVER skip to direct edits - request user override instead
+⛔ NEVER skip to direct edits — request user override instead
 ```
 
-## Wrapper Scripts (Recommended)
+## Direct CLI Commands (Primary)
+
+### Codex
 
 ```bash
-# Preferred: tmux-based wrappers
-./scripts/code-implement "Implement feature X"
+# Implementation (full autonomy)
+codex --yolo exec "Implement feature X. No questions."
+
+# With reasoning effort
+codex -c 'model_reasoning_effort="medium"' --yolo exec "Complex refactor..."
+
+# Resume last session (context preserved)
+codex exec resume --last
+```
+
+### Claude Code
+
+```bash
+# Implementation (full autonomy)
+claude -p --dangerously-skip-permissions "Implement feature X"
+
+# Complex task with Opus
+claude -p --model opus --dangerously-skip-permissions "Complex refactor..."
+
+# Continue most recent session
+claude -p -c "Fix the review findings"
+
+# Resume specific session
+claude -p --resume <session-id> "Continue implementation"
+
+# List sessions
+claude --list-sessions
+```
+
+## Wrapper Scripts (Secondary)
+
+```bash
+# Review (10 min timeout, blocking, auto-reasoning)
 ./scripts/code-review "Review this PR for bugs"
 ./scripts/code-review --timeout 900 --reasoning-effort medium "Review this PR for bugs"
 
+# Implementation (3 min timeout, tmux)
+./scripts/code-implement "Implement feature X"
+
 # Enforcement wrappers (use tmux for codex unless CODEX_TMUX_DISABLE=1)
-TIMEOUT=1200 ./scripts/safe-review.sh codex review --base main --title "PR Review"
+TIMEOUT=600 ./scripts/safe-review.sh codex review --base main --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
 
@@ -62,7 +99,7 @@ TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 Before marking ANY task complete:
 - [ ] On feature branch? (not main)
 - [ ] PR created with URL?
-- [ ] Used Codex/Claude CLI in tmux? (not direct edits)
+- [ ] Used agent CLI (direct or tmux)? (not direct edits)
 - [ ] Code review posted to PR?
 - [ ] Standards review posted to PR?
 - [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
@@ -77,23 +114,37 @@ Before marking ANY task complete:
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
 
-### Codex Commands
+### Agent CLI Commands
 
-**Stable Reasoning Mode (complex tasks, tmux):**
+**Codex — full autonomy:**
 ```bash
-./scripts/tmux-run timeout 600s codex --yolo exec \
-  --model gpt-5.3-codex -c model_reasoning_effort="medium" "Your task"
+codex --yolo exec "Your task. No questions."
 ```
 
-**PR Review (in tmux, blocking):**
+**Codex — resume session:**
+```bash
+codex exec resume --last
+```
+
+**Claude Code — full autonomy:**
+```bash
+claude -p --dangerously-skip-permissions "Your task"
+```
+
+**Claude Code — resume session:**
+```bash
+claude -p -c "Follow up prompt"
+```
+
+**PR Review (wrapper, blocking):**
 ```bash
 cd /path/to/repo
 ./scripts/code-review "Review PR #N: bugs, security, quality"
 ```
 
-**Non-interactive (direct, only if tmux unavailable):**
+**Non-interactive review (direct, only if tmux unavailable):**
 ```bash
-timeout 1200s codex -c 'model_reasoning_effort="medium"' review --base main --title "PR Review"
+timeout 600s codex -c 'model_reasoning_effort="medium"' review --base main --title "PR Review"
 ```
 
 ### Git Workflow
@@ -143,6 +194,9 @@ Issue: TODO: <cleanup> after <dependency>
 | Review PR | `./scripts/code-review "Review PR #N for bugs, security, quality"` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
+| Resume Codex | `codex exec resume --last` |
+| Resume Claude | `claude -p -c "prompt"` |
+| List Claude sessions | `claude --list-sessions` |
 
 ## Code Quality Standards
 
@@ -158,7 +212,9 @@ Issue: TODO: <cleanup> after <dependency>
 - **P2**: Medium (minor features)
 - **P3**: Low (nice-to-have)
 
-## tmux for Interactive Sessions
+## tmux for Interactive Sessions (Optional)
+
+For durable TTY sessions with logging. See `references/tooling.md` for full tmux documentation.
 
 ```bash
 SOCKET_DIR="${OPENCLAW_TMUX_SOCKET_DIR:-${CLAWDBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/openclaw-tmux-sockets}}"

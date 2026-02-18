@@ -2,7 +2,7 @@
 # code-review - Wrapper for code reviews with proper timeout
 # Usage: code-review [options] "Review PR #123 for bugs, security, quality"
 #
-# Default timeout: 20 minutes (1200s)
+# Default timeout: 10 minutes (600s)
 # Override with:
 #   --timeout <seconds>
 #   CODE_REVIEW_TIMEOUT_SEC (seconds)
@@ -22,14 +22,16 @@ usage() {
 Usage: code-review [options] "<review title/instructions>"
 
 Options:
-  --timeout <seconds>               Review timeout in seconds (default: 1200)
+  --timeout <seconds>               Review timeout in seconds (default: 600)
   --reasoning-effort <level>        none|minimal|low|medium|high|xhigh
+  --auto-reasoning-threshold <n>    Auto-set medium effort when changed lines > n (default: 500)
   -h, --help                        Show this help
 
 Environment overrides:
   CODE_REVIEW_TIMEOUT_SEC           Timeout in seconds
   CODE_REVIEW_TIMEOUT               Timeout in milliseconds (legacy)
   CODE_REVIEW_REASONING_EFFORT      Reasoning effort override
+  CODE_REVIEW_DIFF_THRESHOLD        Auto-threshold for changed lines
 
 Notes:
   Codex v0.100.0 rejects [PROMPT] when --base is provided for `codex review`.
@@ -47,6 +49,7 @@ validate_reasoning_effort() {
 
 TIMEOUT_OVERRIDE=""
 REASONING_OVERRIDE=""
+THRESHOLD_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -76,6 +79,19 @@ while [[ $# -gt 0 ]]; do
             REASONING_OVERRIDE="${1#*=}"
             shift
             ;;
+        --auto-reasoning-threshold)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --auto-reasoning-threshold requires a numeric value" >&2
+                usage
+                exit 1
+            fi
+            THRESHOLD_OVERRIDE="$2"
+            shift 2
+            ;;
+        --auto-reasoning-threshold=*)
+            THRESHOLD_OVERRIDE="${1#*=}"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -103,14 +119,14 @@ fi
 
 REVIEW_PROMPT="$*"
 
-DEFAULT_TIMEOUT_SEC=1200
+DEFAULT_TIMEOUT_SEC=600
 TIMEOUT_SEC="$DEFAULT_TIMEOUT_SEC"
 if [[ -n "$TIMEOUT_OVERRIDE" ]]; then
     TIMEOUT_SEC="$TIMEOUT_OVERRIDE"
 elif [[ -n "${CODE_REVIEW_TIMEOUT_SEC:-}" ]]; then
     TIMEOUT_SEC="${CODE_REVIEW_TIMEOUT_SEC}"
 else
-    TIMEOUT_MS="${CODE_REVIEW_TIMEOUT:-1200000}"
+    TIMEOUT_MS="${CODE_REVIEW_TIMEOUT:-600000}"
     if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
         echo "Error: CODE_REVIEW_TIMEOUT must be numeric milliseconds" >&2
         echo "Got: $TIMEOUT_MS" >&2
@@ -122,6 +138,13 @@ fi
 if [[ ! "$TIMEOUT_SEC" =~ ^[0-9]+$ ]] || [[ "$TIMEOUT_SEC" -lt 1 ]]; then
     echo "Error: timeout must be a positive integer in seconds" >&2
     echo "Got: $TIMEOUT_SEC" >&2
+    exit 1
+fi
+
+AUTO_REASONING_THRESHOLD="${THRESHOLD_OVERRIDE:-${CODE_REVIEW_DIFF_THRESHOLD:-500}}"
+if [[ ! "$AUTO_REASONING_THRESHOLD" =~ ^[0-9]+$ ]]; then
+    echo "Error: auto reasoning threshold must be numeric" >&2
+    echo "Got: $AUTO_REASONING_THRESHOLD" >&2
     exit 1
 fi
 
@@ -148,16 +171,41 @@ elif git show-ref --verify --quiet refs/heads/master; then
     DEFAULT_BRANCH="master"
 fi
 
-DEFAULT_REASONING_EFFORT="medium"
-SELECTED_REASONING="${REASONING_OVERRIDE:-${CODE_REVIEW_REASONING_EFFORT:-$DEFAULT_REASONING_EFFORT}}"
-if ! validate_reasoning_effort "$SELECTED_REASONING"; then
+SELECTED_REASONING="${REASONING_OVERRIDE:-${CODE_REVIEW_REASONING_EFFORT:-}}"
+if [[ -n "$SELECTED_REASONING" ]] && ! validate_reasoning_effort "$SELECTED_REASONING"; then
     echo "Error: invalid reasoning effort: $SELECTED_REASONING" >&2
     echo "Allowed: none|minimal|low|medium|high|xhigh" >&2
     exit 1
 fi
 
+CHANGED_LINES=0
+if [[ -z "$SELECTED_REASONING" ]]; then
+    DIFF_BASE="$DEFAULT_BRANCH"
+    if ! git rev-parse --verify "$DIFF_BASE" &> /dev/null && git rev-parse --verify "origin/$DIFF_BASE" &> /dev/null; then
+        DIFF_BASE="origin/$DIFF_BASE"
+    fi
+
+    if git rev-parse --verify "$DIFF_BASE" &> /dev/null; then
+        while IFS=$'\t' read -r added deleted _rest; do
+            if [[ "$added" == "-" || "$deleted" == "-" ]]; then
+                continue
+            fi
+            CHANGED_LINES=$((CHANGED_LINES + added + deleted))
+        done < <(git diff --numstat "$DIFF_BASE"...HEAD)
+
+        if [[ "$CHANGED_LINES" -gt "$AUTO_REASONING_THRESHOLD" ]]; then
+            SELECTED_REASONING="medium"
+        fi
+    fi
+fi
+
 echo "Starting code review in tmux with ${TIMEOUT_SEC}s timeout (base: ${DEFAULT_BRANCH})..." >&2
-echo "Using reasoning effort: ${SELECTED_REASONING}" >&2
+if [[ "$CHANGED_LINES" -gt 0 ]]; then
+    echo "Diff size vs ${DEFAULT_BRANCH}: ${CHANGED_LINES} changed lines (threshold: ${AUTO_REASONING_THRESHOLD})" >&2
+fi
+if [[ -n "$SELECTED_REASONING" ]]; then
+    echo "Using reasoning effort: ${SELECTED_REASONING}" >&2
+fi
 
 REVIEW_TITLE="${REVIEW_PROMPT:0:100}"
 
@@ -172,7 +220,9 @@ fi
 #   codex review --base <branch> [PROMPT]
 # Keep --base and pass context through --title for compatibility.
 CODEX_ARGS=(review --base "$DEFAULT_BRANCH" --title "$REVIEW_TITLE")
-CODEX_ARGS=(-c "model_reasoning_effort=\"$SELECTED_REASONING\"" "${CODEX_ARGS[@]}")
+if [[ -n "$SELECTED_REASONING" ]]; then
+    CODEX_ARGS=(-c "model_reasoning_effort=\"$SELECTED_REASONING\"" "${CODEX_ARGS[@]}")
+fi
 
 CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-review}" \
   "$TMUX_RUN" --wait --cleanup timeout "${TIMEOUT_SEC}s" codex "${CODEX_ARGS[@]}"

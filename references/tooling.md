@@ -4,30 +4,84 @@
 
 | Method | Reliability | Output | Best For |
 |--------|-------------|--------|----------|
-| tmux + Codex CLI | ✅ High | Full TTY + logs | Long/complex tasks, reviews |
-| Codex CLI (direct) | ⚠️ Medium | Text stream | Short, non-interactive runs |
-| Claude CLI | ⚠️ Medium | Text stream | Fallback when Codex is unavailable |
+| Direct CLI (Codex/Claude) | ✅ High | Text stream | Most tasks, session resume workflows |
+| tmux + Codex CLI | ✅ High | Full TTY + logs | Long/complex tasks, durable sessions |
+| Claude CLI (fallback) | ⚠️ Medium | Text stream | When Codex is unavailable |
 
-## Wrapper Scripts (Recommended)
+## Direct CLI (Primary)
 
-The wrapper scripts run Codex inside tmux and emit monitoring info. `code-review` now runs in blocking mode by default (`--wait --cleanup`) so automation receives final review output.
+Agent CLIs support non-interactive execution with permission bypass and session resume.
+
+### Codex CLI
+
+| Command | Purpose |
+|---------|---------|
+| `codex --yolo exec "prompt"` | Full autonomy implementation |
+| `codex exec --model gpt-5.3-codex "prompt"` | Specify model |
+| `codex review --base main` | Code review against base branch |
+| `codex exec resume --last` | Resume last session |
+| `codex -c 'model_reasoning_effort="medium"' exec "prompt"` | Set reasoning effort |
+
+### Claude Code CLI
+
+| Command | Purpose |
+|---------|---------|
+| `claude -p --dangerously-skip-permissions "prompt"` | Full autonomy implementation |
+| `claude -p --model opus "prompt"` | Specify model |
+| `claude -p --permission-mode acceptEdits "prompt"` | Auto-accept edits only |
+| `claude -p -c "follow up"` | Continue most recent session |
+| `claude -p --resume <id> "follow up"` | Resume specific session |
+| `claude --list-sessions` | List available sessions |
+
+### Permission Bypass
+
+| CLI | Flag | Behavior |
+|-----|------|----------|
+| Codex | `--yolo` | Skip all permission prompts |
+| Codex | `--dangerously-bypass-approvals-and-sandbox` | Full name equivalent |
+| Claude | `--dangerously-skip-permissions` | Skip all permission checks |
+| Claude | `--permission-mode bypassPermissions` | Equivalent via mode flag |
+| Claude | `--permission-mode acceptEdits` | Auto-accept file edits only |
+
+### Session Management
+
+| CLI | Command | Purpose |
+|-----|---------|---------|
+| Codex | `codex exec resume --last` | Resume last session |
+| Claude | `claude -p -c "prompt"` | Continue most recent conversation |
+| Claude | `claude -p --resume <id> "prompt"` | Resume specific session by ID |
+| Claude | `claude --list-sessions` | List all sessions |
+
+Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/sessions/`) and survive process restarts.
+
+## Wrapper Scripts (Recommended for Reviews)
+
+The wrapper scripts run Codex inside tmux and emit monitoring info. `code-review` runs in blocking mode by default (`--wait --cleanup`).
 
 ```bash
-# Review (20 min timeout default, tmux, blocking)
+# Review (10 min timeout default, auto-reasoning, blocking)
 "${CODING_AGENT_DIR:-./}/scripts/code-review" "Review PR #123 for bugs, security, quality"
 
 # Implementation (3 min timeout, tmux)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
 ```
 
-## tmux Conventions (OpenClaw)
+### Auto-Reasoning Threshold
+
+`code-review` automatically sets `medium` reasoning effort when the diff exceeds a threshold (default: 500 changed lines). Override with `--auto-reasoning-threshold <n>` or `CODE_REVIEW_DIFF_THRESHOLD` env var. Explicit `--reasoning-effort` takes priority.
+
+## Advanced: tmux Wrapper (Optional)
+
+For durable TTY sessions with logging. Use when you need to monitor long-running tasks or preserve terminal output.
+
+### tmux Conventions (OpenClaw)
 
 - Socket directory: `OPENCLAW_TMUX_SOCKET_DIR` (legacy: `CLAWDBOT_TMUX_SOCKET_DIR`)
 - Default socket: `${TMPDIR:-/tmp}/openclaw-tmux-sockets/openclaw.sock`
 - Send commands literally: `tmux ... send-keys -l -- "cmd"`
 - Always print monitor commands after creating a session
 
-## Direct tmux Usage
+### Direct tmux Usage
 
 ```bash
 SOCKET_DIR="${OPENCLAW_TMUX_SOCKET_DIR:-${CLAWDBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/openclaw-tmux-sockets}}"
@@ -46,9 +100,9 @@ tmux -S "$SOCKET" attach -t "$SESSION"
 tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 ```
 
-## tmux-run Helper
+### tmux-run Helper
 
-`scripts/tmux-run` standardizes sockets, logging, and session names. It is non-blocking by default unless `--wait` is passed.
+`scripts/tmux-run` standardizes sockets, logging, and session names. Non-blocking by default unless `--wait` is passed.
 
 ```bash
 # Run an implementation command in tmux (non-blocking)
@@ -60,32 +114,18 @@ CODEX_TMUX_SESSION_PREFIX=codex-review \
   ./scripts/tmux-run --wait timeout 600s codex review --base main --title "PR Review"
 ```
 
-Logs are stored in:
-- `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`
+Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`
 
-Cleanup suggestions:
-- Kill a single session: `tmux -S "$SOCKET" kill-session -t "$SESSION"`
+Cleanup:
+- Kill session: `tmux -S "$SOCKET" kill-session -t "$SESSION"`
 - Remove old logs: `find "$LOG_DIR" -type f -mtime +7 -delete`
-
-Optional: If you have the OpenClaw tmux skill installed, use its helper:
-- `{baseDir}/scripts/wait-for-text.sh` to wait for prompts or DONE markers
-
-## CLI Direct (Only If tmux Unavailable)
-
-```bash
-# Implementation (full autonomy)
-timeout 180s codex --yolo exec "Implement feature X. No questions."
-
-# Review (purpose-built command)
-codex review --base main --title "PR Review"
-```
 
 ## Minimum Timeouts
 
-| Task Type | Minimum | Recommended |
-|-----------|---------|-------------|
-| Code review | 600s | 1200s |
-| Architectural review | 600s | 1200s |
+| Task Type | Minimum | Default |
+|-----------|---------|---------|
+| Code review | 600s | 600s |
+| Architectural review | 600s | 600s |
 | Single-file implementation | 120s | 180s |
 | Multi-file implementation | 300s | 600s |
 
@@ -106,8 +146,8 @@ codex review --base main --title "PR Review"
 | `CODEX_TMUX_DISABLE` | Disable tmux and run direct CLI | `0` |
 | `CODEX_TMUX_REQUIRED` | Require tmux for Codex (safe-fallback) | `1` |
 | `GEMINI_FALLBACK_ENABLE` | Enable Gemini fallback in `safe-fallback.sh` | `0` |
-| `CODE_REVIEW_TIMEOUT_SEC` | Review wrapper timeout (seconds) | `1200` |
-| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms, legacy) | `1200000` |
+| `CODE_REVIEW_TIMEOUT_SEC` | Review wrapper timeout (seconds) | `600` |
+| `CODE_REVIEW_TIMEOUT` | Review wrapper timeout (ms, legacy) | `600000` |
 | `CODE_REVIEW_REASONING_EFFORT` | Force review reasoning effort | unset |
 | `CODE_REVIEW_DIFF_THRESHOLD` | Auto-medium threshold (changed lines) | `500` |
 | `CODE_IMPLEMENT_TIMEOUT` | Implement wrapper timeout (ms) | `180000` |

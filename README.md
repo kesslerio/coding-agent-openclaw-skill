@@ -1,21 +1,29 @@
 # coding-agent OpenClaw Skill 💻
 
-OpenClaw skill for coding assistant with Codex CLI integration. Activates dev persona for pragmatic, experienced developer guidance.
+OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Primary mode: direct CLI with session resume and permission bypass. Secondary mode: tmux wrappers for durable TTY sessions.
 
 ## Features
 
-- **Codex CLI Integration** — Use `gpt-5.3-codex` with stable review defaults (`medium` reasoning, blocking tmux, longer timeout)
-- **PR Review Workflow** — Checkout PRs and run Codex reviews with GitHub CLI
+- **Session Resume Workflows** — Multi-phase issue → implement → PR → review → fix cycles with full context preservation
+- **Agent CLI Integration** — Direct CLI execution with permission bypass (`--yolo`, `--dangerously-skip-permissions`)
+- **Auto-Reasoning** — Diff-size-based reasoning effort scaling for reviews (threshold: 500 changed lines)
+- **PR Review Workflow** — Checkout PRs and run reviews with auto-blocking and cleanup
 - **Dev Persona** — Pragmatic code reviews with clear feedback
 - **Git Workflow Documentation** — Branch, commit, PR conventions
 - **Code Quality Standards** — KISS, YAGNI, DRY, SRP principles
+
+## Requirements
+
+- GitHub CLI (`gh`)
+- One of: Codex CLI (`codex`) or Claude Code CLI (`claude`)
+- Optional: tmux (for durable TTY sessions and wrapper scripts)
 
 ## Installation
 
 ```bash
 # Clone to OpenClaw skills directory
 cd /home/art/clawd/skills
-git clone https://github.com/kesslerio/coding-agent-clawdhub-skill.git coding-agent
+git clone https://github.com/kesslerio/coding-agent-openclaw-skill.git coding-agent
 ```
 
 ## Usage
@@ -25,25 +33,39 @@ In OpenClaw, activate with:
 /coding
 ```
 
-Then use Codex commands (tmux-based):
+### Direct CLI (Primary)
+
 ```bash
-# PR Review
+# Implementation (Codex)
+codex --yolo exec "Implement feature X. No questions."
+
+# Implementation (Claude Code)
+claude -p --dangerously-skip-permissions "Implement feature X"
+
+# Resume last session (context preserved)
+codex exec resume --last
+claude -p -c "Fix the review findings"
+```
+
+### Wrapper Scripts (Secondary)
+
+```bash
+# PR Review (10 min timeout, blocking, auto-reasoning)
 gh pr checkout <PR>
 ./scripts/code-review "Review PR #N: bugs, security, quality"
 
-# Complex task (explicit override only when truly needed)
-./scripts/tmux-run timeout 600s codex --yolo exec \
-  --model gpt-5.3-codex -c model_reasoning_effort="medium" "Your task"
+# Implementation (3 min timeout, tmux)
+./scripts/code-implement "Implement feature X"
 ```
-
-Note: `code-review` now blocks by default and cleans up its tmux session when complete.
 
 ## Files
 
 - `SKILL.md` — Full skill documentation (includes Dev persona)
+- `references/WORKFLOW.md` — Coding workflow, Git integration, multi-phase workflows
 - `references/STANDARDS.md` — Coding standards & rules
-- `references/WORKFLOW.md` — Coding workflow & Git integration
 - `references/quick-reference.md` — Command quick reference
+- `references/tooling.md` — CLI usage, session management, timeouts
+- `references/claude-code.md` — Claude Code CLI reference and session resume
 - `references/reviews.md` — Review + PR/issue writing patterns
 
 ## GitHub Hygiene
@@ -55,14 +77,6 @@ Note: `code-review` now blocks by default and cleans up its tmux session when co
   - Tracking: `TODO: <cleanup> after <dependency>`
 - PR bodies must include: `What`, `Why`, `Tests`, `AI Assistance`.
 - `Tests` should be exact commands; `AI Assistance` should include prompt/session link when available.
-
-## Requirements
-
-- OpenClaw
-- Codex CLI (`gpt-5.3-codex`)
-- GitHub CLI (`gh`)
-- tmux
-- Optional: OpenClaw tmux skill (for `wait-for-text.sh` helpers)
 
 ## License
 
