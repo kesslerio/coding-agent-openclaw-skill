@@ -2,6 +2,7 @@
 
 ## Contents
 - STOP-AND-VERIFY (Before ANY Implementation)
+- Self-Audit Triggers (Option A)
 - Forbidden Flags & Minimum Timeouts
 - Tool Fallback Chain
 - Direct CLI Commands (Primary)
@@ -25,6 +26,18 @@ STOP. Before I proceed, let me verify:
 □ Am I avoiding --max-turns? (let it complete naturally)
 ```
 **If any box is unchecked → STOP and fix before proceeding.**
+
+## Self-Audit Triggers (Option A)
+
+Run self-audit before final response when:
+- code/config changed,
+- tests changed (or should have changed),
+- review requested,
+- docs commands/examples changed.
+
+Skip only when:
+- informational response with zero repo changes, or
+- user asks for raw output only.
 
 ## Forbidden Flags & Minimum Timeouts
 
@@ -98,6 +111,8 @@ Before marking ANY task complete:
 - [ ] Used agent CLI (direct or tmux)? (not direct edits)
 - [ ] Code review posted to PR?
 - [ ] Standards review posted to PR?
+- [ ] Implementation audit completed?
+- [ ] Review audit completed?
 - [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
 - [ ] Issue/PR title follows repo conventions?
 
@@ -174,6 +189,25 @@ Issue: TODO: <cleanup> after <dependency>
 - Prompt/session log: <link or note>
 - I understand this code: yes
 ```
+
+### Self-Audit Response Skeleton
+```markdown
+## Self-Audit Summary
+- Audit status: complete | skipped (reason)
+- Tests run:
+  - `command ...`
+- Residual risks:
+  - ...
+- Assumptions:
+  - ...
+- Command/docs verification:
+  - VERIFIED: ...
+  - UNVERIFIED: ...
+```
+
+Definitions:
+- `VERIFIED`: command/example was executed in this session.
+- `UNVERIFIED`: command/example was not executed in this session.
 
 ## Command Reference
 

@@ -21,6 +21,31 @@
 2. Classify findings by severity (P0–P3).
 3. Create issues with file:line references.
 
+## Review Output Contract (Required)
+
+- List findings first, ordered by severity (`P0` -> `P3`).
+- Include concrete file:line reference for each finding.
+- Include open questions/assumptions after findings.
+- If command/docs examples were changed, label each as:
+  - `VERIFIED` (executed) or
+  - `UNVERIFIED` (not executed)
+- Never imply a command was validated when it was not run.
+
+### Self-Audit Summary Block (Required in final review response)
+```markdown
+## Self-Audit Summary
+- Audit status: complete | skipped (reason)
+- Tests run:
+  - `command ...`
+- Residual risks:
+  - ...
+- Assumptions:
+  - ...
+- Command/docs verification:
+  - VERIFIED: ...
+  - UNVERIFIED: ...
+```
+
 ## Issue/PR Authoring Standard (Peter-style)
 
 ### PR Titles
@@ -75,6 +100,13 @@ gh pr review <PR> --comment --body "Suggestions and notes"
 
 ### ❌ ISSUES (P1)
 - [file:8] Commit uses wrong format
+
+### Assumptions / Open Questions
+- Assumption: ...
+
+### Command/Docs Verification
+- VERIFIED: `timeout 600s codex review --base main`
+- UNVERIFIED: `claude ...`
 
 ### Recommendation: APPROVE / REQUEST_CHANGES
 ```
