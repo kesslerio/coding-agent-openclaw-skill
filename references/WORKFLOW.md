@@ -253,10 +253,26 @@ gh pr merge --merge --delete-branch
 | Resume specific | `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |
 | List/pick session | — | `claude --resume` (interactive picker) |
 
+Codex resume compatibility note:
+- Preferred: `codex exec resume --last` or `codex exec resume <id>`.
+- If your installed Codex build does not support `resume`, start a fresh run and reference the prior issue/PR context explicitly.
+
 ### When to Resume vs Start Fresh
 
 - **Resume**: Fix review findings, continue implementation, follow-up on same codebase
 - **Fresh**: New issue, different repo, unrelated task
+
+### Base Branch Detection (`<base>`)
+
+Use this order:
+
+```bash
+# Primary
+git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
+
+# Fallback (when origin/HEAD is unset)
+git remote show origin | sed -n '/HEAD branch/s/.*: //p'
+```
 
 ### Prompt Engineering Best Practices
 - **Be Specific**: "Implement X using Y library" vs "Add X".

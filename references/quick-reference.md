@@ -205,6 +205,10 @@ Issue: TODO: <cleanup> after <dependency>
   - UNVERIFIED: ...
 ```
 
+Definitions:
+- `VERIFIED`: command/example was executed in this session.
+- `UNVERIFIED`: command/example was not executed in this session.
+
 ## Command Reference
 
 | Task | Command |

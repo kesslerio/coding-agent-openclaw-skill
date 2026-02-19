@@ -31,6 +31,21 @@
   - `UNVERIFIED` (not executed)
 - Never imply a command was validated when it was not run.
 
+### Self-Audit Summary Block (Required in final review response)
+```markdown
+## Self-Audit Summary
+- Audit status: complete | skipped (reason)
+- Tests run:
+  - `command ...`
+- Residual risks:
+  - ...
+- Assumptions:
+  - ...
+- Command/docs verification:
+  - VERIFIED: ...
+  - UNVERIFIED: ...
+```
+
 ## Issue/PR Authoring Standard (Peter-style)
 
 ### PR Titles

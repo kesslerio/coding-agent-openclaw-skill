@@ -52,6 +52,8 @@ Full issue → implement → PR → review → fix cycle using session resume:
 
 > **`<base>`** = repo's default branch (main, master, or trunk). Detect with:
 > `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'`
+> Fallback if `origin/HEAD` is unset:
+> `git remote show origin | sed -n '/HEAD branch/s/.*: //p'`
 
 ## Non-Negotiable Rules (Summary)
 
