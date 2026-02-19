@@ -25,6 +25,11 @@ if [[ -z "$CLI" ]]; then
   exit 1
 fi
 
+if [[ "$CLI" != "claude" && "$CLI" != "codex" ]]; then
+  error "Unknown CLI: $CLI. Must be 'codex' or 'claude'."
+  exit 1
+fi
+
 shift # Remove CLI name from args
 
 # Check for forbidden --max-turns flag
