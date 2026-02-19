@@ -61,6 +61,21 @@ Full issue → implement → PR → review → fix cycle using session resume:
 4. **GitHub hygiene** — Precise titles, structured bodies, explicit test commands, AI disclosure.
 5. **No `--max-turns`** — Let agent runs complete naturally.
 6. **Adequate timeouts** — Minimum 600s for reviews.
+7. **Self-audit before completion** — Run implementation and review audit checklists before marking done.
+
+## Self-Audit Policy (Option A)
+
+Self-audit is required when any of these are true:
+- Code or config changed.
+- Tests changed or should have changed.
+- Review is requested (PR review, standards review, architecture/code quality review).
+- Docs changed with executable commands/examples.
+
+Self-audit may be skipped only for:
+- Pure informational answers with zero repo changes.
+- User explicitly asks for raw output only.
+
+If skipped, state why it was skipped.
 
 ## Fallback Chain
 

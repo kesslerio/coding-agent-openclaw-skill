@@ -4,6 +4,7 @@
 - Overview
 - Git Workflow
 - Hard Requirements (Violation = Task Failure)
+- Self-Audit Protocol
 - GitHub CLI (gh)
 - Agent Workflow
 - Multi-Phase Workflow (Session Resume)
@@ -75,6 +76,12 @@ These are non-negotiable requirements. Violating any of these means the task has
 - **MUST** post both reviews to GitHub PR
 - **Violation Response**: Block merge until reviews are posted
 
+### 5. Self-Audit Requirement
+- **MUST** run self-audit before reporting completion when code/config/docs commands were changed
+- **MUST** use findings-first format with severity order and file:line references for review tasks
+- **MUST** verify changed command examples or explicitly mark them unverified
+- **Violation Response**: Do not mark complete; run audit and report gaps
+
 ### Self-Check Before Completion
 Before reporting task complete, verify:
 - [ ] Changes on feature branch (not main)?
@@ -82,6 +89,53 @@ Before reporting task complete, verify:
 - [ ] Correct tools used (agent CLI, direct or tmux)?
 - [ ] Code review completed and posted?
 - [ ] Standards review completed and posted?
+- [ ] Self-audit completed (or explicit skip reason documented)?
+
+## Self-Audit Protocol
+
+Run this before final response unless skip conditions apply.
+
+### When Required
+- Code/config changed.
+- Tests changed or should have changed.
+- Review requested by user.
+- Docs changed with executable commands/examples.
+
+### Skip Conditions
+- Informational response only, no repo changes.
+- User requested raw command output only.
+
+If skipped, explicitly state why.
+
+### Phase 1: Implementation Audit
+- [ ] Requirement coverage checked against user request.
+- [ ] Edge cases and failure paths reviewed.
+- [ ] Tests added/updated or explicit rationale for none.
+- [ ] Risky assumptions called out.
+
+### Phase 2: Review Audit
+- [ ] Findings ordered by severity (P0-P3).
+- [ ] Every finding includes file:line reference.
+- [ ] Regressions/unintended side effects checked.
+- [ ] Changed docs commands/examples verified; if not run, mark `UNVERIFIED`.
+
+### Final Response Contract
+
+Use this block in completion messages:
+
+```markdown
+## Self-Audit Summary
+- Audit status: complete | skipped (reason)
+- Tests run:
+  - `command ...`
+- Residual risks:
+  - ...
+- Assumptions:
+  - ...
+- Command/docs verification:
+  - VERIFIED: ...
+  - UNVERIFIED: ...
+```
 
 ## GitHub CLI (gh)
 

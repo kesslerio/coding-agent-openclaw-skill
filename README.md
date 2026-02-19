@@ -7,6 +7,7 @@ OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Prima
 - **Session Resume Workflows** — Multi-phase issue → implement → PR → review → fix cycles with full context preservation
 - **Agent CLI Integration** — Direct CLI execution with permission bypass (`--yolo`, `--dangerously-skip-permissions`)
 - **PR Review Workflow** — Direct CLI reviews with proper timeouts
+- **Self-Auditing Workflow** — Required implementation/review audit checks before final completion
 - **Dev Persona** — Pragmatic code reviews with clear feedback
 - **Git Workflow Documentation** — Branch, commit, PR conventions
 - **Code Quality Standards** — KISS, YAGNI, DRY, SRP principles

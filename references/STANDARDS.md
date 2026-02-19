@@ -95,6 +95,7 @@ During standards review, also verify process compliance:
 - [ ] Code/logic review completed
 - [ ] Standards review completed
 - [ ] Both reviews posted to GitHub PR
+- [ ] Self-audit completed (or explicit skip reason documented)
 - [ ] Issues found are addressed before merge
 
 ### Compliance Review Output Format
