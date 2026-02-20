@@ -1,5 +1,5 @@
 ## Linked Issue
-- Closes #
+- Closes # (or `n/a`)
 
 ## What
 -
@@ -17,7 +17,7 @@
 - Exact commands run:
   - `...`
 - Results:
-  - `PASS/FAIL` with key output notes
+  - `PASS/FAIL` with key output notes (include failures and follow-up fixes)
 
 ## Risk and Rollback
 - Risk level: low | medium | high

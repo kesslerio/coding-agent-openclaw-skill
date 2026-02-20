@@ -3,6 +3,7 @@ description: Track maintenance/refactor/process work.
 title: "TODO: <cleanup> after <dependency>"
 labels:
   - chore
+  - needs triage
 body:
   - type: markdown
     attributes:

@@ -1,31 +1,31 @@
-name: "🐞 Bug report"
-description: Report a reproducible defect in scripts, docs, or CI.
+name: "🪲 Bug report"
+description: Report an issue that should be fixed.
 title: "bug: <symptom> when <condition>"
 labels:
   - bug
+  - needs triage
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. Please include exact commands and outputs.
+        Thank you for submitting a bug report.
 
-        Reports are triaged by:
-        - reproducibility (clear steps + concrete evidence)
-        - severity and impact
-        - blast radius and rollback complexity
+        Before filing, make sure you are testing against the latest `main`.
+        Please include exact commands and raw output where possible.
 
-  - type: dropdown
-    id: area
+  - type: input
+    id: version
     attributes:
-      label: Affected area
-      options:
-        - scripts (wrappers, doctor, smoke tests)
-        - docs (README/references)
-        - GitHub workflows
-        - templates/community files
-        - other
-    validations:
-      required: true
+      label: Skill version/ref
+      description: Branch, commit SHA, or release tag.
+      placeholder: main@<sha>
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and shell; include output of `uname -mprs` when available.
+      placeholder: Darwin arm64 ... / zsh
 
   - type: textarea
     id: summary
@@ -53,7 +53,7 @@ body:
   - type: textarea
     id: minimal_command
     attributes:
-      label: Minimal failing command
+      label: Minimal failing command or snippet
       description: Smallest single command that still fails.
       render: shell
     validations:
@@ -69,13 +69,11 @@ body:
       required: true
 
   - type: input
-    id: observed_ref
+    id: related_tooling
     attributes:
-      label: Observed on ref
-      description: Branch/SHA/tag/PR where this occurred.
-      placeholder: main@<sha> or PR #123
-    validations:
-      required: true
+      label: Related tool versions (optional)
+      description: Codex/Claude/GitHub CLI versions if relevant.
+      placeholder: codex --version, gh --version, claude --version
 
   - type: checkboxes
     id: confirmations

@@ -3,6 +3,7 @@ description: Propose a capability improvement with concrete acceptance criteria.
 title: "feat: <capability> (for <surface>)"
 labels:
   - enhancement
+  - needs triage
 body:
   - type: markdown
     attributes:

@@ -1,17 +1,17 @@
 # Contributing
 
-## Before opening a PR
-- Search existing issues/PRs first.
-- Open or link an issue for non-trivial changes.
-- Keep changes focused; avoid mixing unrelated work.
+## Before You Start
+- Search existing issues and PRs first.
+- Use issue forms in `.github/ISSUE_TEMPLATE/` for new reports/requests.
+- Keep each PR focused; do not mix unrelated changes.
 
-## Branch and commit conventions
-- Branches: use clear topic names (example: `codex/<short-topic>`).
-- Commits: conventional format `type(scope): subject`.
+## Branches and Commits
+- Branch names should be short and descriptive (example: `codex/<topic>`).
+- Prefer commit format `type(scope): subject`.
 
-## Development expectations
-- Include exact verification commands in PRs.
-- For script changes, run at minimum:
+## Validation
+- Include exact commands and outcomes in your PR.
+- For script changes, run:
 
 ```bash
 while IFS= read -r script; do [[ -f "$script" ]] || continue; bash -n "$script"; done < <(git ls-files scripts)
@@ -25,7 +25,7 @@ while IFS= read -r script; do [[ -f "$script" ]] || continue; shellcheck "$scrip
 ./scripts/doctor
 ```
 
-## PR requirements
-- Use the PR template sections completely.
-- Include: What, Why, Scope, Validation, Risk/Rollback, AI Assistance.
-- If behavior changes, update relevant docs in `README.md` and `references/`.
+## Pull Requests
+- Complete all sections in `.github/pull_request_template.md`.
+- Include: linked issue, What/Why/Scope, validation commands/results, risk/rollback, AI assistance.
+- If behavior changes, update docs in `README.md` and `references/`.
