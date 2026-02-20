@@ -167,7 +167,7 @@ Use this block in completion messages:
 
 ### Primary: Direct CLI
 
-Use agent CLIs directly for most tasks. Session resume preserves full context across phases.
+Use agent CLIs directly for most tasks. Session resume preserves full context across phases and is preferred over spawning sub-agents for routine implementation.
 
 ```bash
 # Implementation (Codex)
@@ -312,15 +312,20 @@ claude -p --resume <session-id> "Continue from here"
 ```
 
 See `references/claude-code.md` for full Claude Code reference.
+See `references/codex-cli.md` for canonical Codex execution policy (`exec`, `resume`, MCP distinctions).
 See `references/tooling.md` for tmux wrappers, timeouts, and environment variables.
 
 ## Agent Utilization
 
-Delegate specific tasks to focused agents:
+Delegate specific tasks to focused agents only when decomposition is clear and parallelizable:
 
 - **requirements-specialist**: Specs → GitHub Issues
 - **implementation-architect**: API/UI Design
 - **quality-assurance-specialist**: Tests, Security, Perf
 - **docs-architect**: Documentation updates
 
-**Trigger**: When a task is too complex for a single prompt, spawn a sub-agent with a specific role.
+**Trigger**: Use sub-agents for independent tracks (for example: separate security/performance/test review streams). Keep single-agent `codex exec` + `codex exec resume` as the default path for implementation loops.
+
+Sub-agent note:
+- Codex multi-agent workflows are experimental.
+- Non-interactive approval handling can fail if sub-agents request escalation unexpectedly.

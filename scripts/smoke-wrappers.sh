@@ -82,8 +82,34 @@ test_review_prompt_pass_through() {
   assert_contains "$codex_args" "$prompt"
 }
 
+test_invalid_impl_mode_rejected() {
+  local output="$tmp_dir/invalid-impl-mode.txt"
+  if CODING_AGENT_IMPL_MODE=invalid "$SCRIPT_DIR/safe-fallback.sh" impl "prompt" >"$output" 2>&1; then
+    printf 'Expected safe-fallback.sh to reject invalid CODING_AGENT_IMPL_MODE\n' >&2
+    exit 1
+  fi
+  assert_contains "$output" "Invalid CODING_AGENT_IMPL_MODE"
+}
+
+test_impl_direct_mode_uses_codex_exec() {
+  local prompt="Implement feature with direct mode fallback check."
+  local codex_args="$tmp_dir/codex-impl-args.txt"
+  local output="$tmp_dir/impl-direct.txt"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_IMPL_MODE=direct \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  assert_contains "$codex_args" "--yolo"
+  assert_contains "$codex_args" "exec"
+  assert_contains "$codex_args" "$prompt"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_review_prompt_pass_through
+test_invalid_impl_mode_rejected
+test_impl_direct_mode_uses_codex_exec
 
 printf 'Wrapper smoke tests passed.\n'

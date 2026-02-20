@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# safe-impl.sh - Wrapper for codex implementation commands
+# safe-impl.sh - Wrapper for implementation commands
 # Enforces branch check and blocks --max-turns
 set -euo pipefail
 
@@ -23,6 +23,25 @@ NC='\033[0m' # No Color
 error() { echo -e "${RED}❌ $1${NC}" >&2; }
 warn() { echo -e "${YELLOW}⚠️  $1${NC}" >&2; }
 ok() { echo -e "${GREEN}✅ $1${NC}" >&2; }
+
+resolve_impl_mode() {
+  if [[ -n "${CODING_AGENT_IMPL_MODE:-}" ]]; then
+    printf '%s\n' "${CODING_AGENT_IMPL_MODE}"
+    return 0
+  fi
+
+  # Legacy compatibility knobs.
+  if [[ "${CODEX_TMUX_DISABLE:-0}" == "1" ]]; then
+    printf 'direct\n'
+    return 0
+  fi
+  if [[ "${CODEX_TMUX_REQUIRED:-0}" == "1" ]]; then
+    printf 'tmux\n'
+    return 0
+  fi
+
+  printf 'direct\n'
+}
 
 # Check for forbidden --max-turns flag
 for arg in "$@"; do
@@ -87,7 +106,11 @@ shift # Remove CLI name from args
 CLI_BIN="$CLI"
 if [[ "$CLI" == "claude" ]]; then
   if ! CLI_BIN="$(resolve_claude_bin)"; then
-    error "Claude CLI not found (tried ~/.claude/local/claude, then PATH)."
+    if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
+      error "CODING_AGENT_CLAUDE_BIN is set but not executable: ${CODING_AGENT_CLAUDE_BIN}"
+    else
+      error "Claude CLI not found (tried CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, then PATH)."
+    fi
     exit 1
   fi
 elif ! command -v "$CLI" &>/dev/null; then
@@ -95,21 +118,47 @@ elif ! command -v "$CLI" &>/dev/null; then
   exit 1
 fi
 
-# Prefer tmux for codex unless explicitly disabled
-if [[ "$CLI" == "codex" && "${CODEX_TMUX_DISABLE:-0}" != "1" ]]; then
-  if ! command -v tmux &>/dev/null; then
-    error "tmux not found in PATH. Install tmux or set CODEX_TMUX_DISABLE=1 to run direct."
-    exit 1
+# Codex implementation mode:
+# - direct: run codex directly
+# - tmux: require tmux transport
+# - auto: tmux when attached to interactive TTY and tmux exists; otherwise direct
+if [[ "$CLI" == "codex" ]]; then
+  IMPL_MODE="$(resolve_impl_mode)"
+  case "$IMPL_MODE" in
+    direct)
+      RUN_IN_TMUX=0
+      ;;
+    tmux)
+      RUN_IN_TMUX=1
+      ;;
+    auto)
+      if command -v tmux &>/dev/null && [[ -t 1 ]]; then
+        RUN_IN_TMUX=1
+      else
+        RUN_IN_TMUX=0
+      fi
+      ;;
+    *)
+      error "Invalid CODING_AGENT_IMPL_MODE '$IMPL_MODE' (expected: direct|tmux|auto)"
+      exit 1
+      ;;
+  esac
+
+  if [[ "$RUN_IN_TMUX" == "1" ]]; then
+    if ! command -v tmux &>/dev/null; then
+      error "tmux not found in PATH. Install tmux or set CODING_AGENT_IMPL_MODE=direct."
+      exit 1
+    fi
+    TMUX_RUN="$SCRIPT_DIR/tmux-run"
+    if [[ ! -x "$TMUX_RUN" ]]; then
+      error "tmux-run not found or not executable: $TMUX_RUN"
+      exit 1
+    fi
+    warn "Running codex implementation in tmux with ${TIMEOUT}s timeout (mode: ${IMPL_MODE})"
+    CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+      "$TMUX_RUN" timeout "${TIMEOUT}s" "$CLI" "$@"
+    exit $?
   fi
-  TMUX_RUN="$SCRIPT_DIR/tmux-run"
-  if [[ ! -x "$TMUX_RUN" ]]; then
-    error "tmux-run not found or not executable: $TMUX_RUN"
-    exit 1
-  fi
-  warn "Running codex implementation in tmux with ${TIMEOUT}s timeout"
-  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-    "$TMUX_RUN" timeout "${TIMEOUT}s" "$CLI" "$@"
-  exit $?
 fi
 
 # For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging

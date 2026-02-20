@@ -72,6 +72,12 @@ timeout 600s codex review --base <base> --title "Review PR #N"
 ./scripts/code-implement "Implement feature X"
 ```
 
+Implementation mode policy can be configured:
+
+```bash
+export CODING_AGENT_IMPL_MODE=direct  # direct|tmux|auto
+```
+
 ## Files
 
 - `SKILL.md` — Full skill documentation (includes Dev persona)
@@ -79,6 +85,7 @@ timeout 600s codex review --base <base> --title "Review PR #N"
 - `references/STANDARDS.md` — Coding standards & rules
 - `references/quick-reference.md` — Command quick reference
 - `references/tooling.md` — CLI usage, session management, timeouts
+- `references/codex-cli.md` — Canonical Codex CLI reference and policy matrix
 - `references/claude-code.md` — Claude Code CLI reference and session resume
 - `references/reviews.md` — Review + PR/issue writing patterns
 

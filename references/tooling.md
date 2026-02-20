@@ -4,9 +4,25 @@
 
 | Method | Reliability | Output | Best For |
 |--------|-------------|--------|----------|
-| Direct CLI (Codex/Claude) | ✅ High | Text stream | Most tasks, session resume workflows |
-| tmux + Codex CLI | ✅ High | Full TTY + logs | Long/complex tasks, durable sessions |
-| Claude CLI (fallback) | ⚠️ Medium | Text stream | When Codex is unavailable |
+| Direct Codex CLI (`exec` + `resume`) | ✅ High | Text/JSON stream | Most implementation loops and iterative follow-ups |
+| tmux transport + Codex CLI | ✅ High | Full TTY + logs | Long-running tasks requiring reattach and terminal durability |
+| Claude CLI fallback | ⚠️ Medium | Text stream | When Codex is unavailable |
+
+## Execution Policy Matrix
+
+| Task | Primary | Secondary | Notes |
+|------|---------|-----------|-------|
+| Implementation | direct `codex --yolo exec` | tmux transport | Use `codex exec resume --last` for follow-up |
+| PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
+| Long-running implementation | tmux transport | direct `codex --yolo exec` | Use tmux when persistence/reattach is required |
+
+Implementation routing is configurable:
+
+- `CODING_AGENT_IMPL_MODE=direct` -> direct first, tmux second
+- `CODING_AGENT_IMPL_MODE=tmux` -> tmux first, direct second
+- `CODING_AGENT_IMPL_MODE=auto` -> tmux first only when attached to an interactive TTY and tmux exists
+
+Default behavior: `direct`.
 
 ## Direct CLI (Primary)
 
@@ -16,19 +32,18 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 
 | Command | Purpose |
 |---------|---------|
-| `codex --yolo exec "prompt"` | Full autonomy implementation |
-| `codex exec --model gpt-5.3-codex "prompt"` | Specify model |
-| `codex review --base <base>` | Code review against base branch (main/master/trunk) |
-| `codex exec resume --last` | Resume last session |
-| `codex -c 'model_reasoning_effort="medium"' exec "prompt"` | Set reasoning effort |
+| `codex --yolo exec "prompt"` | Full-autonomy implementation |
+| `codex exec resume --last "follow-up"` | Resume previous context |
+| `codex review --base <base>` | Code review against base branch |
+| `codex exec --json "prompt"` | Structured event stream for automation |
+| `codex exec --output-last-message /tmp/last.txt "prompt"` | Persist final response for wrappers/scripts |
 
 ### Claude Code CLI
 
 | Command | Purpose |
 |---------|---------|
-| `claude -p --dangerously-skip-permissions "prompt"` | Full autonomy implementation |
-| `claude -p --model opus "prompt"` | Specify model |
-| `claude -p --permission-mode acceptEdits "prompt"` | Auto-accept edits only |
+| `claude -p --dangerously-skip-permissions "prompt"` | Full-autonomy implementation fallback |
+| `claude -p --model opus "prompt"` | Complex fallback task |
 | `claude -p -c "follow up"` | Continue most recent session |
 | `claude -p --resume <id> "follow up"` | Resume specific session |
 | `claude --resume` | Interactive session picker |
@@ -37,8 +52,9 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 
 | CLI | Flag | Behavior |
 |-----|------|----------|
-| Codex | `--yolo` | Skip all permission prompts |
-| Codex | `--dangerously-bypass-approvals-and-sandbox` | Full name equivalent |
+| Codex | `--yolo` | Alias for full bypass in `exec` workflows |
+| Codex | `--dangerously-bypass-approvals-and-sandbox` | Skip approvals and sandbox |
+| Codex | `--full-auto` | Lower-friction sandboxed automation |
 | Claude | `--dangerously-skip-permissions` | Skip all permission checks |
 | Claude | `--permission-mode bypassPermissions` | Equivalent via mode flag |
 | Claude | `--permission-mode acceptEdits` | Auto-accept file edits only |
@@ -54,6 +70,17 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 
 Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/projects/<project>/`) and survive process restarts.
 
+## MCP Clarification
+
+Two MCP modes exist and should not be conflated:
+
+1. `codex mcp ...`
+- Adds external MCP tools for Codex to use during a run.
+
+2. `codex mcp-server`
+- Exposes Codex itself as an MCP server for another orchestrator.
+- Experimental; use behind feature flags/pilots.
+
 ## Preflight Checks
 
 Run preflight before wrapper use:
@@ -62,20 +89,27 @@ Run preflight before wrapper use:
 ./scripts/doctor
 ```
 
+Run CLI drift checks before changing command docs:
+
+```bash
+./scripts/doc-drift-check
+```
+
 `scripts/doctor` checks:
 - `codex`
 - `gh`
 - `timeout`
-- Claude binary resolution in this order: `~/.claude/local/claude` then `claude` in `PATH`
+- Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 
 ## Wrapper Scripts (Implementation Only)
 
 ```bash
-# Implementation (3 min timeout, tmux)
+# Implementation (tmux transport wrapper)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
 ```
 
 For reviews, use direct CLI — no wrapper needed:
+
 ```bash
 # Detect base branch: main, master, or trunk (whichever exists)
 timeout 600s codex review --base <base> --title "Review PR #N"
@@ -150,6 +184,8 @@ Cleanup:
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
+| `CODING_AGENT_IMPL_MODE` | Implementation routing policy (`direct|tmux|auto`) | `direct` |
+| `CODING_AGENT_CLAUDE_BIN` | Explicit Claude CLI path override | unset |
 | `OPENCLAW_TMUX_SOCKET_DIR` | Socket directory (preferred) | `${TMPDIR:-/tmp}/openclaw-tmux-sockets` |
 | `CLAWDBOT_TMUX_SOCKET_DIR` | Legacy socket directory | unset |
 | `CODEX_TMUX_SOCKET_DIR` | Explicit socket directory override | unset |
@@ -160,7 +196,7 @@ Cleanup:
 | `CODEX_TMUX_WAIT` | Block until command finishes | `0` |
 | `CODEX_TMUX_CLEANUP` | Kill session after completion | `0` |
 | `CODEX_TMUX_WAIT_TIMEOUT` | Optional wait timeout (seconds) | unset |
-| `CODEX_TMUX_DISABLE` | Disable tmux and run direct CLI | `0` |
-| `CODEX_TMUX_REQUIRED` | Require tmux for Codex (safe-fallback) | `1` |
+| `CODEX_TMUX_DISABLE` | Legacy override: force direct mode | `0` |
+| `CODEX_TMUX_REQUIRED` | Legacy override: force tmux mode | `0` |
 | `GEMINI_FALLBACK_ENABLE` | Enable Gemini fallback in `safe-fallback.sh` | `0` |
 | `CODE_IMPLEMENT_TIMEOUT` | Implement wrapper timeout (ms) | `180000` |

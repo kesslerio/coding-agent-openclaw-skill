@@ -69,7 +69,11 @@
 # Code review (direct CLI)
 timeout 600s codex review --base <base> --title "PR #N Review"
 
-# Standards review (tmux)
+# Standards review (direct CLI, preferred)
+timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
+  "Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."
+
+# Standards review (tmux transport, optional for persistence)
 ./scripts/tmux-run timeout 1200s codex --yolo exec -c model_reasoning_effort="medium" \
   "Review against coding standards in references/STANDARDS.md. Report PASS/FAIL per category with file:line refs."
 ```

@@ -22,6 +22,7 @@ For script changes, run:
 ```bash
 while IFS= read -r script; do [[ -f "$script" ]] || continue; bash -n "$script"; done < <(git ls-files scripts)
 while IFS= read -r script; do [[ -f "$script" ]] || continue; shellcheck "$script"; done < <(git ls-files scripts)
+./scripts/doc-drift-check
 ./scripts/smoke-wrappers.sh
 ```
 

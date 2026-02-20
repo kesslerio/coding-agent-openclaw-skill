@@ -35,8 +35,6 @@ IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
 REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-1200}
 TIMEOUT=$([[ "$MODE" == "review" ]] && echo "$REVIEW_TIMEOUT" || echo "$IMPL_TIMEOUT")
 
-# Require tmux by default for Codex
-CODEX_TMUX_REQUIRED=${CODEX_TMUX_REQUIRED:-1}
 # Gemini fallback is opt-in only.
 GEMINI_FALLBACK_ENABLE=${GEMINI_FALLBACK_ENABLE:-0}
 if [[ "$GEMINI_FALLBACK_ENABLE" != "0" && "$GEMINI_FALLBACK_ENABLE" != "1" ]]; then
@@ -56,21 +54,41 @@ warn() { echo -e "${YELLOW}⚠️  $1${NC}" >&2; }
 ok() { echo -e "${GREEN}✅ $1${NC}" >&2; }
 info() { echo -e "${CYAN}ℹ️  $1${NC}" >&2; }
 
+resolve_impl_mode() {
+  if [[ -n "${CODING_AGENT_IMPL_MODE:-}" ]]; then
+    printf '%s\n' "${CODING_AGENT_IMPL_MODE}"
+    return 0
+  fi
+
+  # Legacy compatibility knobs.
+  if [[ "${CODEX_TMUX_DISABLE:-0}" == "1" ]]; then
+    printf 'direct\n'
+    return 0
+  fi
+  if [[ "${CODEX_TMUX_REQUIRED:-0}" == "1" ]]; then
+    printf 'tmux\n'
+    return 0
+  fi
+
+  printf 'direct\n'
+}
+
 # Track failures (portable array init)
 FAILURES=()
 
-# Try Codex CLI in tmux (implementation only — reviews use direct CLI)
+# Try Codex CLI in tmux (implementation only)
 try_codex_tmux() {
-  if [[ "$MODE" == "review" ]]; then
-    # Reviews don't need tmux — delegate to direct CLI
-    try_codex_cli_direct
-    return $?
+  if [[ "$MODE" != "impl" ]]; then
+    FAILURES+=("Codex tmux: unsupported in review mode")
+    return 1
   fi
+
   info "Trying Codex CLI in tmux..."
   if "$SCRIPT_DIR/code-implement" "$PROMPT"; then
     ok "Codex tmux session started"
     return 0
   fi
+
   FAILURES+=("Codex tmux: failed to start")
   return 1
 }
@@ -83,6 +101,7 @@ try_codex_cli_direct() {
       FAILURES+=("Codex CLI: timeout not installed")
       return 1
     fi
+
     if [[ "$MODE" == "review" ]]; then
       local base_branch="main"
       if git rev-parse --git-dir &>/dev/null; then
@@ -100,23 +119,26 @@ try_codex_cli_direct() {
           base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
         fi
       fi
+
       if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"; then
         ok "Codex CLI review succeeded"
         return 0
-      else
-        FAILURES+=("Codex CLI: review failed or timeout")
       fi
-    else
-      if timeout "${TIMEOUT}s" codex --yolo exec "$PROMPT"; then
-        ok "Codex CLI succeeded"
-        return 0
-      else
-        FAILURES+=("Codex CLI: exec failed or timeout")
-      fi
+
+      FAILURES+=("Codex CLI: review failed or timeout")
+      return 1
     fi
-  else
-    FAILURES+=("Codex CLI: codex not installed")
+
+    if timeout "${TIMEOUT}s" codex --yolo exec "$PROMPT"; then
+      ok "Codex CLI implementation succeeded"
+      return 0
+    fi
+
+    FAILURES+=("Codex CLI: exec failed or timeout")
+    return 1
   fi
+
+  FAILURES+=("Codex CLI: codex not installed")
   return 1
 }
 
@@ -130,15 +152,20 @@ try_claude_cli() {
       if timeout "${TIMEOUT}s" "$claude_bin" -p --dangerously-skip-permissions "$PROMPT"; then
         ok "Claude CLI succeeded"
         return 0
-      else
-        FAILURES+=("Claude CLI: timeout or error (${TIMEOUT}s)")
       fi
+
+      FAILURES+=("Claude CLI: timeout or error (${TIMEOUT}s)")
     else
       FAILURES+=("Claude CLI: timeout command not available")
     fi
   else
-    FAILURES+=("Claude CLI: not found (~/.claude/local/claude, PATH)")
+    if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
+      FAILURES+=("Claude CLI: CODING_AGENT_CLAUDE_BIN is set but not executable (${CODING_AGENT_CLAUDE_BIN})")
+    else
+      FAILURES+=("Claude CLI: not found (CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, PATH)")
+    fi
   fi
+
   return 1
 }
 
@@ -155,15 +182,16 @@ try_gemini_cli() {
       if timeout "${TIMEOUT}s" gemini -y "$PROMPT"; then
         ok "Gemini CLI succeeded"
         return 0
-      else
-        FAILURES+=("Gemini CLI: timeout or error (${TIMEOUT}s)")
       fi
+
+      FAILURES+=("Gemini CLI: timeout or error (${TIMEOUT}s)")
     else
       FAILURES+=("Gemini CLI: timeout command not available")
     fi
   else
     FAILURES+=("Gemini CLI: gemini not installed")
   fi
+
   return 1
 }
 
@@ -191,16 +219,42 @@ main() {
   # All status to stderr so stdout only has tool output
   echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
   echo "Gemini fallback: $GEMINI_FALLBACK_ENABLE" >&2
-  echo "Prompt: $PROMPT" >&2
-  echo "" >&2
 
-  # Try tools in order
-  try_codex_tmux && exit 0
-  warn "Codex tmux unavailable, trying next..."
-
-  if [[ "$CODEX_TMUX_REQUIRED" != "1" ]]; then
+  if [[ "$MODE" == "review" ]]; then
     try_codex_cli_direct && exit 0
-    warn "Codex CLI unavailable, trying next..."
+    warn "Codex CLI unavailable for review, trying next..."
+  else
+    impl_mode="$(resolve_impl_mode)"
+    case "$impl_mode" in
+      direct|tmux|auto)
+        ;;
+      *)
+        error "Invalid CODING_AGENT_IMPL_MODE '$impl_mode' (expected: direct|tmux|auto)"
+        exit 1
+        ;;
+    esac
+
+    if [[ "$impl_mode" == "auto" ]]; then
+      if command -v tmux &>/dev/null && [[ -t 1 ]]; then
+        impl_mode="tmux"
+      else
+        impl_mode="direct"
+      fi
+    fi
+
+    echo "Implementation mode: $impl_mode" >&2
+
+    if [[ "$impl_mode" == "tmux" ]]; then
+      try_codex_tmux && exit 0
+      warn "Codex tmux unavailable, trying direct CLI..."
+      try_codex_cli_direct && exit 0
+      warn "Codex direct CLI unavailable, trying next..."
+    else
+      try_codex_cli_direct && exit 0
+      warn "Codex direct CLI unavailable, trying tmux..."
+      try_codex_tmux && exit 0
+      warn "Codex tmux unavailable, trying next..."
+    fi
   fi
 
   try_claude_cli && exit 0

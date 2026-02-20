@@ -57,7 +57,7 @@ Full issue → implement → PR → review → fix cycle using session resume:
 
 ## Non-Negotiable Rules (Summary)
 
-1. **Use agent CLIs** — Never write code directly. Use Codex CLI or Claude Code CLI (direct or via tmux wrappers). No MCP.
+1. **Use agent CLIs** — Never write code directly. Use Codex CLI or Claude Code CLI (direct or via tmux wrappers). Do not switch to MCP orchestration unless explicitly required.
 2. **Feature branch** — Always use a feature branch for changes.
 3. **PR before done** — Always create a PR before completion.
 4. **GitHub hygiene** — Precise titles, structured bodies, explicit test commands, AI disclosure.
@@ -88,6 +88,10 @@ Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
 ⛔ NEVER skip to direct edits — request user override instead
 ```
 
+Implementation mode is configurable:
+- `CODING_AGENT_IMPL_MODE=direct|tmux|auto` (default: `direct`)
+- `auto` selects tmux first only when running in an interactive TTY with tmux available
+
 ## Tooling + Workflow References
 
 Read these before doing any work:
@@ -95,6 +99,7 @@ Read these before doing any work:
 - `references/STANDARDS.md` for coding standards and limits
 - `references/quick-reference.md` for commands and guardrails
 - `references/tooling.md` for CLI usage, session management, and timeouts
+- `references/codex-cli.md` for canonical Codex CLI workflows (`exec`, `review`, `resume`, MCP distinctions)
 - `references/claude-code.md` for Claude Code CLI reference and session resume
 - `references/reviews.md` for review formats and GH review posting
 - `references/examples.md` for violation examples and recovery
