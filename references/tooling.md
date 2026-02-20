@@ -54,6 +54,20 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 
 Sessions persist to disk (`~/.codex/sessions/` and `~/.claude/projects/<project>/`) and survive process restarts.
 
+## Preflight Checks
+
+Run preflight before wrapper use:
+
+```bash
+./scripts/doctor
+```
+
+`scripts/doctor` checks:
+- `codex`
+- `gh`
+- `timeout`
+- Claude binary resolution in this order: `~/.claude/local/claude` then `claude` in `PATH`
+
 ## Wrapper Scripts (Implementation Only)
 
 ```bash
@@ -65,6 +79,12 @@ For reviews, use direct CLI — no wrapper needed:
 ```bash
 # Detect base branch: main, master, or trunk (whichever exists)
 timeout 600s codex review --base <base> --title "Review PR #N"
+```
+
+Validate wrappers locally:
+
+```bash
+./scripts/smoke-wrappers.sh
 ```
 
 ## Advanced: tmux Wrapper (Optional)

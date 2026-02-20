@@ -7,6 +7,7 @@
 - Tool Fallback Chain
 - Direct CLI Commands (Primary)
 - Wrapper Scripts (Secondary)
+- Preflight Checks
 - Pre-Completion Checklist
 - Quick Reference
 - Command Reference
@@ -102,6 +103,18 @@ claude --resume
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 ```
+
+## Preflight Checks
+
+```bash
+# Verify local prerequisites and Claude binary resolution
+./scripts/doctor
+
+# Validate wrapper behavior
+./scripts/smoke-wrappers.sh
+```
+
+Claude is resolved in this order: `~/.claude/local/claude`, then `claude` in `PATH`.
 
 ## Pre-Completion Checklist
 
@@ -217,6 +230,8 @@ Definitions:
 | View PR | `gh pr view <PR> --json number,title,state` |
 | Checkout PR | `gh pr checkout <PR>` |
 | Review PR | `timeout 600s codex review --base <base> --title "PR #N Review"` |
+| Preflight wrappers | `./scripts/doctor` |
+| Wrapper smoke tests | `./scripts/smoke-wrappers.sh` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
 | Resume Codex | `codex exec resume --last` |

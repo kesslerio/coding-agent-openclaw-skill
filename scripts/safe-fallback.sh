@@ -27,6 +27,8 @@ if [[ -z "$PROMPT" ]]; then
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-cli.sh"
 
 # Timeouts
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
@@ -121,10 +123,11 @@ try_codex_cli_direct() {
 # Try Claude CLI
 try_claude_cli() {
   info "Trying Claude CLI (timeout: ${TIMEOUT}s, skip-permissions)..."
-  if command -v claude &>/dev/null; then
+  local claude_bin
+  if claude_bin="$(resolve_claude_bin)"; then
     if command -v timeout &>/dev/null; then
       # Use --dangerously-skip-permissions to avoid hanging on permission prompts
-      if timeout "${TIMEOUT}s" claude -p --dangerously-skip-permissions "$PROMPT"; then
+      if timeout "${TIMEOUT}s" "$claude_bin" -p --dangerously-skip-permissions "$PROMPT"; then
         ok "Claude CLI succeeded"
         return 0
       else
@@ -134,7 +137,7 @@ try_claude_cli() {
       FAILURES+=("Claude CLI: timeout command not available")
     fi
   else
-    FAILURES+=("Claude CLI: claude not installed")
+    FAILURES+=("Claude CLI: not found (~/.claude/local/claude, PATH)")
   fi
   return 1
 }
