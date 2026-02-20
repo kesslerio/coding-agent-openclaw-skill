@@ -34,11 +34,18 @@ check_cmd "timeout" "brew install coreutils && mkdir -p \"$HOME/.local/bin\" && 
 if claude_bin="$(resolve_claude_bin)"; then
   printf '[ok] claude: %s\n' "$claude_bin"
 else
-  printf '[fail] claude: not found (checked ~/.claude/local/claude, then PATH)\n' >&2
-  printf '       Fix (PATH install): npm install -g @anthropic-ai/claude-code\n' >&2
-  printf '       Fix (local binary): install/use ~/.claude/local/claude\n' >&2
+  if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
+    printf '[fail] claude: CODING_AGENT_CLAUDE_BIN is set but not executable: %s\n' "${CODING_AGENT_CLAUDE_BIN}" >&2
+    printf '       Fix: unset CODING_AGENT_CLAUDE_BIN or point it to a valid Claude binary\n' >&2
+  else
+    printf '[fail] claude: not found (checked CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, then PATH)\n' >&2
+    printf '       Fix (PATH install): npm install -g @anthropic-ai/claude-code\n' >&2
+    printf '       Fix (local binary): install/use ~/.claude/local/claude\n' >&2
+  fi
   failures=$((failures + 1))
 fi
+
+printf '[info] implementation mode default: %s (set CODING_AGENT_IMPL_MODE=direct|tmux|auto to override)\n' "${CODING_AGENT_IMPL_MODE:-direct}"
 
 if [[ "$failures" -gt 0 ]]; then
   printf '\nPreflight failed with %s issue(s).\n' "$failures" >&2

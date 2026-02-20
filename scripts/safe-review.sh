@@ -69,7 +69,11 @@ fi
 CLI_BIN="$CLI"
 if [[ "$CLI" == "claude" ]]; then
   if ! CLI_BIN="$(resolve_claude_bin)"; then
-    error "Claude CLI not found (tried ~/.claude/local/claude, then PATH)."
+    if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
+      error "CODING_AGENT_CLAUDE_BIN is set but not executable: ${CODING_AGENT_CLAUDE_BIN}"
+    else
+      error "Claude CLI not found (tried CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, then PATH)."
+    fi
     exit 1
   fi
 elif ! command -v "$CLI" &>/dev/null; then

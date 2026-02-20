@@ -59,6 +59,10 @@ Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
 ⛔ NEVER skip to direct edits — request user override instead
 ```
 
+Implementation mode routing:
+- `CODING_AGENT_IMPL_MODE=direct|tmux|auto` (default: `direct`)
+- `auto` -> tmux-first only in interactive TTY + tmux available; otherwise direct-first
+
 ## Direct CLI Commands (Primary)
 
 ### Codex
@@ -110,11 +114,14 @@ TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
 # Verify local prerequisites and Claude binary resolution
 ./scripts/doctor
 
+# Verify Codex command/flag drift before editing command docs
+./scripts/doc-drift-check
+
 # Validate wrapper behavior
 ./scripts/smoke-wrappers.sh
 ```
 
-Claude is resolved in this order: `~/.claude/local/claude`, then `claude` in `PATH`.
+Claude is resolved in this order: `CODING_AGENT_CLAUDE_BIN` → `~/.claude/local/claude` → `claude` in `PATH`.
 
 ## Pre-Completion Checklist
 
@@ -231,6 +238,7 @@ Definitions:
 | Checkout PR | `gh pr checkout <PR>` |
 | Review PR | `timeout 600s codex review --base <base> --title "PR #N Review"` |
 | Preflight wrappers | `./scripts/doctor` |
+| Codex doc drift check | `./scripts/doc-drift-check` |
 | Wrapper smoke tests | `./scripts/smoke-wrappers.sh` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
