@@ -1,0 +1,70 @@
+name: "✨ Feature request"
+description: Propose a capability improvement with concrete acceptance criteria.
+title: "feat: <capability> (for <surface>)"
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep this specific and testable. Include exact commands/snippets where possible.
+
+        Requests are evaluated by:
+        - user impact
+        - implementation complexity
+        - maintenance burden and long-term fit
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What pain exists today and who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Concrete behavior/API/CLI/docs changes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include at least one alternative and tradeoffs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What this request explicitly does not include.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist that can be verified by tests/commands.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: usage_examples
+    attributes:
+      label: Example commands / usage
+      description: Commands or snippets that show expected result.
+      render: shell
+    validations:
+      required: false

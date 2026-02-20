@@ -1,0 +1,88 @@
+name: "🐞 Bug report"
+description: Report a reproducible defect in scripts, docs, or CI.
+title: "bug: <symptom> when <condition>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please include exact commands and outputs.
+
+        Reports are triaged by:
+        - reproducibility (clear steps + concrete evidence)
+        - severity and impact
+        - blast radius and rollback complexity
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - scripts (wrappers, doctor, smoke tests)
+        - docs (README/references)
+        - GitHub workflows
+        - templates/community files
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph with expected vs actual behavior.
+      placeholder: |
+        Expected:
+        Actual:
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Ordered, copy-pasteable commands.
+      placeholder: |
+        1. cd /path/to/repo
+        2. export FOO=bar
+        3. ./scripts/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal_command
+    attributes:
+      label: Minimal failing command
+      description: Smallest single command that still fails.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs / evidence
+      description: Include exact output, stack traces, CI links, or screenshots.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: observed_ref
+    attributes:
+      label: Observed on ref
+      description: Branch/SHA/tag/PR where this occurred.
+      placeholder: main@<sha> or PR #123
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I verified this is reproducible on the latest `main`.
+          required: true
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
