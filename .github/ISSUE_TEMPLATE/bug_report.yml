@@ -1,0 +1,65 @@
+name: Bug Report
+description: Report a reproducible defect in wrappers, docs, or workflows.
+title: "bug: <symptom> when <condition>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide exact commands, outputs, and environment details so maintainers can reproduce quickly.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Concrete bug statement with expected vs actual behavior.
+      placeholder: "When running X, Y fails with Z. Expected ..."
+    validations:
+      required: true
+  - type: textarea
+    id: repro_steps
+    attributes:
+      label: Reproduction Steps
+      description: Exact, ordered commands and setup.
+      placeholder: |
+        1. cd /path/to/repo
+        2. export FOO=bar
+        3. ./scripts/... 
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs Actual
+      placeholder: |
+        Expected:
+        Actual:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and Evidence
+      description: Paste exact output, stack traces, CI links, screenshots, or references.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / Ref
+      description: Branch, commit SHA, or PR where issue was observed.
+      placeholder: main@<sha> or PR #123
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - macOS
+        - Linux
+        - CI (GitHub Actions)
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,51 @@
+name: Task / Chore
+description: Track non-feature maintenance work.
+title: "TODO: <cleanup> after <dependency>"
+labels:
+  - chore
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should be completed and why now?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Include in-scope and out-of-scope bullets.
+      placeholder: |
+        In scope:
+        - ...
+
+        Out of scope:
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Proposed Plan
+      description: Ordered implementation steps.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Exact commands/checks that confirm completion.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and Rollback
+      description: Main risks and how to revert safely if needed.
+    validations:
+      required: true

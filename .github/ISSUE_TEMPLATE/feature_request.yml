@@ -1,0 +1,49 @@
+name: Feature Request
+description: Propose a capability improvement with clear scope and tradeoffs.
+title: "feat: <capability> (for <surface>)"
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep this concrete. If possible, include command-level examples and clear acceptance criteria.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What user/workflow pain exists today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Change
+      description: Describe behavior, CLI/docs impact, and constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Include at least one alternative and why it is less preferred.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Use a testable checklist.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example Commands / Usage
+      description: Exact commands or snippets showing desired behavior.
+      render: shell
+    validations:
+      required: false
