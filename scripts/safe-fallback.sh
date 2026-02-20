@@ -10,6 +10,12 @@ export PATH="$PATH:/run/current-system/sw/bin"
 MODE="${1:-impl}"  # impl or review
 shift || true
 
+if [[ "$MODE" != "impl" && "$MODE" != "review" ]]; then
+  echo "Error: invalid mode '$MODE' (expected: impl|review)" >&2
+  echo "Usage: safe-fallback.sh <impl|review> \"prompt...\"" >&2
+  exit 1
+fi
+
 PROMPT="${*:-}"
 if [[ -z "$PROMPT" ]]; then
   echo "Usage: safe-fallback.sh <impl|review> \"prompt...\""
@@ -92,14 +98,14 @@ try_codex_cli_direct() {
           base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
         fi
       fi
-      if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"; then
         ok "Codex CLI review succeeded"
         return 0
       else
         FAILURES+=("Codex CLI: review failed or timeout")
       fi
     else
-      if timeout "${TIMEOUT}s" codex --yolo exec "$PROMPT" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" codex --yolo exec "$PROMPT"; then
         ok "Codex CLI succeeded"
         return 0
       else
@@ -118,7 +124,7 @@ try_claude_cli() {
   if command -v claude &>/dev/null; then
     if command -v timeout &>/dev/null; then
       # Use --dangerously-skip-permissions to avoid hanging on permission prompts
-      if timeout "${TIMEOUT}s" claude -p --dangerously-skip-permissions "$PROMPT" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" claude -p --dangerously-skip-permissions "$PROMPT"; then
         ok "Claude CLI succeeded"
         return 0
       else
@@ -143,7 +149,7 @@ try_gemini_cli() {
   info "Trying Gemini CLI (timeout: ${TIMEOUT}s)..."
   if command -v gemini &>/dev/null; then
     if command -v timeout &>/dev/null; then
-      if timeout "${TIMEOUT}s" gemini -y "$PROMPT" 2>/dev/null; then
+      if timeout "${TIMEOUT}s" gemini -y "$PROMPT"; then
         ok "Gemini CLI succeeded"
         return 0
       else
@@ -161,7 +167,7 @@ try_gemini_cli() {
 # Report blocker (all to stderr)
 report_blocker() {
   echo "" >&2
-  error "BLOCKED: All implementation tools unavailable"
+  error "BLOCKED: All tools unavailable for mode '$MODE'"
   echo "" >&2
   echo "Failures:" >&2
   for failure in "${FAILURES[@]}"; do
