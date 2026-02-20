@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# doctor - preflight checks for OpenClaw coding skill wrappers
+set -euo pipefail
+
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-cli.sh"
+
+failures=0
+
+check_cmd() {
+  local name="$1"
+  local remediation="$2"
+
+  if command -v "$name" &>/dev/null; then
+    printf '[ok] %s: %s\n' "$name" "$(command -v "$name")"
+  else
+    printf '[fail] %s: not found\n' "$name" >&2
+    printf '       Fix: %s\n' "$remediation" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+printf 'OpenClaw wrapper preflight\n'
+printf '==========================\n'
+
+check_cmd "codex" "npm install -g @openai/codex"
+check_cmd "gh" "brew install gh"
+check_cmd "timeout" "brew install coreutils && mkdir -p \"$HOME/.local/bin\" && ln -sf \"\$(brew --prefix coreutils)/bin/gtimeout\" \"$HOME/.local/bin/timeout\""
+
+if claude_bin="$(resolve_claude_bin)"; then
+  printf '[ok] claude: %s\n' "$claude_bin"
+else
+  printf '[fail] claude: not found (checked ~/.claude/local/claude, then PATH)\n' >&2
+  printf '       Fix (PATH install): npm install -g @anthropic-ai/claude-code\n' >&2
+  printf '       Fix (local binary): install/use ~/.claude/local/claude\n' >&2
+  failures=$((failures + 1))
+fi
+
+if [[ "$failures" -gt 0 ]]; then
+  printf '\nPreflight failed with %s issue(s).\n' "$failures" >&2
+  exit 1
+fi
+
+printf '\nPreflight passed.\n'

@@ -9,6 +9,10 @@ export PATH="$PATH:/run/current-system/sw/bin"
 # Configuration
 MIN_REVIEW_TIMEOUT=${MIN_REVIEW_TIMEOUT:-600}
 DEFAULT_TIMEOUT=${DEFAULT_TIMEOUT:-1200}
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-cli.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -62,7 +66,13 @@ if [[ $TIMEOUT -lt $MIN_REVIEW_TIMEOUT ]]; then
 fi
 
 # Validate CLI exists
-if ! command -v "$CLI" &>/dev/null; then
+CLI_BIN="$CLI"
+if [[ "$CLI" == "claude" ]]; then
+  if ! CLI_BIN="$(resolve_claude_bin)"; then
+    error "Claude CLI not found (tried ~/.claude/local/claude, then PATH)."
+    exit 1
+  fi
+elif ! command -v "$CLI" &>/dev/null; then
   error "CLI '$CLI' not found in PATH"
   exit 1
 fi
@@ -84,4 +94,4 @@ fi
 
 # Execute with timeout (use ${arr[@]+...} for older bash compatibility)
 warn "Running $CLI with ${TIMEOUT}s timeout (min: ${MIN_REVIEW_TIMEOUT}s)"
-exec timeout "${TIMEOUT}s" "$CLI" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@"
+exec timeout "${TIMEOUT}s" "$CLI_BIN" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@"

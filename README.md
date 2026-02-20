@@ -16,6 +16,7 @@ OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Prima
 
 - GitHub CLI (`gh`)
 - One of: Codex CLI (`codex`) or Claude Code CLI (`claude`)
+- GNU `timeout` command (coreutils on macOS)
 - Optional: tmux (for durable TTY sessions and wrapper scripts)
 
 ## Installation
@@ -24,6 +25,16 @@ OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Prima
 # Clone to OpenClaw skills directory
 cd /home/art/clawd/skills
 git clone https://github.com/kesslerio/coding-agent-openclaw-skill.git coding-agent
+```
+
+## Preflight and Validation
+
+```bash
+# Verify local tooling before running wrappers
+./scripts/doctor
+
+# Run wrapper behavior smoke tests
+./scripts/smoke-wrappers.sh
 ```
 
 ## Usage
