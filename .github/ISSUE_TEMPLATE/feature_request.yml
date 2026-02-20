@@ -1,5 +1,5 @@
-name: "✨ Feature request"
-description: Propose a capability improvement with concrete acceptance criteria.
+name: Feature request
+description: Propose a capability or workflow improvement.
 title: "feat: <capability> (for <surface>)"
 labels:
   - enhancement
@@ -8,26 +8,30 @@ body:
   - type: markdown
     attributes:
       value: |
-        Keep this specific and testable. Include exact commands/snippets where possible.
-
-        Requests are evaluated by:
-        - user impact
-        - implementation complexity
-        - maintenance burden and long-term fit
+        Help us evaluate this request with concrete use cases and tradeoffs.
 
   - type: textarea
-    id: problem
+    id: summary
     attributes:
-      label: Problem statement
-      description: What pain exists today and who is affected?
+      label: Summary
+      description: One-line statement of the requested capability.
+      placeholder: Add automatic base-branch detection helper for review commands.
     validations:
       required: true
 
   - type: textarea
-    id: proposal
+    id: problem
     attributes:
-      label: Proposed change
-      description: Concrete behavior/API/CLI/docs changes.
+      label: Problem to solve
+      description: What user pain this solves and why current behavior is insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Desired behavior/API/docs changes with as much specificity as possible.
     validations:
       required: true
 
@@ -35,18 +39,19 @@ body:
     id: alternatives
     attributes:
       label: Alternatives considered
-      description: Include at least one alternative and tradeoffs.
-    validations:
-      required: true
+      description: Other approaches considered and why they are weaker.
 
   - type: textarea
-    id: non_goals
+    id: impact
     attributes:
-      label: Non-goals
-      description: What this request explicitly does not include.
-      placeholder: |
-        - ...
-        - ...
+      label: Impact
+      description: |
+        Explain who is affected, severity/urgency, frequency, and practical consequence.
+        Include:
+        - Affected users/workflows
+        - Severity (annoying, blocks workflow, etc.)
+        - Frequency (always/intermittent/edge case)
+        - Consequence (delays, errors, extra manual work, etc.)
     validations:
       required: true
 
@@ -62,10 +67,13 @@ body:
       required: true
 
   - type: textarea
-    id: usage_examples
+    id: evidence
     attributes:
-      label: Example commands / usage
-      description: Commands or snippets that show expected result.
-      render: shell
-    validations:
-      required: false
+      label: Evidence/examples
+      description: Prior art, links, snippets, or metrics.
+
+  - type: textarea
+    id: additional_information
+    attributes:
+      label: Additional information
+      description: Extra context, constraints, or references not covered above.

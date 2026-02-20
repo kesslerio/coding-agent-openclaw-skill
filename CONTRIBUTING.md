@@ -1,17 +1,23 @@
 # Contributing
 
-## Before You Start
-- Search existing issues and PRs first.
-- Use issue forms in `.github/ISSUE_TEMPLATE/` for new reports/requests.
-- Keep each PR focused; do not mix unrelated changes.
+## How to contribute
+- Bugs and focused fixes: open a PR.
+- New features or architecture changes: open an issue/discussion first.
+- Questions: open an issue or discussion.
 
-## Branches and Commits
+## Before you open a PR
+- Search existing issues and PRs first.
+- Keep PRs focused; do not mix unrelated concerns.
+- Use the issue forms in `.github/ISSUE_TEMPLATE/` for new reports and requests.
+
+## Branches and commits
 - Branch names should be short and descriptive (example: `codex/<topic>`).
 - Prefer commit format `type(scope): subject`.
 
-## Validation
-- Include exact commands and outcomes in your PR.
-- For script changes, run:
+## Validation expectations
+Include exact commands and outcomes in every PR.
+
+For script changes, run:
 
 ```bash
 while IFS= read -r script; do [[ -f "$script" ]] || continue; bash -n "$script"; done < <(git ls-files scripts)
@@ -19,13 +25,23 @@ while IFS= read -r script; do [[ -f "$script" ]] || continue; shellcheck "$scrip
 ./scripts/smoke-wrappers.sh
 ```
 
-- Run preflight checks when working with wrappers:
+When wrapper behavior is involved, also run:
 
 ```bash
 ./scripts/doctor
 ```
 
-## Pull Requests
-- Complete all sections in `.github/pull_request_template.md`.
-- Include: linked issue, What/Why/Scope, validation commands/results, risk/rollback, AI assistance.
-- If behavior changes, update docs in `README.md` and `references/`.
+## AI-assisted contributions
+AI-assisted PRs are welcome. Be explicit:
+- Mark AI assistance in the PR.
+- State testing level (untested/lightly tested/fully tested).
+- Include prompt/session notes when feasible.
+- Confirm you understand the final code and behavior.
+
+## PR requirements
+Complete all sections in `.github/pull_request_template.md`, especially:
+- Security impact
+- Repro + verification
+- Human verification
+- Compatibility/migration
+- Failure recovery
