@@ -181,8 +181,8 @@ test_code_plan_generates_artifact() {
   "$SCRIPT_DIR/code-plan" --engine codex --repo "$repo" --base main "smoke plan request" > "$tmp_dir/code-plan.out"
 
   local plan_file
-  plan_file="$(ls "$repo/.ai/plans"/*.md | head -1)"
-  [[ -f "$plan_file" ]] || { echo "Expected plan file" >&2; exit 1; }
+  plan_file="$(find "$repo/.ai/plans" -maxdepth 1 -type f -name '*.md' | head -1)"
+  [[ -n "$plan_file" && -f "$plan_file" ]] || { echo "Expected plan file" >&2; exit 1; }
   assert_contains "$codex_args" "--sandbox"
   assert_contains "$codex_args" "read-only"
   assert_contains "$codex_args" "--ephemeral"
