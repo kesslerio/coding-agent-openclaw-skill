@@ -12,6 +12,7 @@
 
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
+| Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
 | Implementation | direct `codex --yolo exec` | tmux transport | Use `codex exec resume --last` for follow-up |
 | PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
 | Long-running implementation | tmux transport | direct `codex --yolo exec` | Use tmux when persistence/reattach is required |
@@ -101,11 +102,17 @@ Run CLI drift checks before changing command docs:
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 
-## Wrapper Scripts (Implementation Only)
+## Wrapper Scripts
 
 ```bash
-# Implementation (tmux transport wrapper)
+# Plan mode wrapper (read-only)
+"${CODING_AGENT_DIR:-./}/scripts/code-plan" --engine codex --repo /path/to/repo "Implement feature X"
+
+# Implementation wrapper (tmux transport)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
+
+# Execute an approved plan artifact
+"${CODING_AGENT_DIR:-./}/scripts/code-implement" --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
 For reviews, use direct CLI — no wrapper needed:

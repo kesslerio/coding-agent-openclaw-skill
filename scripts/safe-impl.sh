@@ -161,18 +161,38 @@ if [[ "$CLI" == "codex" ]]; then
   fi
 fi
 
-# For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging
+# For Claude CLI with -p flag, add --dangerously-skip-permissions to avoid hanging,
+# unless running explicit plan permission mode.
 EXTRA_ARGS=()
 if [[ "$CLI" == "claude" ]]; then
+  has_print_mode=0
+  has_plan_permission_mode=0
   for arg in "$@"; do
     if [[ "$arg" == "-p" || "$arg" == "--print" ]]; then
-      if [[ ! " $* " =~ " --dangerously-skip-permissions " ]]; then
-        EXTRA_ARGS+=("--dangerously-skip-permissions")
-        warn "Adding --dangerously-skip-permissions to prevent permission prompt hangs"
+      has_print_mode=1
+    fi
+    if [[ "$arg" == "--permission-mode" ]]; then
+      has_plan_permission_mode=2
+      continue
+    fi
+    if [[ "$has_plan_permission_mode" == "2" ]]; then
+      if [[ "$arg" == "plan" ]]; then
+        has_plan_permission_mode=1
+      else
+        has_plan_permission_mode=0
       fi
-      break
+    fi
+    if [[ "$arg" == "--permission-mode=plan" ]]; then
+      has_plan_permission_mode=1
     fi
   done
+
+  if [[ "$has_print_mode" == "1" && "$has_plan_permission_mode" != "1" ]]; then
+    if [[ ! " $* " =~ " --dangerously-skip-permissions " ]]; then
+      EXTRA_ARGS+=("--dangerously-skip-permissions")
+      warn "Adding --dangerously-skip-permissions to prevent permission prompt hangs"
+    fi
+  fi
 fi
 
 # Execute with timeout (use ${arr[@]+...} for older bash compatibility)
