@@ -6,6 +6,10 @@ set -euo pipefail
 export PATH="$PATH:/run/current-system/sw/bin"
 
 if ! command -v codex >/dev/null 2>&1; then
+  if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "[skip] codex not found in PATH; skipping doc drift checks in CI" >&2
+    exit 0
+  fi
   echo "Error: codex not found in PATH" >&2
   exit 1
 fi
