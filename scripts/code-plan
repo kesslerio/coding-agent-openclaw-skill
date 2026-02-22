@@ -89,7 +89,7 @@ if [[ "$ENGINE" != "codex" && "$ENGINE" != "claude" ]]; then
 fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
-if [[ ! -d "$REPO_PATH/.git" ]]; then
+if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
   echo "Error: --repo must point to a git repository" >&2
   exit 1
 fi
@@ -109,7 +109,7 @@ PLAN_DIR="$REPO_PATH/.ai/plans"
 FAILED_DIR="$PLAN_DIR/.failed"
 mkdir -p "$PLAN_DIR" "$FAILED_DIR"
 
-TIMESTAMP="$(date +"%Y-%m-%d-%H%M")"
+TIMESTAMP="$(date +"%Y-%m-%d-%H%M%S")"
 CREATED_AT="$(date -Iseconds)"
 slugify() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40
@@ -142,7 +142,7 @@ $PROMPT
 EOF
 
 run_codex() {
-  local -a cmd=(codex exec --sandbox read-only --ask-for-approval never --ephemeral)
+  local -a cmd=(codex exec --sandbox read-only --ephemeral)
   if [[ -n "$MODEL" ]]; then
     cmd+=(--model "$MODEL")
   fi

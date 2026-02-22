@@ -139,7 +139,7 @@ if [[ -n "$PLAN_PATH" ]]; then
 
   repo_from_plan="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
   if [[ -n "$repo_from_plan" ]]; then
-    if [[ ! -d "$repo_from_plan/.git" ]]; then
+    if ! git -C "$repo_from_plan" rev-parse --git-dir >/dev/null 2>&1; then
       echo "Error: repo_path from plan is not a git repo: $repo_from_plan" >&2
       exit 1
     fi
