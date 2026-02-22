@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="$PATH:/run/current-system/sw/bin"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+SYSTEM_PROMPT_FILE="$ROOT_DIR/references/templates/plan-system-prompt.txt"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-cli.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  code-plan [--engine codex|claude] [--model <name>] [--repo <path>] [--base <branch>] [--prompt <text>]
+  code-plan [--engine codex|claude] [--model <name>] [--repo <path>] [--base <branch>] "<prompt>"
+
+Defaults:
+  --engine codex
+  --repo   current working directory
+  --base   auto-detected origin default branch (fallback: main)
+USAGE
+}
+
+ENGINE="${CODING_AGENT_PLAN_ENGINE:-codex}"
+MODEL=""
+REPO_PATH="$(pwd)"
+BASE_BRANCH=""
+PROMPT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --engine)
+      ENGINE="${2:-}"
+      shift 2
+      ;;
+    --model)
+      MODEL="${2:-}"
+      shift 2
+      ;;
+    --repo)
+      REPO_PATH="${2:-}"
+      shift 2
+      ;;
+    --base)
+      BASE_BRANCH="${2:-}"
+      shift 2
+      ;;
+    --prompt)
+      PROMPT="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      if [[ -z "$PROMPT" ]]; then
+        PROMPT="$1"
+      else
+        PROMPT="$PROMPT $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ $# -gt 0 ]]; then
+  if [[ -z "$PROMPT" ]]; then
+    PROMPT="$*"
+  else
+    PROMPT="$PROMPT $*"
+  fi
+fi
+
+if [[ -z "$PROMPT" ]]; then
+  usage
+  exit 1
+fi
+
+if [[ "$ENGINE" != "codex" && "$ENGINE" != "claude" ]]; then
+  echo "Error: --engine must be codex or claude" >&2
+  exit 1
+fi
+
+REPO_PATH="$(cd "$REPO_PATH" && pwd)"
+if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "Error: --repo must point to a git repository" >&2
+  exit 1
+fi
+
+if [[ -z "$BASE_BRANCH" ]]; then
+  BASE_BRANCH="$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+fi
+if [[ -z "$BASE_BRANCH" ]]; then
+  BASE_BRANCH="main"
+fi
+
+CURRENT_BRANCH="$(git -C "$REPO_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+HEAD_SHA="$(git -C "$REPO_PATH" rev-parse HEAD 2>/dev/null || echo unknown)"
+REPO_REMOTE="$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null || echo unknown)"
+
+PLAN_DIR="$REPO_PATH/.ai/plans"
+FAILED_DIR="$PLAN_DIR/.failed"
+mkdir -p "$PLAN_DIR" "$FAILED_DIR"
+
+TIMESTAMP="$(date +"%Y-%m-%d-%H%M%S")"
+CREATED_AT="$(date -Iseconds)"
+slugify() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40
+}
+SLUG="$(slugify "$PROMPT")"
+if [[ -z "$SLUG" ]]; then
+  SLUG="plan"
+fi
+PLAN_FILENAME="${TIMESTAMP}-${SLUG}.md"
+PLAN_PATH="$PLAN_DIR/$PLAN_FILENAME"
+FAILED_PATH="$FAILED_DIR/${TIMESTAMP}-${SLUG}.raw.md"
+PLAN_ID="${PLAN_FILENAME%.md}"
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+RAW_OUTPUT_FILE="$TMP_DIR/raw.md"
+SYSTEM_PROMPT="$TMP_DIR/system_prompt.txt"
+
+cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
+cat >> "$SYSTEM_PROMPT" <<EOF
+
+TASK CONTEXT:
+- Repository: $REPO_PATH
+- Base branch: $BASE_BRANCH
+- Current branch: $CURRENT_BRANCH
+- Head SHA: $HEAD_SHA
+
+USER REQUEST:
+$PROMPT
+EOF
+
+run_codex() {
+  local -a cmd=(codex exec --sandbox read-only --ephemeral)
+  if [[ -n "$MODEL" ]]; then
+    cmd+=(--model "$MODEL")
+  fi
+  cmd+=("$(cat "$SYSTEM_PROMPT")")
+  (
+    cd "$REPO_PATH"
+    "${cmd[@]}"
+  )
+}
+
+run_claude() {
+  local claude_bin
+  if ! claude_bin="$(resolve_claude_bin)"; then
+    echo "Error: Claude CLI not found" >&2
+    exit 1
+  fi
+  local -a cmd=("$claude_bin" -p --permission-mode plan --no-session-persistence)
+  if [[ -n "$MODEL" ]]; then
+    cmd+=(--model "$MODEL")
+  fi
+  cmd+=("$(cat "$SYSTEM_PROMPT")")
+  (
+    cd "$REPO_PATH"
+    "${cmd[@]}"
+  )
+}
+
+if [[ "$ENGINE" == "codex" ]]; then
+  run_codex > "$RAW_OUTPUT_FILE"
+else
+  run_claude > "$RAW_OUTPUT_FILE"
+fi
+
+validate_headings() {
+  local file="$1"
+  local -a headings=(
+    "# Plan:"
+    "## Fast-Path"
+    "## 1. Problem statement"
+    "## 2. Current state evidence"
+    "## 3. Proposed approach"
+    "## 4. Step-by-step change list"
+    "## 5. Risks + rollback"
+    "## 6. Test plan"
+    "## 7. Out-of-scope"
+    "## 8. Approval prompt"
+  )
+
+  local prev=0
+  local found
+  for heading in "${headings[@]}"; do
+    found="$(grep -nF "$heading" "$file" | head -1 | cut -d: -f1 || true)"
+    if [[ -z "$found" ]]; then
+      echo "missing heading: $heading" >&2
+      return 1
+    fi
+    if (( found <= prev )); then
+      echo "heading out of order: $heading" >&2
+      return 1
+    fi
+    prev=$found
+  done
+  return 0
+}
+
+if ! validate_headings "$RAW_OUTPUT_FILE"; then
+  cp "$RAW_OUTPUT_FILE" "$FAILED_PATH"
+  echo "❌ Plan validation failed. Raw output saved to: $FAILED_PATH" >&2
+  exit 1
+fi
+
+{
+  echo "---"
+  echo "id: $PLAN_ID"
+  echo "status: PENDING"
+  echo "created_at: $CREATED_AT"
+  echo "repo_path: $REPO_PATH"
+  echo "repo_remote: $REPO_REMOTE"
+  echo "base_branch: $BASE_BRANCH"
+  echo "current_branch: $CURRENT_BRANCH"
+  echo "head_sha: $HEAD_SHA"
+  echo "engine: $ENGINE"
+  echo "model: ${MODEL:-default}"
+  echo "invocation: code-plan --engine $ENGINE${MODEL:+ --model $MODEL} --repo $REPO_PATH --base $BASE_BRANCH"
+  echo "approved_by:"
+  echo "approved_at:"
+  echo "---"
+  cat "$RAW_OUTPUT_FILE"
+} > "$PLAN_PATH"
+
+echo "✅ Plan generated: $PLAN_PATH"
+echo "Next: code-implement --plan $PLAN_PATH"

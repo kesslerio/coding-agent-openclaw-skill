@@ -6,6 +6,7 @@
 - Forbidden Flags & Minimum Timeouts
 - Tool Fallback Chain
 - Direct CLI Commands (Primary)
+- Plan Mode Commands
 - Wrapper Scripts (Secondary)
 - Preflight Checks
 - Pre-Completion Checklist
@@ -97,6 +98,19 @@ claude -p --resume <session-id> "Continue implementation"
 claude --resume
 ```
 
+## Plan Mode Commands
+
+```bash
+# Generate read-only plan (Codex)
+./scripts/code-plan --engine codex --repo /path/to/repo --base main "Implement feature X"
+
+# Generate strict plan mode output (Claude)
+./scripts/code-plan --engine claude --model sonnet --repo /path/to/repo "Implement feature X"
+
+# Execute approved plan (prompts for approval if still PENDING)
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+```
+
 ## Wrapper Scripts (Secondary)
 
 ```bash
@@ -144,6 +158,8 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
+
+For plan-first flow, use `/plan <task>` (maps to `scripts/code-plan`).
 
 ### Agent CLI Commands
 

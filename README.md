@@ -7,6 +7,7 @@ OpenClaw skill for coding assistant using agent CLIs (Codex, Claude Code). Prima
 - **Session Resume Workflows** — Multi-phase issue → implement → PR → review → fix cycles with full context preservation
 - **Agent CLI Integration** — Direct CLI execution with permission bypass (`--yolo`, `--dangerously-skip-permissions`)
 - **PR Review Workflow** — Direct CLI reviews with proper timeouts
+- **Plan Mode Workflow** — Read-only plan generation with machine-checkable approval gate before implementation
 - **Self-Auditing Workflow** — Mandatory implementation + review checklists with VERIFIED/UNVERIFIED command labeling
 - **Dev Persona** — Pragmatic code reviews with clear feedback
 - **Git Workflow Documentation** — Branch, commit, PR conventions
@@ -44,6 +45,11 @@ In OpenClaw, activate with:
 /coding
 ```
 
+Plan-first shortcut:
+```
+/plan <task>
+```
+
 ### Direct CLI (Primary)
 
 ```bash
@@ -65,10 +71,16 @@ gh pr checkout <PR>
 timeout 600s codex review --base <base> --title "Review PR #N"
 ```
 
-### Wrapper Scripts (Implementation)
+### Wrapper Scripts (Plan + Implementation)
 
 ```bash
-# Implementation (3 min timeout, tmux)
+# Plan mode (read-only planning artifact)
+./scripts/code-plan --engine codex --repo /path/to/repo "Implement feature X"
+
+# Execute plan (prompts for approval if status is still PENDING)
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+
+# Direct implementation (3 min timeout, tmux)
 ./scripts/code-implement "Implement feature X"
 ```
 
@@ -87,7 +99,10 @@ export CODING_AGENT_IMPL_MODE=direct  # direct|tmux|auto
 - `references/tooling.md` — CLI usage, session management, timeouts
 - `references/codex-cli.md` — Canonical Codex CLI reference and policy matrix
 - `references/claude-code.md` — Claude Code CLI reference and session resume
+- `scripts/code-plan` — Plan mode wrapper (read-only execution + artifact validation)
 - `references/reviews.md` — Review + PR/issue writing patterns
+- `references/templates/plan-system-prompt.txt` — Deterministic plan-mode system prompt
+- `references/templates/plan-template.md` — Canonical plan structure template
 
 ## GitHub Hygiene
 

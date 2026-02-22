@@ -15,6 +15,21 @@ Trigger this skill when the user wants:
 
 ## Execution Modes
 
+### Plan Mode (new)
+
+Use plan-first workflow before risky implementation:
+
+```bash
+# Generate read-only plan artifact
+scripts/code-plan --engine codex --repo /path/to/repo "Add feature X"
+
+# Execute approved plan
+scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+```
+
+Plan artifacts are written to `.ai/plans/*.md` with machine-checkable status metadata.
+`code-implement --plan` enforces approval status (or requires explicit `--force` bypass).
+
 ### Primary: Direct CLI (Session Resume + Permission Bypass)
 
 Agent CLIs now support non-interactive execution with full autonomy and session persistence:
@@ -103,6 +118,8 @@ Read these before doing any work:
 - `references/claude-code.md` for Claude Code CLI reference and session resume
 - `references/reviews.md` for review formats and GH review posting
 - `references/examples.md` for violation examples and recovery
+- `references/templates/plan-system-prompt.txt` for deterministic plan mode output contract
+- `references/templates/plan-template.md` for plan artifact structure
 - `references/frontend-design.md` for frontend-design-ultimate source refs
 
 ## Persona
