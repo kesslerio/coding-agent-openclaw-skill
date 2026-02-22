@@ -147,7 +147,10 @@ run_codex() {
     cmd+=(--model "$MODEL")
   fi
   cmd+=("$(cat "$SYSTEM_PROMPT")")
-  "${cmd[@]}"
+  (
+    cd "$REPO_PATH"
+    "${cmd[@]}"
+  )
 }
 
 run_claude() {
@@ -161,7 +164,10 @@ run_claude() {
     cmd+=(--model "$MODEL")
   fi
   cmd+=("$(cat "$SYSTEM_PROMPT")")
-  "${cmd[@]}"
+  (
+    cd "$REPO_PATH"
+    "${cmd[@]}"
+  )
 }
 
 if [[ "$ENGINE" == "codex" ]]; then

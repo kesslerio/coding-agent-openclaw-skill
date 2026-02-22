@@ -20,6 +20,7 @@ USAGE
 PLAN_PATH=""
 FORCE=0
 PROMPT=""
+EXEC_REPO="$(pwd)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -136,6 +137,15 @@ if [[ -n "$PLAN_PATH" ]]; then
     plan_id="$(basename "$PLAN_PATH" .md)"
   fi
 
+  repo_from_plan="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
+  if [[ -n "$repo_from_plan" ]]; then
+    if [[ ! -d "$repo_from_plan/.git" ]]; then
+      echo "Error: repo_path from plan is not a git repo: $repo_from_plan" >&2
+      exit 1
+    fi
+    EXEC_REPO="$repo_from_plan"
+  fi
+
   if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
     echo "⚠️  Plan $plan_id is currently ${status:-PENDING}."
     read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
@@ -176,6 +186,7 @@ EOF
 fi
 
 echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
+echo "Execution repository: $EXEC_REPO" >&2
 
 if ! command -v codex &> /dev/null; then
   echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
@@ -199,5 +210,8 @@ if [[ ! -x "$TMUX_RUN" ]]; then
   exit 1
 fi
 
-CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-  "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex --yolo exec "$PROMPT"
+(
+  cd "$EXEC_REPO"
+  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+    "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex --yolo exec "$PROMPT"
+)
