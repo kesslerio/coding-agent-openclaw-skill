@@ -69,11 +69,12 @@ Implementation mode routing:
 ### Codex
 
 ```bash
-# Implementation (full autonomy)
-codex --yolo exec "Implement feature X. No questions."
+# Implementation default (feature work / architectural refactor)
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
 
-# With reasoning effort
-codex -c 'model_reasoning_effort="medium"' --yolo exec "Complex refactor..."
+# Simple fix/docs or explicit fast/cheap request
+codex --yolo exec -c model_reasoning_effort="medium" "Fix typo in one file"
+codex --yolo exec -c model_reasoning_effort="low" "Update README command example quickly"
 
 # Resume last session (context preserved)
 codex exec resume --last
@@ -119,7 +120,7 @@ claude --resume
 
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
-TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
+TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec -c model_reasoning_effort="high" "Implement feature X"
 ```
 
 ## Preflight Checks
@@ -165,7 +166,7 @@ For plan-first flow, use `/plan <task>` (maps to `scripts/code-plan`).
 
 **Codex — full autonomy:**
 ```bash
-codex --yolo exec "Your task. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Your task. No questions."
 ```
 
 **Codex — resume session:**
@@ -288,7 +289,7 @@ SESSION=codex-impl
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec -c model_reasoning_effort=\"high\" 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor

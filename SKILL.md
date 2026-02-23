@@ -34,9 +34,13 @@ Plan artifacts are written to `.ai/plans/*.md` with machine-checkable status met
 
 Agent CLIs now support non-interactive execution with full autonomy and session persistence:
 
+Reasoning default policy for Codex implementation:
+- Use `-c model_reasoning_effort="high"` for feature implementation and architectural refactors.
+- Use `medium`/`low` for simple fixes, docs-only updates, or when the user explicitly asks for fast/cheap execution.
+
 ```bash
 # Codex — full autonomy, no TTY needed
-codex --yolo exec "Implement feature X. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
 codex exec resume --last    # restore context from last session
 
 # Claude Code — full autonomy, no TTY needed
@@ -58,7 +62,7 @@ For long-running implementation tasks where TTY logging and session durability a
 
 Full issue → implement → PR → review → fix cycle using session resume:
 
-1. **Implement**: `codex --yolo exec "Implement feature from issue #N"`
+1. **Implement**: `codex --yolo exec -c model_reasoning_effort="high" "Implement feature from issue #N"`
 2. **Create PR**: `gh pr create --title "feat: ..." --body "..."`
 3. **Review**: `timeout 600s codex review --base <base> --title "Review PR #N"`
 4. **Fix issues**: `codex exec resume --last` (context preserved)

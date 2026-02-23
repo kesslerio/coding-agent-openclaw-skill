@@ -65,7 +65,8 @@ These are non-negotiable requirements. Violating any of these means the task has
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
 - **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
 - For reviews: use direct `codex review --base <base>` or `claude -p`
-- For implementation: prefer direct CLI (`codex --yolo exec`) or `scripts/code-implement`
+- For implementation: prefer direct CLI (`codex --yolo exec -c model_reasoning_effort="high"`) or `scripts/code-implement`
+- Default reasoning policy: use `high` for feature implementation and architectural refactors; use `medium`/`low` only for simple fixes/docs or explicit fast/cheap requests
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
 - **Violation Response**: Stop and switch to specified tool
@@ -171,7 +172,7 @@ Use agent CLIs directly for most tasks. Session resume preserves full context ac
 
 ```bash
 # Implementation (Codex)
-codex --yolo exec "Implement feature X. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
 
 # Implementation (Claude)
 claude -p --dangerously-skip-permissions "Implement feature X"
@@ -225,7 +226,7 @@ For complex tasks spanning multiple phases, use session resume to preserve full 
 
 ```bash
 # Phase 1: Implement from issue
-codex --yolo exec "Implement feature described in issue #42. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature described in issue #42. No questions."
 
 # Phase 2: Create PR
 gh pr create --title "feat(auth): add JWT validation" --body "..."
@@ -288,10 +289,11 @@ For automated runs with full autonomy:
 
 ```bash
 # Implementation (full autonomy)
-codex --yolo exec "Implement feature X. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
 
-# With reasoning effort
-codex -c 'model_reasoning_effort="medium"' --yolo exec "Complex refactor..."
+# Simple fix/docs or explicit fast/cheap request
+codex --yolo exec -c model_reasoning_effort="medium" "Fix typo in one file"
+codex --yolo exec -c model_reasoning_effort="low" "Update README command example quickly"
 
 # Resume last session
 codex exec resume --last

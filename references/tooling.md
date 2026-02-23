@@ -13,9 +13,9 @@
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
 | Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
-| Implementation | direct `codex --yolo exec` | tmux transport | Use `codex exec resume --last` for follow-up |
+| Implementation | direct `codex --yolo exec -c model_reasoning_effort="high"` | tmux transport | Default `high` for feature/architectural work; use `medium`/`low` for simple/docs or fast/cheap requests |
 | PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex --yolo exec` | Use tmux when persistence/reattach is required |
+| Long-running implementation | tmux transport | direct `codex --yolo exec -c model_reasoning_effort="high"` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
 
@@ -29,11 +29,15 @@ Default behavior: `direct`.
 
 Agent CLIs support non-interactive execution with permission bypass and session resume.
 
+Reasoning defaults for Codex implementation:
+- `high` for feature implementation and architectural refactors.
+- `medium`/`low` for simple fixes, docs-only work, or explicit fast/cheap requests.
+
 ### Codex CLI
 
 | Command | Purpose |
 |---------|---------|
-| `codex --yolo exec "prompt"` | Full-autonomy implementation |
+| `codex --yolo exec -c model_reasoning_effort="high" "prompt"` | Full-autonomy implementation (default for feature/architectural work) |
 | `codex exec resume --last "follow-up"` | Resume previous context |
 | `codex review --base <base>` | Code review against base branch |
 | `codex exec --json "prompt"` | Structured event stream for automation |
@@ -150,7 +154,7 @@ SESSION="codex-impl-$(date +%Y%m%d-%H%M%S)"
 # Start session and run codex
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec -c model_reasoning_effort=\"high\" 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
@@ -165,11 +169,11 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 ```bash
 # Run an implementation command in tmux (non-blocking)
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run timeout 180s codex --yolo exec "Implement feature X"
+  ./scripts/tmux-run timeout 180s codex --yolo exec -c model_reasoning_effort="high" "Implement feature X"
 
 # Run a long implementation in tmux and wait for completion
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run --wait timeout 600s codex --yolo exec "Complex multi-file refactor"
+  ./scripts/tmux-run --wait timeout 600s codex --yolo exec -c model_reasoning_effort="high" "Complex multi-file refactor"
 ```
 
 Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`

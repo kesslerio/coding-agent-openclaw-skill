@@ -5,18 +5,22 @@ Canonical Codex guidance for this skill.
 ## Default Strategy
 
 Use **single-agent Codex** for most work:
-1. `codex --yolo exec "..."` for one-off implementation/review prompts.
+1. `codex --yolo exec -c model_reasoning_effort="high" "..."` for one-off implementation/refactor prompts.
 2. `codex exec resume --last "..."` for follow-up work on the same task.
 3. Use tmux only when terminal persistence/reattach is required.
 
 This keeps workflows interactive and stateful without forcing a persistent tmux session.
+
+Reasoning default policy:
+- Use `high` for feature implementation and architectural refactors.
+- Use `medium`/`low` only for simple fixes/docs tasks or when the user explicitly asks for fast/cheap execution.
 
 ## Core Commands
 
 ### One-off implementation
 
 ```bash
-codex --yolo exec "Implement feature X. No questions."
+codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
 ```
 
 ### Resume previous context
@@ -60,9 +64,9 @@ codex exec --dangerously-bypass-approvals-and-sandbox "..."
 
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
-| Implementation | direct `codex exec` | tmux transport | Use `resume` for iterative loops |
+| Implementation | direct `codex exec` with `-c model_reasoning_effort="high"` | tmux transport | Use `resume` for iterative loops; use `medium`/`low` only for simple/docs or fast/cheap requests |
 | PR review | `codex review --base` | Claude CLI fallback | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex exec` | For reattach/log durability |
+| Long-running implementation | tmux transport | direct `codex exec` with `-c model_reasoning_effort="high"` | For reattach/log durability |
 
 Implementation-mode env var:
 - `CODING_AGENT_IMPL_MODE=direct|tmux|auto`
