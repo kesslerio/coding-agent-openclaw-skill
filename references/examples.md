@@ -41,8 +41,8 @@ codex exec "Part 1" && codex exec "Part 2"
 ```
 Correct:
 ```bash
-timeout 300s codex --yolo exec "Part 1"
-timeout 300s codex --yolo exec "Part 2"
+timeout 300s codex --yolo exec -c model_reasoning_effort="high" "Part 1"
+timeout 300s codex --yolo exec -c model_reasoning_effort="high" "Part 2"
 ```
 
 ## Real Violation Examples
