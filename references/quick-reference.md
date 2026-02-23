@@ -150,6 +150,7 @@ Before marking ANY task complete:
 - [ ] Review audit completed?
 - [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
 - [ ] Issue/PR title follows repo conventions?
+- [ ] User-facing long-form text passed through `/humanizer` (or fallback explicitly noted)?
 
 **Unchecked box = Task NOT complete.**
 
