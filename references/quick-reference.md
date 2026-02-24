@@ -1,6 +1,7 @@
 # coding-agent Reference
 
 ## Contents
+- Plan-First Execution Gate
 - STOP-AND-VERIFY (Before ANY Implementation)
 - Self-Audit Triggers (Option A)
 - Forbidden Flags & Minimum Timeouts
@@ -15,6 +16,13 @@
 - Code Quality Standards
 - Issue Priority (P0-P3)
 - tmux for Interactive Sessions (Optional)
+
+## Plan-First Execution Gate
+
+For non-trivial requests:
+1. Run planning flow first.
+2. Wait for explicit `APPROVE`.
+3. Execute implementation only after approval.
 
 ## STOP-AND-VERIFY (Before ANY Implementation)
 
@@ -70,11 +78,11 @@ Implementation mode routing:
 
 ```bash
 # Implementation default (feature work / architectural refactor)
-codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X based on approved plan."
 
 # Simple fix/docs or explicit fast/cheap request
-codex --yolo exec -c model_reasoning_effort="medium" "Fix typo in one file"
-codex --yolo exec -c model_reasoning_effort="low" "Update README command example quickly"
+codex -c 'model_reasoning_effort="medium"' exec --full-auto "Fix typo in one file"
+codex -c 'model_reasoning_effort="low"' exec --full-auto "Update README command example quickly"
 
 # Resume last session (context preserved)
 codex exec resume --last
@@ -83,11 +91,11 @@ codex exec resume --last
 ### Claude Code
 
 ```bash
-# Implementation (full autonomy)
-claude -p --dangerously-skip-permissions "Implement feature X"
+# Implementation (post-approval)
+claude -p --permission-mode acceptEdits "Implement feature X"
 
 # Complex task with Opus
-claude -p --model opus --dangerously-skip-permissions "Complex refactor..."
+claude -p --model opus --permission-mode acceptEdits "Complex refactor..."
 
 # Continue most recent session
 claude -p -c "Fix the review findings"
@@ -103,10 +111,10 @@ claude --resume
 
 ```bash
 # Generate read-only plan (Codex)
-./scripts/code-plan --engine codex --repo /path/to/repo --base main "Implement feature X"
+./scripts/plan --engine codex --repo /path/to/repo --base main "Implement feature X"
 
 # Generate strict plan mode output (Claude)
-./scripts/code-plan --engine claude --model sonnet --repo /path/to/repo "Implement feature X"
+./scripts/plan --engine claude --model sonnet --repo /path/to/repo "Implement feature X"
 
 # Execute approved plan (prompts for approval if still PENDING)
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
@@ -120,7 +128,7 @@ claude --resume
 
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
-TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec -c model_reasoning_effort="high" "Implement feature X"
+TIMEOUT=180 ./scripts/safe-impl.sh codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
 ```
 
 ## Preflight Checks
@@ -148,9 +156,9 @@ Before marking ANY task complete:
 - [ ] Standards review posted to PR?
 - [ ] Implementation audit completed?
 - [ ] Review audit completed?
+- [ ] User-facing long-form text passed through `/humanizer` (or fallback explicitly noted)?
 - [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
 - [ ] Issue/PR title follows repo conventions?
-- [ ] User-facing long-form text passed through `/humanizer` (or fallback explicitly noted)?
 
 **Unchecked box = Task NOT complete.**
 
@@ -160,14 +168,13 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
-
-For plan-first flow, use `/plan <task>` (maps to `scripts/code-plan`).
+For plan-first flow, use `/plan <task>` (maps to `scripts/plan`).
 
 ### Agent CLI Commands
 
-**Codex — full autonomy:**
+**Codex — guarded implementation:**
 ```bash
-codex --yolo exec -c model_reasoning_effort="high" "Your task. No questions."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Your approved task."
 ```
 
 **Codex — resume session:**
@@ -175,9 +182,9 @@ codex --yolo exec -c model_reasoning_effort="high" "Your task. No questions."
 codex exec resume --last
 ```
 
-**Claude Code — full autonomy:**
+**Claude Code — guarded implementation:**
 ```bash
-claude -p --dangerously-skip-permissions "Your task"
+claude -p --permission-mode acceptEdits "Your task"
 ```
 
 **Claude Code — resume session:**
@@ -290,7 +297,7 @@ SESSION=codex-impl
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec -c model_reasoning_effort=\"high\" 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex exec --full-auto 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor

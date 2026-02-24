@@ -19,6 +19,7 @@
 
 **Philosophy:**
 - **Plan First**: Always discuss approach before implementation.
+- **Approval Gate**: For non-trivial changes, wait for explicit `APPROVE` before writing files.
 - **Surface Decisions**: Present options with trade-offs.
 - **Confirm Alignment**: Ensure agreement before coding.
 - **No Direct Edits**: Use agent CLIs (Codex/Claude) to write code.
@@ -65,7 +66,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
 - **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
 - For reviews: use direct `codex review --base <base>` or `claude -p`
-- For implementation: prefer direct CLI (`codex --yolo exec -c model_reasoning_effort="high"`) or `scripts/code-implement`
+- For implementation: prefer direct CLI (`codex -c 'model_reasoning_effort="high"' exec --full-auto`) or `scripts/code-implement`
 - Default reasoning policy: use `high` for feature implementation and architectural refactors; use `medium`/`low` only for simple fixes/docs or explicit fast/cheap requests
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
@@ -90,6 +91,7 @@ Before reporting task complete, verify:
 - [ ] Correct tools used (agent CLI, direct or tmux)?
 - [ ] Code review completed and posted?
 - [ ] Standards review completed and posted?
+- [ ] User-facing long-form text passed through `/humanizer` (or explicit fallback noted)?
 - [ ] Self-audit completed (or explicit skip reason documented)?
 
 ## Self-Audit Protocol
@@ -172,10 +174,10 @@ Use agent CLIs directly for most tasks. Session resume preserves full context ac
 
 ```bash
 # Implementation (Codex)
-codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X according to approved plan."
 
 # Implementation (Claude)
-claude -p --dangerously-skip-permissions "Implement feature X"
+claude -p --permission-mode acceptEdits "Implement feature X"
 
 # Review (Codex)
 codex review --base <base> --title "PR Review"
@@ -191,6 +193,15 @@ For durable implementation sessions with logging and monitoring:
 ```bash
 # Implementation (tmux)
 ./scripts/code-implement "Implement feature X in /path/to/repo"
+```
+
+### Plan Mode Wrapper
+
+For non-trivial work, generate a plan artifact before implementation:
+
+```bash
+./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
 ### Code Review Process
@@ -209,7 +220,7 @@ timeout 600s codex review --base <base> --title "PR #N Review"
 
 **Step 2: Standards Review (Required)**
 ```bash
-codex --yolo exec --model gpt-5.3-codex \
+codex exec --full-auto --model gpt-5.3-codex \
   -c model_reasoning_effort="medium" "Review against STANDARDS.md..."
 ```
 
@@ -226,7 +237,7 @@ For complex tasks spanning multiple phases, use session resume to preserve full 
 
 ```bash
 # Phase 1: Implement from issue
-codex --yolo exec -c model_reasoning_effort="high" "Implement feature described in issue #42. No questions."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature described in issue #42 according to approved plan."
 
 # Phase 2: Create PR
 gh pr create --title "feat(auth): add JWT validation" --body "..."
@@ -277,7 +288,7 @@ git remote show origin | sed -n '/HEAD branch/s/.*: //p'
 
 ### Prompt Engineering Best Practices
 - **Be Specific**: "Implement X using Y library" vs "Add X".
-- **No Confirmation**: "Do not ask for confirmation. Just implement."
+- **Use Explicit Gate**: "Plan first; execute only after I reply APPROVE."
 - **Small Batches**: Don't change 50 files at once.
 - **Clear Exit**: "Reply with DONE when finished."
 
@@ -285,15 +296,15 @@ git remote show origin | sed -n '/HEAD branch/s/.*: //p'
 
 ### Codex CLI
 
-For automated runs with full autonomy:
+For automated runs after approval:
 
 ```bash
-# Implementation (full autonomy)
-codex --yolo exec -c model_reasoning_effort="high" "Implement feature X. No questions."
+# Implementation (post-approval)
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X based on approved plan."
 
 # Simple fix/docs or explicit fast/cheap request
-codex --yolo exec -c model_reasoning_effort="medium" "Fix typo in one file"
-codex --yolo exec -c model_reasoning_effort="low" "Update README command example quickly"
+codex -c 'model_reasoning_effort="medium"' exec --full-auto "Fix typo in one file"
+codex -c 'model_reasoning_effort="low"' exec --full-auto "Update README command example quickly"
 
 # Resume last session
 codex exec resume --last
@@ -302,11 +313,11 @@ codex exec resume --last
 ### Claude Code CLI
 
 ```bash
-# Implementation (full autonomy)
-claude -p --dangerously-skip-permissions "Implement feature X"
+# Implementation (post-approval)
+claude -p --permission-mode acceptEdits "Implement feature X"
 
 # With model selection
-claude -p --model opus --dangerously-skip-permissions "Complex task"
+claude -p --model opus --permission-mode acceptEdits "Complex task"
 
 # Resume/continue
 claude -p -c "Follow up on the previous task"

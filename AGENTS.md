@@ -102,8 +102,8 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 
 ## OpenClaw Skill Notes
 
-- Keep `SKILL.md` AgentSkills-compatible: clear `name` + `description`, concise body, references for deep detail.
-- For OpenClaw compatibility, keep frontmatter keys single-line and keep `metadata` as a single-line JSON object.
+- Keep each `SKILL.md` AgentSkills-compatible: clear `name` + `description`, concise body, references for deep detail.
+- For OpenClaw compatibility, keep frontmatter keys single-line and keep `metadata` as a single-line JSON object when metadata is present.
 
 ## CLI Drift Check
 

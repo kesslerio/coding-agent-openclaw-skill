@@ -1,5 +1,12 @@
 # Tooling and Timeouts
 
+## Plan-First Gate
+
+For non-trivial changes:
+1. Produce a plan first.
+2. Wait for explicit `APPROVE`.
+3. Execute implementation commands only after approval.
+
 ## Approach Comparison
 
 | Method | Reliability | Output | Best For |
@@ -13,9 +20,9 @@
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
 | Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
-| Implementation | direct `codex --yolo exec -c model_reasoning_effort="high"` | tmux transport | Default `high` for feature/architectural work; use `medium`/`low` for simple/docs or fast/cheap requests |
+| Implementation | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | tmux transport | Use `codex exec resume --last` for follow-up; lower reasoning only for simple/docs or explicit fast/cheap requests |
 | PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex --yolo exec -c model_reasoning_effort="high"` | Use tmux when persistence/reattach is required |
+| Long-running implementation | tmux transport | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
 
@@ -27,7 +34,7 @@ Default behavior: `direct`.
 
 ## Direct CLI (Primary)
 
-Agent CLIs support non-interactive execution with permission bypass and session resume.
+Agent CLIs support non-interactive execution with session resume and approval-aware modes.
 
 Reasoning defaults for Codex implementation:
 - `high` for feature implementation and architectural refactors.
@@ -37,7 +44,7 @@ Reasoning defaults for Codex implementation:
 
 | Command | Purpose |
 |---------|---------|
-| `codex --yolo exec -c model_reasoning_effort="high" "prompt"` | Full-autonomy implementation (default for feature/architectural work) |
+| `codex -c 'model_reasoning_effort="high"' exec --full-auto "prompt"` | Guardrailed implementation (feature/refactor default) |
 | `codex exec resume --last "follow-up"` | Resume previous context |
 | `codex review --base <base>` | Code review against base branch |
 | `codex exec --json "prompt"` | Structured event stream for automation |
@@ -47,22 +54,20 @@ Reasoning defaults for Codex implementation:
 
 | Command | Purpose |
 |---------|---------|
-| `claude -p --dangerously-skip-permissions "prompt"` | Full-autonomy implementation fallback |
+| `claude -p --permission-mode acceptEdits "prompt"` | Guardrailed implementation fallback |
 | `claude -p --model opus "prompt"` | Complex fallback task |
 | `claude -p -c "follow up"` | Continue most recent session |
 | `claude -p --resume <id> "follow up"` | Resume specific session |
 | `claude --resume` | Interactive session picker |
 
-### Permission Bypass
+### Approval Modes
 
 | CLI | Flag | Behavior |
 |-----|------|----------|
-| Codex | `--yolo` | Alias for full bypass in `exec` workflows |
-| Codex | `--dangerously-bypass-approvals-and-sandbox` | Skip approvals and sandbox |
 | Codex | `--full-auto` | Lower-friction sandboxed automation |
-| Claude | `--dangerously-skip-permissions` | Skip all permission checks |
-| Claude | `--permission-mode bypassPermissions` | Equivalent via mode flag |
+| Codex | `--dangerously-bypass-approvals-and-sandbox` | Explicit bypass (only by user request) |
 | Claude | `--permission-mode acceptEdits` | Auto-accept file edits only |
+| Claude | `--permission-mode bypassPermissions` | Explicit bypass (only by user request) |
 
 ### Session Management
 
@@ -106,13 +111,13 @@ Run CLI drift checks before changing command docs:
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 
-## Wrapper Scripts
+## Wrapper Scripts (Plan + Implementation)
 
 ```bash
 # Plan mode wrapper (read-only)
 "${CODING_AGENT_DIR:-./}/scripts/code-plan" --engine codex --repo /path/to/repo "Implement feature X"
 
-# Implementation wrapper (tmux transport)
+# Implementation (tmux transport wrapper)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
 
 # Execute an approved plan artifact
@@ -154,7 +159,7 @@ SESSION="codex-impl-$(date +%Y%m%d-%H%M%S)"
 # Start session and run codex
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec -c model_reasoning_effort=\"high\" 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex -c 'model_reasoning_effort=\"high\"' exec --full-auto 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
@@ -169,11 +174,11 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 ```bash
 # Run an implementation command in tmux (non-blocking)
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run timeout 180s codex --yolo exec -c model_reasoning_effort="high" "Implement feature X"
+  ./scripts/tmux-run timeout 180s codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
 
 # Run a long implementation in tmux and wait for completion
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run --wait timeout 600s codex --yolo exec -c model_reasoning_effort="high" "Complex multi-file refactor"
+  ./scripts/tmux-run --wait timeout 600s codex -c 'model_reasoning_effort="high"' exec --full-auto "Complex multi-file refactor"
 ```
 
 Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`
