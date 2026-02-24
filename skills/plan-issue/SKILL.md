@@ -31,3 +31,14 @@ metadata: {"openclaw":{"emoji":"🧭"}}
 - No package installation.
 - No commits, PRs, or system-changing commands.
 - If the user requests immediate implementation, still provide the plan unless they explicitly say to skip planning.
+
+## Command Alias
+
+`/plan` is a channel alias for this skill.
+
+## Handoff Contract
+
+At the end of every plan response, include:
+- `Reply APPROVE to execute this plan.`
+
+If the user sends `/approve` or `APPROVE` in the same conversation context, execution may proceed via `coding-agent`.

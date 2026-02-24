@@ -24,6 +24,14 @@
 - **Confirm Alignment**: Ensure agreement before coding.
 - **No Direct Edits**: Use agent CLIs (Codex/Claude) to write code.
 
+### Channel Alias Notes
+
+Some channels expose aliases (`/coding`, `/plan`, `/approve`, `/review_pr`).
+These aliases do not change core policy:
+- Plan-first for non-trivial work
+- Explicit approval gate before writes
+- No bypass-by-default flags unless the user explicitly requests bypass.
+
 ## Git Workflow
 
 **Note:** Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested.

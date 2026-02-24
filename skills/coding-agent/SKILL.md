@@ -9,8 +9,13 @@ metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["code
 
 ## Entry Gate
 
-Only execute this skill after the user has explicitly sent `APPROVE` for a plan in the current conversation.
-If `APPROVE` is missing, stop and request approval.
+Only execute this skill after explicit approval in the current conversation context:
+- `APPROVE`
+- `/approve`
+
+Approval must correspond to the latest pending plan in-context.
+If no matching approved plan exists, stop and request:
+`Run /plan first, then reply APPROVE.`
 
 ## Execution Workflow
 

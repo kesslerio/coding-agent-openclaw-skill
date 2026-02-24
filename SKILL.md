@@ -18,6 +18,15 @@ Canonical sibling skills live at:
 2. For non-trivial implementation requests, produce a plan first and wait for exact `APPROVE` before any writes.
 3. Only after `APPROVE`, follow `coding-agent` behavior.
 
+## Command Routing (Channel Aliases)
+
+When invoked via channel aliases:
+
+- `/coding` → use this compatibility skill as router.
+- `/plan` → route directly to `plan-issue` behavior.
+- `/approve` → treat as explicit approval gate for the latest in-context plan, then route to `coding-agent` behavior.
+- `/review_pr` → route to review flow using `references/reviews.md`.
+
 ## Non-Negotiable Gates
 
 1. Never write files, install packages, commit, or open PRs before explicit `APPROVE`.
