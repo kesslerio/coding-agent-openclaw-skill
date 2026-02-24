@@ -213,5 +213,5 @@ fi
 (
   cd "$EXEC_REPO"
   CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-    "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex --yolo exec "$PROMPT"
+    "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$PROMPT"
 )

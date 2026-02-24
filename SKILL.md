@@ -1,10 +1,10 @@
 ---
-name: coding-agent
+name: coding-router
 description: "Compatibility entry skill for plan-first coding work in OpenClaw."
 metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["codex","claude"],"env":[]}}}
 ---
 
-# Coding Agent Compatibility Skill 💻
+# Coding Router Skill 💻
 
 This file exists for backward compatibility with single-entry skill setups (for example `/coding`).
 Canonical sibling skills live at:
