@@ -66,7 +66,8 @@ These are non-negotiable requirements. Violating any of these means the task has
 - When user specifies "use claude/codex/gemini": **MUST** use that CLI tool when available/configured
 - **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
 - For reviews: use direct `codex review --base <base>` or `claude -p`
-- For implementation: prefer direct CLI (`codex exec --full-auto`) or `scripts/code-implement`
+- For implementation: prefer direct CLI (`codex -c 'model_reasoning_effort="high"' exec --full-auto`) or `scripts/code-implement`
+- Default reasoning policy: use `high` for feature implementation and architectural refactors; use `medium`/`low` only for simple fixes/docs or explicit fast/cheap requests
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
 - **Violation Response**: Stop and switch to specified tool
@@ -90,6 +91,7 @@ Before reporting task complete, verify:
 - [ ] Correct tools used (agent CLI, direct or tmux)?
 - [ ] Code review completed and posted?
 - [ ] Standards review completed and posted?
+- [ ] User-facing long-form text passed through `/humanizer` (or explicit fallback noted)?
 - [ ] Self-audit completed (or explicit skip reason documented)?
 
 ## Self-Audit Protocol
@@ -172,7 +174,7 @@ Use agent CLIs directly for most tasks. Session resume preserves full context ac
 
 ```bash
 # Implementation (Codex)
-codex exec --full-auto "Implement feature X according to approved plan."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X according to approved plan."
 
 # Implementation (Claude)
 claude -p --permission-mode acceptEdits "Implement feature X"
@@ -191,6 +193,15 @@ For durable implementation sessions with logging and monitoring:
 ```bash
 # Implementation (tmux)
 ./scripts/code-implement "Implement feature X in /path/to/repo"
+```
+
+### Plan Mode Wrapper
+
+For non-trivial work, generate a plan artifact before implementation:
+
+```bash
+./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
 ### Code Review Process
@@ -226,7 +237,7 @@ For complex tasks spanning multiple phases, use session resume to preserve full 
 
 ```bash
 # Phase 1: Implement from issue
-codex exec --full-auto "Implement feature described in issue #42 according to approved plan."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature described in issue #42 according to approved plan."
 
 # Phase 2: Create PR
 gh pr create --title "feat(auth): add JWT validation" --body "..."
@@ -289,10 +300,11 @@ For automated runs after approval:
 
 ```bash
 # Implementation (post-approval)
-codex exec --full-auto "Implement feature X based on approved plan."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X based on approved plan."
 
-# With reasoning effort
-codex -c 'model_reasoning_effort="medium"' exec --full-auto "Complex refactor..."
+# Simple fix/docs or explicit fast/cheap request
+codex -c 'model_reasoning_effort="medium"' exec --full-auto "Fix typo in one file"
+codex -c 'model_reasoning_effort="low"' exec --full-auto "Update README command example quickly"
 
 # Resume last session
 codex exec resume --last

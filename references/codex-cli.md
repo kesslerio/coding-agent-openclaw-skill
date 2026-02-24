@@ -11,19 +11,29 @@ For non-trivial tasks:
 
 Do not perform writes before `APPROVE`.
 
+Preferred plan artifact flow:
+
+```bash
+./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+```
+
 ## Default Strategy
 
 Use single-agent Codex for most work:
-1. `codex exec --full-auto "..."` for implementation/review prompts after approval.
+1. `codex -c 'model_reasoning_effort="high"' exec --full-auto "..."` for feature implementation/refactors after approval.
 2. `codex exec resume --last "..."` for follow-up work.
 3. Use tmux only when persistence/reattach is required.
+
+Reasoning default policy:
+- Use `high` for feature implementation and architectural refactors.
+- Use `medium`/`low` only for simple fixes/docs tasks or explicit fast/cheap requests.
 
 ## Core Commands
 
 ### Implementation (post-approval)
 
 ```bash
-codex exec --full-auto "Implement feature X according to the approved plan."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X according to the approved plan."
 ```
 
 ### Resume previous context
@@ -63,9 +73,9 @@ codex exec --dangerously-bypass-approvals-and-sandbox "..."
 
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
-| Implementation | direct `codex exec --full-auto` | tmux transport | Use `resume` for iterative loops |
+| Implementation | direct `codex -c 'model_reasoning_effort=\"high\"' exec --full-auto` | tmux transport | Use `resume` for iterative loops; lower reasoning only for simple/docs or explicit fast/cheap requests |
 | PR review | `codex review --base` | Claude CLI fallback | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex exec --full-auto` | For reattach/log durability |
+| Long-running implementation | tmux transport | direct `codex -c 'model_reasoning_effort=\"high\"' exec --full-auto` | For reattach/log durability |
 
 Implementation-mode env var:
 - `CODING_AGENT_IMPL_MODE=direct|tmux|auto`

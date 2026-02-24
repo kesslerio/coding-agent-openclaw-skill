@@ -19,6 +19,25 @@ This repo now ships two sibling skills:
 
 Guardrail: no bypass flags (`--yolo`, `--dangerously-skip-permissions`) unless explicitly requested.
 
+## Usage
+
+In OpenClaw:
+
+```text
+/coding
+/plan <task>
+```
+
+CLI wrappers:
+
+```bash
+# Generate a read-only plan artifact
+./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+
+# Execute an approved plan artifact
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+```
+
 ## Requirements
 
 - GitHub CLI (`gh`)

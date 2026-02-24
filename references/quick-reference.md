@@ -7,6 +7,7 @@
 - Forbidden Flags & Minimum Timeouts
 - Tool Fallback Chain
 - Direct CLI Commands (Primary)
+- Plan Mode Commands
 - Wrapper Scripts (Secondary)
 - Preflight Checks
 - Pre-Completion Checklist
@@ -76,11 +77,12 @@ Implementation mode routing:
 ### Codex
 
 ```bash
-# Implementation (post-approval)
-codex exec --full-auto "Implement feature X based on approved plan."
+# Implementation default (feature work / architectural refactor)
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X based on approved plan."
 
-# With reasoning effort
-codex -c 'model_reasoning_effort="medium"' exec --full-auto "Complex refactor..."
+# Simple fix/docs or explicit fast/cheap request
+codex -c 'model_reasoning_effort="medium"' exec --full-auto "Fix typo in one file"
+codex -c 'model_reasoning_effort="low"' exec --full-auto "Update README command example quickly"
 
 # Resume last session (context preserved)
 codex exec resume --last
@@ -105,6 +107,19 @@ claude -p --resume <session-id> "Continue implementation"
 claude --resume
 ```
 
+## Plan Mode Commands
+
+```bash
+# Generate read-only plan (Codex)
+./scripts/plan --engine codex --repo /path/to/repo --base main "Implement feature X"
+
+# Generate strict plan mode output (Claude)
+./scripts/plan --engine claude --model sonnet --repo /path/to/repo "Implement feature X"
+
+# Execute approved plan (prompts for approval if still PENDING)
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+```
+
 ## Wrapper Scripts (Secondary)
 
 ```bash
@@ -113,7 +128,7 @@ claude --resume
 
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
-TIMEOUT=180 ./scripts/safe-impl.sh codex exec --full-auto "Implement feature X"
+TIMEOUT=180 ./scripts/safe-impl.sh codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
 ```
 
 ## Preflight Checks
@@ -141,6 +156,7 @@ Before marking ANY task complete:
 - [ ] Standards review posted to PR?
 - [ ] Implementation audit completed?
 - [ ] Review audit completed?
+- [ ] User-facing long-form text passed through `/humanizer` (or fallback explicitly noted)?
 - [ ] PR body includes `What`, `Why`, `Tests`, `AI Assistance`?
 - [ ] Issue/PR title follows repo conventions?
 
@@ -152,12 +168,13 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
+For plan-first flow, use `/plan <task>` (maps to `scripts/plan`).
 
 ### Agent CLI Commands
 
 **Codex — guarded implementation:**
 ```bash
-codex exec --full-auto "Your approved task."
+codex -c 'model_reasoning_effort="high"' exec --full-auto "Your approved task."
 ```
 
 **Codex — resume session:**

@@ -19,9 +19,10 @@ For non-trivial changes:
 
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
-| Implementation | direct `codex exec --full-auto` | tmux transport | Use `codex exec resume --last` for follow-up |
+| Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
+| Implementation | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | tmux transport | Use `codex exec resume --last` for follow-up; lower reasoning only for simple/docs or explicit fast/cheap requests |
 | PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex exec --full-auto` | Use tmux when persistence/reattach is required |
+| Long-running implementation | tmux transport | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
 
@@ -35,11 +36,15 @@ Default behavior: `direct`.
 
 Agent CLIs support non-interactive execution with session resume and approval-aware modes.
 
+Reasoning defaults for Codex implementation:
+- `high` for feature implementation and architectural refactors.
+- `medium`/`low` for simple fixes, docs-only work, or explicit fast/cheap requests.
+
 ### Codex CLI
 
 | Command | Purpose |
 |---------|---------|
-| `codex exec --full-auto "prompt"` | Guardrailed implementation |
+| `codex -c 'model_reasoning_effort="high"' exec --full-auto "prompt"` | Guardrailed implementation (feature/refactor default) |
 | `codex exec resume --last "follow-up"` | Resume previous context |
 | `codex review --base <base>` | Code review against base branch |
 | `codex exec --json "prompt"` | Structured event stream for automation |
@@ -106,11 +111,17 @@ Run CLI drift checks before changing command docs:
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 
-## Wrapper Scripts (Implementation Only)
+## Wrapper Scripts (Plan + Implementation)
 
 ```bash
+# Plan mode wrapper (read-only)
+"${CODING_AGENT_DIR:-./}/scripts/code-plan" --engine codex --repo /path/to/repo "Implement feature X"
+
 # Implementation (tmux transport wrapper)
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" "Implement feature X in /path/to/repo"
+
+# Execute an approved plan artifact
+"${CODING_AGENT_DIR:-./}/scripts/code-implement" --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
 For reviews, use direct CLI — no wrapper needed:
@@ -148,7 +159,7 @@ SESSION="codex-impl-$(date +%Y%m%d-%H%M%S)"
 # Start session and run codex
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex exec --full-auto 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex -c 'model_reasoning_effort=\"high\"' exec --full-auto 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
@@ -163,11 +174,11 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 ```bash
 # Run an implementation command in tmux (non-blocking)
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run timeout 180s codex exec --full-auto "Implement feature X"
+  ./scripts/tmux-run timeout 180s codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
 
 # Run a long implementation in tmux and wait for completion
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run --wait timeout 600s codex exec --full-auto "Complex multi-file refactor"
+  ./scripts/tmux-run --wait timeout 600s codex -c 'model_reasoning_effort="high"' exec --full-auto "Complex multi-file refactor"
 ```
 
 Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`
