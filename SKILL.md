@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: "Compatibility entry skill for plan-first coding work. Routes requests through planning and enforces explicit APPROVE before implementation."
+description: "Compatibility entry skill for plan-first coding work in OpenClaw."
 metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["codex","claude"],"env":[]}}}
 ---
 
@@ -9,10 +9,8 @@ metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["code
 This file exists for backward compatibility with single-entry skill setups (for example `/coding`).
 Canonical sibling skills live at:
 
-- `.agents/skills/plan-issue/SKILL.md`
-- `.agents/skills/coding-agent/SKILL.md`
-- `.claude/skills/plan-issue/SKILL.md`
-- `.claude/skills/coding-agent/SKILL.md`
+- `skills/plan-issue/SKILL.md`
+- `skills/coding-agent/SKILL.md`
 
 ## Routing Rules
 

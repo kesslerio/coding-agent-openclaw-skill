@@ -1,17 +1,15 @@
 # coding-agent Skill Pack 💻
 
-Plan-first coding skill pack for Codex/OpenAI Skills and Claude Code Skills.
+Plan-first OpenClaw skill pack.
 
 ## Skill Layout
 
 This repo now ships two sibling skills:
 
-- `.agents/skills/plan-issue/SKILL.md` (Codex/OpenAI)
-- `.agents/skills/coding-agent/SKILL.md` (Codex/OpenAI)
-- `.claude/skills/plan-issue/SKILL.md` (Claude Code)
-- `.claude/skills/coding-agent/SKILL.md` (Claude Code)
+- `skills/plan-issue/SKILL.md`
+- `skills/coding-agent/SKILL.md`
 
-`SKILL.md` at repo root is kept as a compatibility entry for single-skill setups.
+`SKILL.md` at repo root is a compatibility entry for single-skill setups.
 
 ## Behavior Model
 

@@ -1,6 +1,8 @@
 ---
 name: coding-agent
-description: "Implementation/review workflow for approved plans. Use after explicit APPROVE to execute coding changes, tests, PR creation, and follow-up review loops."
+description: "Implementation/review workflow for approved plans. Use after explicit APPROVE."
+disable-model-invocation: true
+metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["codex","claude"],"env":[]}}}
 ---
 
 # Coding-Agent Skill
@@ -27,8 +29,7 @@ If `APPROVE` is missing, stop and request approval.
 
 ## Guardrails
 
-- No bypass-by-default. Do not use `--yolo` or `--dangerously-skip-permissions` unless the user explicitly requests approval bypass.
-- Prefer Codex for implementation/review and Claude as fallback.
+- No bypass-by-default. Do not use approval-bypass flags unless the user explicitly requests bypass.
 - Use feature branches for code changes.
 - Keep changes scoped to the approved plan.
 

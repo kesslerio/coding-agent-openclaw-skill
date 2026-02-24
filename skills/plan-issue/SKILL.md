@@ -1,6 +1,7 @@
 ---
 name: plan-issue
-description: "Plan-only workflow for issue/repo changes. Use when user asks to plan, scope, estimate, or design. Produces an implementation plan and waits for explicit APPROVE before execution."
+description: "Plan-only workflow for issue/repo changes. Use when user asks to plan, scope, estimate, or design."
+metadata: {"openclaw":{"emoji":"🧭"}}
 ---
 
 # Plan-Issue Skill

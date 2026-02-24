@@ -1,6 +1,0 @@
-interface:
-  display_name: "Plan Issue"
-  short_description: "Plan-only issue implementation workflow"
-  default_prompt: "Plan implementation of the requested change and wait for APPROVE."
-policy:
-  allow_implicit_invocation: true
