@@ -2,6 +2,13 @@
 
 Detailed reference for Claude Code as a fallback when Codex is unavailable, or as primary CLI for Claude-based workflows.
 
+## Plan-First Gate
+
+For non-trivial tasks:
+1. Plan first.
+2. Wait for explicit `APPROVE`.
+3. Execute with Claude commands after approval.
+
 ## Contents
 - Non-interactive mode flags
 - Session resume (non-interactive)
@@ -85,13 +92,13 @@ Sessions persist to `~/.claude/projects/<project>/sessions/`. Each session conta
 
 ```bash
 # Phase 1: Implement
-claude -p --dangerously-skip-permissions "Implement JWT auth middleware"
+claude -p --permission-mode acceptEdits "Implement JWT auth middleware"
 
 # Phase 2: Fix review findings (context preserved)
-claude -p -c --dangerously-skip-permissions "Fix the review findings: add token expiry check"
+claude -p -c --permission-mode acceptEdits "Fix the review findings: add token expiry check"
 
 # Phase 3: Add tests (context preserved)
-claude -p -c --dangerously-skip-permissions "Add unit tests for the JWT middleware"
+claude -p -c --permission-mode acceptEdits "Add unit tests for the JWT middleware"
 ```
 
 ---
@@ -110,8 +117,8 @@ claude -p -c --dangerously-skip-permissions "Add unit tests for the JWT middlewa
 # Auto-accept edits (recommended for automation)
 claude -p --permission-mode acceptEdits "Fix the bug"
 
-# Full bypass (like Codex --yolo)
-claude -p --dangerously-skip-permissions "Build the feature"
+# Explicit bypass (only when user asks to bypass approvals)
+claude -p --permission-mode bypassPermissions "Build the feature"
 ```
 
 ---
@@ -199,7 +206,7 @@ claude -p --permission-mode acceptEdits "Fix the null pointer exception in src/a
 
 ### Full Auto Build
 ```bash
-claude -p --dangerously-skip-permissions "Build a REST API with CRUD endpoints for users"
+claude -p --permission-mode acceptEdits "Build a REST API with CRUD endpoints for users"
 ```
 
 ### Code Review with Budget
@@ -210,13 +217,13 @@ claude -p --model opus --max-budget-usd 1 "Review this PR for security issues"
 ### Multi-Phase Implementation
 ```bash
 # Phase 1: Implement
-claude -p --dangerously-skip-permissions "Implement the user registration endpoint"
+claude -p --permission-mode acceptEdits "Implement the user registration endpoint"
 
 # Phase 2: Fix issues (resume context)
-claude -p -c --dangerously-skip-permissions "Fix the validation error in registration"
+claude -p -c --permission-mode acceptEdits "Fix the validation error in registration"
 
 # Phase 3: Add tests
-claude -p -c --dangerously-skip-permissions "Add integration tests for registration"
+claude -p -c --permission-mode acceptEdits "Add integration tests for registration"
 ```
 
 ---
@@ -227,7 +234,7 @@ claude -p -c --dangerously-skip-permissions "Add integration tests for registrat
 |-------|--------|
 | `codex exec "prompt"` | `claude -p "prompt"` |
 | `codex exec --full-auto "prompt"` | `claude -p --permission-mode acceptEdits "prompt"` |
-| `codex --yolo "prompt"` | `claude -p --dangerously-skip-permissions "prompt"` |
+| `codex exec --dangerously-bypass-approvals-and-sandbox "prompt"` | `claude -p --permission-mode bypassPermissions "prompt"` |
 | `codex review --base <base>` | `claude -p "Review changes vs <base> branch"` |
 | `codex exec resume --last` | `claude -p -c "prompt"` |
 | `codex exec resume <id>` | `claude -p --resume <id> "prompt"` |

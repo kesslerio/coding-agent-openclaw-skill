@@ -1,5 +1,12 @@
 # Tooling and Timeouts
 
+## Plan-First Gate
+
+For non-trivial changes:
+1. Produce a plan first.
+2. Wait for explicit `APPROVE`.
+3. Execute implementation commands only after approval.
+
 ## Approach Comparison
 
 | Method | Reliability | Output | Best For |
@@ -12,9 +19,9 @@
 
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
-| Implementation | direct `codex --yolo exec` | tmux transport | Use `codex exec resume --last` for follow-up |
+| Implementation | direct `codex exec --full-auto` | tmux transport | Use `codex exec resume --last` for follow-up |
 | PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
-| Long-running implementation | tmux transport | direct `codex --yolo exec` | Use tmux when persistence/reattach is required |
+| Long-running implementation | tmux transport | direct `codex exec --full-auto` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
 
@@ -26,13 +33,13 @@ Default behavior: `direct`.
 
 ## Direct CLI (Primary)
 
-Agent CLIs support non-interactive execution with permission bypass and session resume.
+Agent CLIs support non-interactive execution with session resume and approval-aware modes.
 
 ### Codex CLI
 
 | Command | Purpose |
 |---------|---------|
-| `codex --yolo exec "prompt"` | Full-autonomy implementation |
+| `codex exec --full-auto "prompt"` | Guardrailed implementation |
 | `codex exec resume --last "follow-up"` | Resume previous context |
 | `codex review --base <base>` | Code review against base branch |
 | `codex exec --json "prompt"` | Structured event stream for automation |
@@ -42,22 +49,20 @@ Agent CLIs support non-interactive execution with permission bypass and session 
 
 | Command | Purpose |
 |---------|---------|
-| `claude -p --dangerously-skip-permissions "prompt"` | Full-autonomy implementation fallback |
+| `claude -p --permission-mode acceptEdits "prompt"` | Guardrailed implementation fallback |
 | `claude -p --model opus "prompt"` | Complex fallback task |
 | `claude -p -c "follow up"` | Continue most recent session |
 | `claude -p --resume <id> "follow up"` | Resume specific session |
 | `claude --resume` | Interactive session picker |
 
-### Permission Bypass
+### Approval Modes
 
 | CLI | Flag | Behavior |
 |-----|------|----------|
-| Codex | `--yolo` | Alias for full bypass in `exec` workflows |
-| Codex | `--dangerously-bypass-approvals-and-sandbox` | Skip approvals and sandbox |
 | Codex | `--full-auto` | Lower-friction sandboxed automation |
-| Claude | `--dangerously-skip-permissions` | Skip all permission checks |
-| Claude | `--permission-mode bypassPermissions` | Equivalent via mode flag |
+| Codex | `--dangerously-bypass-approvals-and-sandbox` | Explicit bypass (only by user request) |
 | Claude | `--permission-mode acceptEdits` | Auto-accept file edits only |
+| Claude | `--permission-mode bypassPermissions` | Explicit bypass (only by user request) |
 
 ### Session Management
 
@@ -143,7 +148,7 @@ SESSION="codex-impl-$(date +%Y%m%d-%H%M%S)"
 # Start session and run codex
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex exec --full-auto 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor
@@ -158,11 +163,11 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
 ```bash
 # Run an implementation command in tmux (non-blocking)
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run timeout 180s codex --yolo exec "Implement feature X"
+  ./scripts/tmux-run timeout 180s codex exec --full-auto "Implement feature X"
 
 # Run a long implementation in tmux and wait for completion
 CODEX_TMUX_SESSION_PREFIX=codex-impl \
-  ./scripts/tmux-run --wait timeout 600s codex --yolo exec "Complex multi-file refactor"
+  ./scripts/tmux-run --wait timeout 600s codex exec --full-auto "Complex multi-file refactor"
 ```
 
 Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`

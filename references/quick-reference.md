@@ -1,6 +1,7 @@
 # coding-agent Reference
 
 ## Contents
+- Plan-First Execution Gate
 - STOP-AND-VERIFY (Before ANY Implementation)
 - Self-Audit Triggers (Option A)
 - Forbidden Flags & Minimum Timeouts
@@ -14,6 +15,13 @@
 - Code Quality Standards
 - Issue Priority (P0-P3)
 - tmux for Interactive Sessions (Optional)
+
+## Plan-First Execution Gate
+
+For non-trivial requests:
+1. Run planning flow first.
+2. Wait for explicit `APPROVE`.
+3. Execute implementation only after approval.
 
 ## STOP-AND-VERIFY (Before ANY Implementation)
 
@@ -68,11 +76,11 @@ Implementation mode routing:
 ### Codex
 
 ```bash
-# Implementation (full autonomy)
-codex --yolo exec "Implement feature X. No questions."
+# Implementation (post-approval)
+codex exec --full-auto "Implement feature X based on approved plan."
 
 # With reasoning effort
-codex -c 'model_reasoning_effort="medium"' --yolo exec "Complex refactor..."
+codex -c 'model_reasoning_effort="medium"' exec --full-auto "Complex refactor..."
 
 # Resume last session (context preserved)
 codex exec resume --last
@@ -81,11 +89,11 @@ codex exec resume --last
 ### Claude Code
 
 ```bash
-# Implementation (full autonomy)
-claude -p --dangerously-skip-permissions "Implement feature X"
+# Implementation (post-approval)
+claude -p --permission-mode acceptEdits "Implement feature X"
 
 # Complex task with Opus
-claude -p --model opus --dangerously-skip-permissions "Complex refactor..."
+claude -p --model opus --permission-mode acceptEdits "Complex refactor..."
 
 # Continue most recent session
 claude -p -c "Fix the review findings"
@@ -105,7 +113,7 @@ claude --resume
 
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
-TIMEOUT=180 ./scripts/safe-impl.sh codex --yolo exec "Implement feature X"
+TIMEOUT=180 ./scripts/safe-impl.sh codex exec --full-auto "Implement feature X"
 ```
 
 ## Preflight Checks
@@ -147,9 +155,9 @@ Use `/coding` in OpenClaw to activate this skill.
 
 ### Agent CLI Commands
 
-**Codex — full autonomy:**
+**Codex — guarded implementation:**
 ```bash
-codex --yolo exec "Your task. No questions."
+codex exec --full-auto "Your approved task."
 ```
 
 **Codex — resume session:**
@@ -157,9 +165,9 @@ codex --yolo exec "Your task. No questions."
 codex exec resume --last
 ```
 
-**Claude Code — full autonomy:**
+**Claude Code — guarded implementation:**
 ```bash
-claude -p --dangerously-skip-permissions "Your task"
+claude -p --permission-mode acceptEdits "Your task"
 ```
 
 **Claude Code — resume session:**
@@ -272,7 +280,7 @@ SESSION=codex-impl
 
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 TARGET="$(tmux -S "$SOCKET" list-panes -t "$SESSION" -F "#{session_name}:#{window_index}.#{pane_index}" | head -n 1)"
-tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex --yolo exec 'Implement feature X'"
+tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "codex exec --full-auto 'Implement feature X'"
 tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 # Monitor

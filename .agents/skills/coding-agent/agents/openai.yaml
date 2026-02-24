@@ -1,0 +1,6 @@
+interface:
+  display_name: "Coding Agent"
+  short_description: "Execute approved coding plans"
+  default_prompt: "Execute the approved implementation plan and report results."
+policy:
+  allow_implicit_invocation: false
