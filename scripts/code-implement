@@ -1,59 +1,217 @@
 #!/usr/bin/env bash
 # code-implement - Wrapper for code implementation with proper timeout
-# Usage: code-implement "Implement feature X in /path/to/repo"
 #
-# Default timeout: 3 minutes (180s)
-# Override with CODE_IMPLEMENT_TIMEOUT env var
-#
-# Strategy (in order of preference):
-# 1. codex --yolo exec in tmux (recommended)
-# 2. Manual intervention if tmux/codex unavailable
+# Usage:
+#   code-implement "Implement feature X in /path/to/project"
+#   code-implement --plan .ai/plans/<plan>.md [--force]
 
 set -euo pipefail
 
-# Ensure standard tools are available on NixOS
 export PATH="$PATH:/run/current-system/sw/bin"
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: code-implement \"<prompt>\"" >&2
-    echo "Example: code-implement \"Implement user auth in /path/to/project\"" >&2
-    exit 1
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  code-implement "<prompt>"
+  code-implement --plan <path> [--force]
+USAGE
+}
+
+PLAN_PATH=""
+FORCE=0
+PROMPT=""
+EXEC_REPO="$(pwd)"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --plan)
+      PLAN_PATH="${2:-}"
+      shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      if [[ -z "$PROMPT" ]]; then
+        PROMPT="$1"
+      else
+        PROMPT="$PROMPT $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ $# -gt 0 ]]; then
+  if [[ -z "$PROMPT" ]]; then
+    PROMPT="$*"
+  else
+    PROMPT="$PROMPT $*"
+  fi
+fi
+
+if [[ -n "$PLAN_PATH" && -n "$PROMPT" ]]; then
+  echo "Error: provide either --plan or a prompt, not both" >&2
+  exit 1
+fi
+
+if [[ -z "$PLAN_PATH" && -z "$PROMPT" ]]; then
+  usage
+  exit 1
 fi
 
 TIMEOUT_MS="${CODE_IMPLEMENT_TIMEOUT:-180000}"
-
-# [P1] Validate timeout is numeric
 if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
-    echo "Error: CODE_IMPLEMENT_TIMEOUT must be a number (milliseconds)" >&2
-    echo "Got: $TIMEOUT_MS" >&2
-    exit 1
+  echo "Error: CODE_IMPLEMENT_TIMEOUT must be a number (milliseconds)" >&2
+  echo "Got: $TIMEOUT_MS" >&2
+  exit 1
 fi
-
 TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
 
+get_frontmatter_field() {
+  local file="$1"
+  local key="$2"
+  awk -F': ' -v wanted="$key" '
+    BEGIN { in_fm=0 }
+    $0 == "---" {
+      if (in_fm == 0) { in_fm=1; next }
+      else { exit }
+    }
+    in_fm == 1 {
+      if (index($0, wanted ":") == 1) {
+        sub("^[^:]+:[ ]*", "", $0)
+        print $0
+        exit
+      }
+    }
+  ' "$file"
+}
+
+set_frontmatter_field() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp
+  tmp="$(mktemp)"
+  awk -v k="$key" -v v="$value" '
+    BEGIN { in_fm=0; replaced=0 }
+    $0 == "---" {
+      if (in_fm == 0) { in_fm=1; print; next }
+      if (in_fm == 1) {
+        if (replaced == 0) { print k ": " v }
+        in_fm=2
+        print
+        next
+      }
+    }
+    in_fm == 1 {
+      if (index($0, k ":") == 1) {
+        print k ": " v
+        replaced=1
+        next
+      }
+    }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+if [[ -n "$PLAN_PATH" ]]; then
+  if [[ ! -f "$PLAN_PATH" ]]; then
+    echo "Error: plan file not found: $PLAN_PATH" >&2
+    exit 1
+  fi
+
+  status="$(get_frontmatter_field "$PLAN_PATH" "status")"
+  plan_id="$(get_frontmatter_field "$PLAN_PATH" "id")"
+  if [[ -z "$plan_id" ]]; then
+    plan_id="$(basename "$PLAN_PATH" .md)"
+  fi
+
+  repo_from_plan="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
+  if [[ -n "$repo_from_plan" ]]; then
+    if ! git -C "$repo_from_plan" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "Error: repo_path from plan is not a git repo: $repo_from_plan" >&2
+      exit 1
+    fi
+    EXEC_REPO="$repo_from_plan"
+  fi
+
+  if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
+    echo "⚠️  Plan $plan_id is currently ${status:-PENDING}."
+    read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
+    case "${answer,,}" in
+      y|yes)
+        set_frontmatter_field "$PLAN_PATH" "status" "APPROVED"
+        set_frontmatter_field "$PLAN_PATH" "approved_by" "${USER:-unknown}"
+        set_frontmatter_field "$PLAN_PATH" "approved_at" "$(date -Iseconds)"
+        ;;
+      revise)
+        echo "Plan left unchanged. Revise by rerunning code-plan with updated guidance." >&2
+        exit 1
+        ;;
+      *)
+        echo "Execution cancelled." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  status="$(get_frontmatter_field "$PLAN_PATH" "status")"
+  if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
+    echo "Error: plan status must be APPROVED to execute. Use --force to bypass." >&2
+    exit 1
+  fi
+
+  echo "Executing approved plan: $PLAN_PATH" >&2
+  plan_body="$(cat "$PLAN_PATH")"
+  PROMPT=$(cat <<EOF
+Executing approved plan: $PLAN_PATH
+
+Follow this plan exactly unless blocked by new evidence. If blocked, explain deviation and proceed with the safest minimal change set.
+
+PLAN CONTENT:
+$plan_body
+EOF
+)
+fi
+
 echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
+echo "Execution repository: $EXEC_REPO" >&2
 
 if ! command -v codex &> /dev/null; then
-    echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
-    exit 1
+  echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
+  exit 1
 fi
 
 if ! command -v tmux &> /dev/null; then
-    echo "Error: tmux not found. Install tmux or use a host with tmux available." >&2
-    exit 1
+  echo "Error: tmux not found. Install tmux or use a host with tmux available." >&2
+  exit 1
 fi
 
 if ! command -v timeout &> /dev/null; then
-    echo "Error: timeout command not found. Install coreutils (brew install coreutils on macOS)." >&2
-    exit 1
+  echo "Error: timeout command not found. Install coreutils (brew install coreutils on macOS)." >&2
+  exit 1
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TMUX_RUN="$SCRIPT_DIR/tmux-run"
 if [[ ! -x "$TMUX_RUN" ]]; then
-    echo "Error: tmux-run not found or not executable: $TMUX_RUN" >&2
-    exit 1
+  echo "Error: tmux-run not found or not executable: $TMUX_RUN" >&2
+  exit 1
 fi
 
-CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-  "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex --yolo exec "$@"
+(
+  cd "$EXEC_REPO"
+  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+    "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex --yolo exec "$PROMPT"
+)

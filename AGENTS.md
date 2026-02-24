@@ -93,6 +93,13 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 - Final report must summarize files changed, key diffs, and side effects.
 - Prefer inclusive language: allowlist/blocklist, primary/replica, main branch.
 
+## Humanized Communication Policy
+
+- For user-facing long-form writing (outreach copy, status updates, explanations, docs prose), run a humanization pass by default.
+- Preferred invocation in OpenClaw contexts: `/humanizer`.
+- Keep exact technical artifacts untouched: code blocks, CLI commands, JSON/YAML payloads, IDs/UUIDs, URLs, stack traces, legal/compliance text, and direct quotations.
+- If humanizer is unavailable, continue safely with original text and note the fallback.
+
 ## OpenClaw Skill Notes
 
 - Keep each `SKILL.md` AgentSkills-compatible: clear `name` + `description`, concise body, references for deep detail.
