@@ -55,9 +55,10 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 - Approval is not global, does not carry across unrelated threads/chats, and does not auto-approve future plans.
 - If no pending plan exists in context, `/approve` should return: `No pending plan found. Run /plan first.`
 
-## OpenClaw Setup: Add Slash Commands
+## OpenClaw Setup: Add Coding Skill Slash Commands
 
-To enable these aliases for your team, add them to OpenClaw under `telegram.customCommands`.
+To enable this skill’s aliases for your team, add these entries under
+`telegram.customCommands` in OpenClaw.
 
 1. Open your OpenClaw JSON config.
 2. Find the `telegram` block and replace or extend `customCommands` in place.
@@ -66,24 +67,10 @@ To enable these aliases for your team, add them to OpenClaw under `telegram.cust
 
 ```json
 [
-  { "command": "daily", "description": "Daily standup (priorities, blockers)" },
-  { "command": "weekly", "description": "Weekly priorities" },
-  { "command": "done24h", "description": "Done in last 24 hours" },
-  { "command": "done7d", "description": "Done in last 7 days" },
-  { "command": "work", "description": "Switch to work agent" },
-  { "command": "demo_followup", "description": "Post-demo follow-up for a deal" },
-  { "command": "reengagement", "description": "Manual demo re-engagement run" },
   { "command": "coding", "description": "Run coding-agent workflow" },
   { "command": "plan", "description": "Plan implementation only (no writes)" },
   { "command": "approve", "description": "Approve last plan and execute" },
-  { "command": "review_pr", "description": "Review PR + standards check" },
-  { "command": "tasks", "description": "Show current priorities/tasks" },
-  { "command": "pipeline", "description": "Work pipeline snapshot" },
-  { "command": "followups_today", "description": "Deals needing follow-up today" },
-  { "command": "remind", "description": "Create reminder (one-shot)" },
-  { "command": "digest", "description": "Curated daily digest" },
-  { "command": "heartbeat", "description": "Run one heartbeat check now" },
-  { "command": "status", "description": "Show active runs/subagents" }
+  { "command": "review_pr", "description": "Review PR + standards check" }
 ]
 ```
 
