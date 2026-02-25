@@ -41,4 +41,4 @@ metadata: {"openclaw":{"emoji":"🧭"}}
 At the end of every plan response, include:
 - `Reply APPROVE to execute this plan.`
 
-If the user sends `/approve` or `APPROVE` in the same conversation context, execution may proceed via `coding-agent`.
+If the user sends `APPROVE` in the same conversation context, execution may proceed via `coding-agent`.

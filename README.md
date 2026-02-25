@@ -26,7 +26,6 @@ In OpenClaw:
 ```text
 /coding
 /plan <task>
-/approve
 /review_pr <number|url>
 ```
 
@@ -46,14 +45,13 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
-- `/approve` → approves execution of the latest plan in the current session/thread
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
 ### Approval Semantics
 
-- `APPROVE` (or `/approve`) applies only to the latest plan in the **current conversation context**.
+- `APPROVE` applies only to the latest plan in the **current conversation context**.
 - Approval is not global, does not carry across unrelated threads/chats, and does not auto-approve future plans.
-- If no pending plan exists in context, `/approve` should return: `No pending plan found. Run /plan first.`
+- If no pending plan exists in context, return: `No pending plan found. Run /plan first.`
 
 ## OpenClaw Setup: Add Coding Skill Slash Commands
 
@@ -69,7 +67,6 @@ To enable this skill’s aliases for your team, add these entries under
 [
   { "command": "coding", "description": "Run coding-agent workflow" },
   { "command": "plan", "description": "Plan implementation only (no writes)" },
-  { "command": "approve", "description": "Approve last plan and execute" },
   { "command": "review_pr", "description": "Review PR + standards check" }
 ]
 ```

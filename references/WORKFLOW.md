@@ -26,7 +26,7 @@
 
 ### Channel Alias Notes
 
-Some channels expose aliases (`/coding`, `/plan`, `/approve`, `/review_pr`).
+Some channels expose aliases (`/coding`, `/plan`, `/review_pr`).
 These aliases do not change core policy:
 - Plan-first for non-trivial work
 - Explicit approval gate before writes

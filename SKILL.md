@@ -24,7 +24,6 @@ When invoked via channel aliases:
 
 - `/coding` → use this compatibility skill as router.
 - `/plan` → route directly to `plan-issue` behavior.
-- `/approve` → treat as explicit approval gate for the latest in-context plan, then route to `coding-agent` behavior.
 - `/review_pr` → route to review flow using `references/reviews.md`.
 
 ## Non-Negotiable Gates
