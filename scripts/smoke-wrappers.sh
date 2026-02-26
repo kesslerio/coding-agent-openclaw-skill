@@ -227,14 +227,26 @@ test_plan_review_generates_artifact() {
   git -C "$repo" add README.md
   git -C "$repo" commit -q -m "init"
 
-  cat > "$repo/.ai/plans/2026-02-19-smoke.md" <<'EOF'
+  cat > "$repo/.ai/plans/2026-02-19-000001-old.md" <<'EOF'
 ---
-id: 2026-02-19-smoke
+id: 2026-02-19-000001-old
 status: PENDING
 ---
 
-# Plan: Smoke
+# Plan: Old
 EOF
+
+  cat > "$repo/.ai/plans/2026-02-19-000002-new.md" <<'EOF'
+---
+id: 2026-02-19-000002-new
+status: PENDING
+---
+
+# Plan: New
+EOF
+
+  # Simulate old plan being modified later; selector should still pick latest generated filename.
+  touch "$repo/.ai/plans/2026-02-19-000001-old.md"
 
   PATH="$fake_bin:$PATH" \
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
@@ -247,6 +259,36 @@ EOF
   assert_contains "$codex_args" "--sandbox"
   assert_contains "$codex_args" "read-only"
   assert_contains "$codex_args" "--ephemeral"
+  assert_contains "$codex_args" "Plan file: $repo/.ai/plans/2026-02-19-000002-new.md"
+}
+
+test_plan_review_output_parent_dirs_created() {
+  local repo="$tmp_dir/repo-plan-review-output"
+  local codex_args="$tmp_dir/codex-plan-review-output-args.txt"
+  local output_path="$repo/reports/plan/review.md"
+
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000003-smoke.md" <<'EOF'
+---
+id: 2026-02-19-000003-smoke
+status: PENDING
+---
+
+# Plan: Smoke
+EOF
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/plan-review" --repo "$repo" --output "$output_path" > "$tmp_dir/plan-review-output.out"
+
+  [[ -f "$output_path" ]] || { echo "Expected nested output artifact" >&2; exit 1; }
 }
 
 test_invalid_mode_rejected
@@ -257,5 +299,6 @@ test_impl_direct_mode_uses_codex_exec
 test_code_plan_generates_artifact
 test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact
+test_plan_review_output_parent_dirs_created
 
 printf 'Wrapper smoke tests passed.\n'

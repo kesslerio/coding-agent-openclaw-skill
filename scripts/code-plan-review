@@ -15,7 +15,7 @@ Usage:
 Defaults:
   --repo   current working directory
   --base   auto-detected origin default branch (fallback: main)
-  --plan   newest .ai/plans/*.md in repo
+  --plan   latest generated .ai/plans/*.md (timestamped filename)
   --output .ai/plan-reviews/<timestamp>-<plan-id>.md
 USAGE
 }
@@ -73,11 +73,35 @@ if [[ -z "$BASE_BRANCH" ]]; then
   BASE_BRANCH="main"
 fi
 
+select_latest_generated_plan() {
+  local dir="$1"
+  local best_path=""
+  local best_name=""
+  local path
+  local name
+
+  shopt -s nullglob
+  for path in "$dir"/*.md; do
+    name="$(basename "$path")"
+    if [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-.*\.md$ ]]; then
+      if [[ -z "$best_name" || "$name" > "$best_name" ]]; then
+        best_name="$name"
+        best_path="$path"
+      fi
+    fi
+  done
+  shopt -u nullglob
+
+  if [[ -n "$best_path" ]]; then
+    printf '%s\n' "$best_path"
+  fi
+}
+
 if [[ -z "$PLAN_PATH" ]]; then
-  PLAN_PATH="$(ls -1t "$REPO_PATH"/.ai/plans/*.md 2>/dev/null | head -n 1 || true)"
+  PLAN_PATH="$(select_latest_generated_plan "$REPO_PATH/.ai/plans")"
 fi
 if [[ -z "$PLAN_PATH" ]]; then
-  echo "Error: no plan found. Provide --plan or run scripts/plan first." >&2
+  echo "Error: no generated plan found. Provide --plan or run scripts/plan first." >&2
   exit 1
 fi
 
@@ -104,6 +128,7 @@ fi
 if [[ "$OUTPUT_PATH" != /* ]]; then
   OUTPUT_PATH="$REPO_PATH/$OUTPUT_PATH"
 fi
+mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
