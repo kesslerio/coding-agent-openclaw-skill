@@ -12,6 +12,21 @@ metadata: {"openclaw":{"emoji":"🧭"}}
 - The user asks for scope, sequencing, risks, or rollout strategy.
 - The task is non-trivial and would change files, infra, or workflows.
 
+### Proactive Trigger Matrix
+
+Use `/plan` proactively when any of these apply:
+- New feature implementation with non-obvious design choices.
+- Multiple valid approaches exist and tradeoff selection matters.
+- Changes are likely to touch more than 2-3 files.
+- Existing behavior/architecture will change.
+- Requirements are partially unclear and need repo exploration first.
+- User preference materially affects implementation direction.
+
+Skip `/plan` for:
+- Trivial typo or obvious one-line fixes.
+- Small deterministic edits with no architectural impact.
+- Pure information lookup requests (no implementation intent).
+
 ## Required Workflow
 
 1. Gather context using read-only operations first.

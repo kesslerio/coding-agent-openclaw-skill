@@ -29,10 +29,27 @@
 ## Review Focus Checklist (Required)
 
 - Code correctness
+- Architecture and dependency boundaries
 - Project conventions and style
 - Performance implications
 - Test coverage quality and gaps
 - Security considerations
+
+## Configuration Safety Review (Required When Triggered)
+
+Run a configuration safety section in the review output when the PR touches any of:
+- `.env`, `.env.*`
+- `*.yml`, `*.yaml`, `*.json`, `*.toml`, `*.ini`, `*.conf`, `*.properties`
+- `Dockerfile`, `docker-compose*`
+- `.github/workflows/*`
+- `config/`, `infra/`, `deploy/`, `k8s/`, `helm/`
+
+Treat numeric/config value changes as risky until justified. For each flagged config change, require:
+- Load-test evidence (or explicit "not tested")
+- Rollback method and expected rollback time
+- Monitoring signals/alerts to detect regressions
+- Dependency/limit interaction analysis (upstream/downstream/system caps)
+- Historical context (similar prior incidents or "none known")
 
 ## Review Output Contract (Required)
 
@@ -41,6 +58,7 @@
 - Include open questions/assumptions after findings.
 - Include a short PR overview after findings (what changed and why).
 - Include specific improvement suggestions and key risks.
+- When configuration safety is triggered, include a dedicated `Configuration Safety` subsection with evidence.
 - If command/docs examples were changed, label each as:
   - `VERIFIED` (executed) or
   - `UNVERIFIED` (not executed)
@@ -89,6 +107,9 @@ gh pr view <PR>
 
 # Inspect patch before review output
 gh pr diff <PR>
+
+# Optional: list changed file paths to detect config-safety trigger
+gh pr view <PR> --json files --jq '.files[].path'
 
 # Code review (direct CLI)
 timeout 600s codex review --base <base> --title "PR #N Review"

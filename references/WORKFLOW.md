@@ -31,6 +31,7 @@ These aliases do not change core policy:
 - Plan-first for non-trivial work
 - Explicit approval gate before writes
 - No bypass-by-default flags unless the user explicitly requests bypass.
+- Plan completion is approved through explicit `APPROVE` reply (there is no separate `ExitPlanMode` tool call in this repo flow).
 
 ## Git Workflow
 

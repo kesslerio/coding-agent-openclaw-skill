@@ -63,6 +63,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 - `APPROVE` applies only to the latest plan in the **current conversation context**.
 - Approval is not global, does not carry across unrelated threads/chats, and does not auto-approve future plans.
 - If no pending plan exists in context, return: `No pending plan found. Run /plan first.`
+- Plan approval is text-gated via `APPROVE`; this workflow does not require a separate "ExitPlanMode" tool.
 
 ## OpenClaw Setup: Add Coding Skill Slash Commands
 
