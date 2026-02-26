@@ -375,6 +375,7 @@ load_resolution_inputs() {
 
 write_metadata() {
   local ready="$1"
+  local mode_override="${2:-$MODE}"
   local history_path
   local tmp_meta
   local latest_tmp
@@ -396,7 +397,7 @@ write_metadata() {
   "schema_version": $SCHEMA_VERSION,
   "plan_id": "$(json_escape "$PLAN_ID")",
   "plan_path": "$(json_escape "$PLAN_PATH")",
-  "mode": "$(json_escape "$MODE")",
+  "mode": "$(json_escape "$mode_override")",
   "ready_for_implementation": $ready,
   "blocking_decisions": $blocking_json,
   "resolved_decisions": $resolved_json,
@@ -559,24 +560,20 @@ elif [[ "$MODE" == "apply" ]]; then
   } > "$TMP_OUTPUT"
   dedupe_file "$BLOCKING_FILE"
   if [[ -s "$BLOCKING_FILE" ]]; then
-    write_metadata "false"
+    write_metadata "false" "live"
   else
-    write_metadata "true"
+    write_metadata "true" "live"
   fi
 else
   non_tty=0
+  auto_applied_non_tty=0
   if [[ ! -t 0 || ! -t 1 ]]; then
     non_tty=1
   fi
 
   if (( non_tty == 1 )); then
-    if [[ "$ALLOW_NON_TTY" == "1" ]]; then
-      echo "Warning: PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 set; bypassing TTY requirement for live mode." >&2
-    elif [[ "$NON_TTY_MODE" == "error" ]]; then
-      echo "Error: live mode requires an interactive terminal (TTY)." >&2
-      resolution_usage_hint
-      exit 1
-    elif has_resolution_inputs; then
+    if has_resolution_inputs; then
+      auto_applied_non_tty=1
       load_resolution_inputs
       {
         echo "# Plan Review (Live Auto-Fallback)"
@@ -592,6 +589,12 @@ else
       else
         write_metadata "true"
       fi
+    elif [[ "$ALLOW_NON_TTY" == "1" ]]; then
+      echo "Warning: PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 set; bypassing TTY requirement for live mode." >&2
+    elif [[ "$NON_TTY_MODE" == "error" ]]; then
+      echo "Error: live mode requires an interactive terminal (TTY)." >&2
+      resolution_usage_hint
+      exit 1
     else
       echo "Error: non-TTY live mode requires decision input. Use --resolve-file or --decisions/--blocking." >&2
       resolution_usage_hint
@@ -599,7 +602,7 @@ else
     fi
   fi
 
-  if (( non_tty == 0 || ALLOW_NON_TTY == 1 )); then
+  if (( auto_applied_non_tty == 0 )) && (( non_tty == 0 || ALLOW_NON_TTY == 1 )); then
     START_TS="$(date +%s)"
     PLAN_CONTEXT_FILE="$TMP_DIR/plan-context.txt"
     build_live_plan_context "$PLAN_CONTEXT_FILE"

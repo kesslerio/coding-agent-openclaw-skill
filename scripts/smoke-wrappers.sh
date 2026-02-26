@@ -442,6 +442,38 @@ EOF
   assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
 }
 
+test_plan_review_live_resolution_inputs_override_allow_non_tty() {
+  local repo="$tmp_dir/repo-plan-review-live-allow-priority"
+  local output_file="$repo/.ai/plan-reviews/live-allow-priority.md"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000005b-live-auto.md" <<'EOF'
+---
+id: 2026-02-19-000005b-live-auto
+status: APPROVED
+---
+
+# Plan: Live Auto Allow Priority
+EOF
+
+  # Do not pass SMOKE_CODEX_ARGS_FILE on purpose: if interactive flow runs, fake codex will fail.
+  PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005b-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-allow-priority.out"
+
+  [[ -f "$output_file" ]] || { echo "Expected auto-apply output with ALLOW_NON_TTY set" >&2; exit 1; }
+  assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000005b-live-auto.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected latest metadata for allow-priority test" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+}
+
 test_plan_review_live_non_tty_auto_apply_with_resolve_file() {
   local repo="$tmp_dir/repo-plan-review-live-auto-file"
   local output_file="$repo/.ai/plan-reviews/live-auto-file.md"
@@ -817,6 +849,37 @@ test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
   assert_contains "$output" "Failed to create tmux session"
 }
 
+test_code_implement_accepts_metadata_from_apply_mode() {
+  local repo="$tmp_dir/repo-code-implement-from-apply-mode"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  local plan_path
+  local output_file="$repo/.ai/plan-reviews/apply-output.md"
+  plan_path="$(create_approved_plan "$repo" "2026-02-19-000016-apply-mode-gate")"
+  PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/code-plan-review" --repo "$repo" --plan "$plan_path" --mode apply --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-apply-gate.out"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000016-apply-mode-gate.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected apply-mode metadata file" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"mode\": \"live\""
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+
+  local output="$tmp_dir/code-implement-apply-mode-gate.out"
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" > "$output" 2>&1); then
+    echo "Expected code-implement to fail later due tmux in smoke environment" >&2
+    exit 1
+  fi
+
+  assert_not_contains "$output" "review gate blocked implementation"
+  assert_contains "$output" "Failed to create tmux session"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_review_prompt_pass_through
@@ -828,6 +891,7 @@ test_plan_review_generates_artifact
 test_plan_review_output_parent_dirs_created
 test_plan_review_live_generates_ready_metadata
 test_plan_review_live_non_tty_auto_apply_with_flags
+test_plan_review_live_resolution_inputs_override_allow_non_tty
 test_plan_review_live_non_tty_auto_apply_with_resolve_file
 test_plan_review_live_non_tty_requires_resolution_inputs
 test_plan_review_live_rejects_invalid_resolve_file
@@ -838,5 +902,6 @@ test_code_implement_blocks_when_unresolved_blockers_exist
 test_code_implement_allows_ready_metadata
 test_code_implement_force_bypasses_review_gate
 test_code_implement_accepts_metadata_from_non_tty_apply_flow
+test_code_implement_accepts_metadata_from_apply_mode
 
 printf 'Wrapper smoke tests passed.\n'
