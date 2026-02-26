@@ -49,7 +49,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
-- `/plan-review [--plan <path>]` → review latest generated plan (or specific plan) with Codex read-only mode
+- `/plan-review [--plan <path>]` → review latest generated plan (or specific plan) with Codex read-only mode (single-pass full report)
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
 ### Approval Semantics

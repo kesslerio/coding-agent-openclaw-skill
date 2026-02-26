@@ -144,6 +144,13 @@ TASK CONTEXT:
 - Head SHA: $HEAD_SHA
 - Plan file: $PLAN_PATH
 
+NON-INTERACTIVE EXECUTION MODE:
+- This wrapper runs in a single non-interactive Codex exec call.
+- Do not pause for AskUserQuestion.
+- Assume user selected BIG CHANGE in Step 0.
+- Produce the full review in one response covering Architecture, Code Quality, Test, and Performance sections.
+- Include option recommendations and unresolved decisions inline without waiting for replies.
+
 PLAN CONTENT:
 $(cat "$PLAN_PATH")
 EOF

@@ -260,6 +260,7 @@ EOF
   assert_contains "$codex_args" "read-only"
   assert_contains "$codex_args" "--ephemeral"
   assert_contains "$codex_args" "Plan file: $repo/.ai/plans/2026-02-19-000002-new.md"
+  assert_contains "$codex_args" "NON-INTERACTIVE EXECUTION MODE:"
 }
 
 test_plan_review_output_parent_dirs_created() {
