@@ -67,7 +67,7 @@ if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 if [[ -z "$BASE_BRANCH" ]]; then
-  BASE_BRANCH="$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+  BASE_BRANCH="$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
 fi
 if [[ -z "$BASE_BRANCH" ]]; then
   BASE_BRANCH="main"
@@ -128,7 +128,7 @@ run_codex() {
   if [[ -n "$MODEL" ]]; then
     cmd+=(--model "$MODEL")
   fi
-  cmd+=("$(cat "$SYSTEM_PROMPT")")
+  cmd+=(-- "$(cat "$SYSTEM_PROMPT")")
 
   (
     cd "$REPO_PATH"
@@ -136,7 +136,9 @@ run_codex() {
   )
 }
 
-run_codex | tee "$OUTPUT_PATH"
+TMP_OUTPUT="$TMP_DIR/review-output.md"
+run_codex | tee "$TMP_OUTPUT"
+mv "$TMP_OUTPUT" "$OUTPUT_PATH"
 
 echo
 echo "✅ Plan review saved: $OUTPUT_PATH"

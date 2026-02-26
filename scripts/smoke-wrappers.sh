@@ -238,7 +238,7 @@ EOF
 
   PATH="$fake_bin:$PATH" \
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
-  "$SCRIPT_DIR/plan-review" --repo "$repo" --base main > "$tmp_dir/plan-review.out"
+  "$SCRIPT_DIR/plan-review" --repo "$repo" > "$tmp_dir/plan-review.out"
 
   local review_file
   review_file="$(find "$repo/.ai/plan-reviews" -maxdepth 1 -type f -name '*.md' | head -1)"
