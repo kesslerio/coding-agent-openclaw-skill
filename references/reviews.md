@@ -21,11 +21,44 @@
 2. Classify findings by severity (P0–P3).
 3. Create issues with file:line references.
 
+### PR Intake (`/review_pr`)
+1. If no PR number/URL is provided, run `gh pr list` and ask user to choose one PR.
+2. If a PR number is provided, run `gh pr view <number>` to gather PR metadata.
+3. Run `gh pr diff <number>` and review the actual patch before issuing findings.
+
+## Review Focus Checklist (Required)
+
+- Code correctness
+- Architecture and dependency boundaries
+- Project conventions and style
+- Performance implications
+- Test coverage quality and gaps
+- Security considerations
+
+## Configuration Safety Review (Required When Triggered)
+
+Run a configuration safety section in the review output when the PR touches any of:
+- `.env`, `.env.*`
+- `*.yml`, `*.yaml`, `*.json`, `*.toml`, `*.ini`, `*.conf`, `*.properties`
+- `Dockerfile`, `docker-compose*`
+- `.github/workflows/*`
+- `config/`, `infra/`, `deploy/`, `k8s/`, `helm/`
+
+Treat numeric/config value changes as risky until justified. For each flagged config change, require:
+- Load-test evidence (or explicit "not tested")
+- Rollback method and expected rollback time
+- Monitoring signals/alerts to detect regressions
+- Dependency/limit interaction analysis (upstream/downstream/system caps)
+- Historical context (similar prior incidents or "none known")
+
 ## Review Output Contract (Required)
 
 - List findings first, ordered by severity (`P0` -> `P3`).
 - Include concrete file:line reference for each finding.
 - Include open questions/assumptions after findings.
+- Include a short PR overview after findings (what changed and why).
+- Include specific improvement suggestions and key risks.
+- When configuration safety is triggered, include a dedicated `Configuration Safety` subsection with evidence.
 - If command/docs examples were changed, label each as:
   - `VERIFIED` (executed) or
   - `UNVERIFIED` (not executed)
@@ -66,6 +99,18 @@
 ## Review Commands
 
 ```bash
+# If PR number is missing, list open PRs first
+gh pr list
+
+# Load PR metadata
+gh pr view <PR>
+
+# Inspect patch before review output
+gh pr diff <PR>
+
+# Optional: list changed file paths to detect config-safety trigger
+gh pr view <PR> --json files --jq '.files[].path'
+
 # Code review (direct CLI)
 timeout 600s codex review --base <base> --title "PR #N Review"
 

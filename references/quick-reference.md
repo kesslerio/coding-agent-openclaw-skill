@@ -205,10 +205,20 @@ cd /path/to/repo
 timeout 600s codex review --base <base> --title "Review PR #N"
 ```
 
+**PR Review config-safety trigger check:**
+```bash
+gh pr view <PR> --json files --jq '.files[].path'
+```
+
 ### Git Workflow
 ```bash
+# If no PR arg was provided, list and select one PR first
+gh pr list --repo owner/repo
+
 # Checkout and review
 gh pr checkout <PR> --repo owner/repo
+gh pr view <PR> --repo owner/repo
+gh pr diff <PR> --repo owner/repo
 timeout 600s codex review --base <base> --title "Review PR #<PR>"
 
 # Merge (Martin only)
@@ -261,12 +271,30 @@ Definitions:
 - `VERIFIED`: command/example was executed in this session.
 - `UNVERIFIED`: command/example was not executed in this session.
 
+### Configuration Safety Checklist (`/review_pr`)
+
+Trigger when changed files include:
+- `.env`, `.env.*`
+- `*.yml`, `*.yaml`, `*.json`, `*.toml`, `*.ini`, `*.conf`, `*.properties`
+- `Dockerfile`, `docker-compose*`
+- `.github/workflows/*`
+- `config/`, `infra/`, `deploy/`, `k8s/`, `helm/`
+
+For each flagged config change, include:
+- Load-test evidence (or explicit "not tested")
+- Rollback method + expected rollback time
+- Monitoring signals/alerts
+- Dependency/limit interactions
+- Historical context (incidents or none known)
+
 ## Command Reference
 
 | Task | Command |
 |------|---------|
 | List PRs | `gh pr list --repo owner/repo` |
 | View PR | `gh pr view <PR> --json number,title,state` |
+| List PR files | `gh pr view <PR> --json files --jq '.files[].path'` |
+| Diff PR | `gh pr diff <PR> --repo owner/repo` |
 | Checkout PR | `gh pr checkout <PR>` |
 | Review PR | `timeout 600s codex review --base <base> --title "PR #N Review"` |
 | Preflight wrappers | `./scripts/doctor` |
