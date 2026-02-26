@@ -207,8 +207,13 @@ timeout 600s codex review --base <base> --title "Review PR #N"
 
 ### Git Workflow
 ```bash
+# If no PR arg was provided, list and select one PR first
+gh pr list --repo owner/repo
+
 # Checkout and review
 gh pr checkout <PR> --repo owner/repo
+gh pr view <PR> --repo owner/repo
+gh pr diff <PR> --repo owner/repo
 timeout 600s codex review --base <base> --title "Review PR #<PR>"
 
 # Merge (Martin only)
@@ -267,6 +272,7 @@ Definitions:
 |------|---------|
 | List PRs | `gh pr list --repo owner/repo` |
 | View PR | `gh pr view <PR> --json number,title,state` |
+| Diff PR | `gh pr diff <PR> --repo owner/repo` |
 | Checkout PR | `gh pr checkout <PR>` |
 | Review PR | `timeout 600s codex review --base <base> --title "PR #N Review"` |
 | Preflight wrappers | `./scripts/doctor` |
