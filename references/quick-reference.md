@@ -116,6 +116,9 @@ claude --resume
 # Generate strict plan mode output (Claude)
 ./scripts/plan --engine claude --model sonnet --repo /path/to/repo "Implement feature X"
 
+# Review latest plan with Codex read-only mode (or pass --plan)
+./scripts/plan-review --repo /path/to/repo
+
 # Execute approved plan (prompts for approval if still PENDING)
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
@@ -168,7 +171,7 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
-For plan-first flow, use `/plan <task>` (maps to `scripts/plan`).
+For plan-first flow, use `/plan <task>` (maps to `scripts/plan`) and `/plan-review` (maps to `scripts/plan-review`).
 
 ### Agent CLI Commands
 

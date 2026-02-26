@@ -26,6 +26,7 @@ In OpenClaw:
 ```text
 /coding
 /plan <task>
+/plan-review [--plan <path>]
 /review_pr <number|url>
 ```
 
@@ -34,6 +35,9 @@ CLI wrappers:
 ```bash
 # Generate a read-only plan artifact
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+
+# Review latest generated plan (or pass --plan explicitly)
+./scripts/plan-review --repo /path/to/repo
 
 # Execute an approved plan artifact
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
@@ -45,6 +49,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
+- `/plan-review [--plan <path>]` → review latest generated plan (or specific plan) with Codex read-only mode (single-pass full report)
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
 ### Approval Semantics
@@ -67,6 +72,7 @@ To enable this skill’s aliases for your team, add these entries under
 [
   { "command": "coding", "description": "Run coding-agent workflow" },
   { "command": "plan", "description": "Plan implementation only (no writes)" },
+  { "command": "plan-review", "description": "Review generated plan in read-only mode" },
   { "command": "review_pr", "description": "Review PR + standards check" }
 ]
 ```
