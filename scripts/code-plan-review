@@ -10,13 +10,14 @@ SYSTEM_PROMPT_FILE="$ROOT_DIR/references/templates/plan-review-system-prompt.txt
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  code-plan-review [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>]
+  code-plan-review [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>] [--mode <batch|live>]
 
 Defaults:
   --repo   current working directory
   --base   auto-detected origin default branch (fallback: main)
   --plan   latest generated .ai/plans/*.md (timestamped filename)
   --output .ai/plan-reviews/<timestamp>-<plan-id>.md
+  --mode   batch
 USAGE
 }
 
@@ -25,6 +26,11 @@ BASE_BRANCH=""
 PLAN_PATH=""
 MODEL=""
 OUTPUT_PATH=""
+MODE="batch"
+SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
+TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
+ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
+SCHEMA_VERSION=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +54,10 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_PATH="${2:-}"
       shift 2
       ;;
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -59,6 +69,22 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$MODE" != "batch" && "$MODE" != "live" ]]; then
+  echo "Error: --mode must be batch or live" >&2
+  exit 1
+fi
+
+if [[ "$MODE" == "live" ]]; then
+  if [[ ! "$SECTION_TIMEOUT" =~ ^[0-9]+$ ]] || (( SECTION_TIMEOUT <= 0 )); then
+    echo "Error: PLAN_REVIEW_LIVE_SECTION_TIMEOUT must be a positive integer (seconds)" >&2
+    exit 1
+  fi
+  if [[ ! "$TOTAL_TIMEOUT" =~ ^[0-9]+$ ]] || (( TOTAL_TIMEOUT <= 0 )); then
+    echo "Error: PLAN_REVIEW_LIVE_TOTAL_TIMEOUT must be a positive integer (seconds)" >&2
+    exit 1
+  fi
+fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
 if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
@@ -117,6 +143,7 @@ PLAN_FILENAME="$(basename "$PLAN_PATH")"
 PLAN_ID="${PLAN_FILENAME%.md}"
 CURRENT_BRANCH="$(git -C "$REPO_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 HEAD_SHA="$(git -C "$REPO_PATH" rev-parse HEAD 2>/dev/null || echo unknown)"
+CREATED_AT="$(date -Iseconds)"
 
 REVIEW_DIR="$REPO_PATH/.ai/plan-reviews"
 mkdir -p "$REVIEW_DIR"
@@ -130,12 +157,161 @@ if [[ "$OUTPUT_PATH" != /* ]]; then
 fi
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
+TIMESTAMP="$(date +"%Y-%m-%d-%H%M%S")"
+METADATA_HISTORY_PATH="$REVIEW_DIR/${TIMESTAMP}-${PLAN_ID}.json"
+METADATA_LATEST_PATH="$REVIEW_DIR/latest-${PLAN_ID}.json"
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 SYSTEM_PROMPT="$TMP_DIR/system_prompt.txt"
+TMP_OUTPUT="$TMP_DIR/review-output.md"
+RESOLVED_FILE="$TMP_DIR/resolved-decisions.txt"
+BLOCKING_FILE="$TMP_DIR/blocking-decisions.txt"
+: > "$RESOLVED_FILE"
+: > "$BLOCKING_FILE"
 
-cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
-cat >> "$SYSTEM_PROMPT" <<EOF
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+trim_value() {
+  local value="$1"
+  value="$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  printf '%s' "$value"
+}
+
+append_list_entries() {
+  local raw="$1"
+  local file="$2"
+  local normalized
+  local part
+  local trimmed
+  local lowered
+  normalized="${raw//$'\n'/,}"
+  IFS=',' read -r -a parts <<< "$normalized"
+  for part in "${parts[@]}"; do
+    trimmed="$(trim_value "$part")"
+    if [[ -z "$trimmed" ]]; then
+      continue
+    fi
+    lowered="$(printf '%s' "$trimmed" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$lowered" == "none" ]]; then
+      continue
+    fi
+    printf '%s\n' "$trimmed" >> "$file"
+  done
+}
+
+dedupe_file() {
+  local file="$1"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  awk 'NF && !seen[$0]++' "$file" > "$tmp_file"
+  mv "$tmp_file" "$file"
+}
+
+json_array_from_file() {
+  local file="$1"
+  local first=1
+  local line
+  printf '['
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$line" ]]; then
+      continue
+    fi
+    if (( first == 0 )); then
+      printf ', '
+    fi
+    first=0
+    printf '"%s"' "$(json_escape "$line")"
+  done < "$file"
+  printf ']'
+}
+
+write_metadata() {
+  local ready="$1"
+  local tmp_meta
+  local latest_tmp
+  local resolved_json
+  local blocking_json
+  tmp_meta="$(mktemp)"
+  latest_tmp="$(mktemp)"
+
+  dedupe_file "$RESOLVED_FILE"
+  dedupe_file "$BLOCKING_FILE"
+
+  resolved_json="$(json_array_from_file "$RESOLVED_FILE")"
+  blocking_json="$(json_array_from_file "$BLOCKING_FILE")"
+
+  cat > "$tmp_meta" <<EOF
+{
+  "schema_version": $SCHEMA_VERSION,
+  "plan_id": "$(json_escape "$PLAN_ID")",
+  "plan_path": "$(json_escape "$PLAN_PATH")",
+  "mode": "$(json_escape "$MODE")",
+  "ready_for_implementation": $ready,
+  "blocking_decisions": $blocking_json,
+  "resolved_decisions": $resolved_json,
+  "created_at": "$(json_escape "$CREATED_AT")",
+  "review_markdown_path": "$(json_escape "$OUTPUT_PATH")"
+}
+EOF
+
+  mv "$tmp_meta" "$METADATA_HISTORY_PATH"
+  cp "$METADATA_HISTORY_PATH" "$latest_tmp"
+  mv "$latest_tmp" "$METADATA_LATEST_PATH"
+}
+
+run_codex_prompt() {
+  local prompt="$1"
+  local timeout_seconds="${2:-0}"
+  local -a cmd=(codex exec --sandbox read-only --ephemeral)
+  if [[ -n "$MODEL" ]]; then
+    cmd+=(--model "$MODEL")
+  fi
+  cmd+=(-- "$prompt")
+
+  (
+    cd "$REPO_PATH"
+    if (( timeout_seconds > 0 )); then
+      if ! command -v timeout >/dev/null 2>&1; then
+        echo "Error: timeout command is required for live mode. Install coreutils timeout." >&2
+        exit 1
+      fi
+      timeout -k5s "${timeout_seconds}s" "${cmd[@]}"
+    else
+      "${cmd[@]}"
+    fi
+  )
+}
+
+build_live_plan_context() {
+  local context_file="$1"
+  {
+    echo "PLAN CONTEXT (shared across sections):"
+    echo "- Plan ID: $PLAN_ID"
+    echo "- Plan path: $PLAN_PATH"
+    echo "- Base branch: $BASE_BRANCH"
+    echo "- Current branch: $CURRENT_BRANCH"
+    echo "- Head SHA: $HEAD_SHA"
+    echo
+    echo "Plan headings:"
+    grep -E '^## ' "$PLAN_PATH" || true
+    echo
+    echo "Plan excerpt (first 160 lines):"
+    sed -n '1,160p' "$PLAN_PATH"
+  } > "$context_file"
+}
+
+if [[ "$MODE" == "batch" ]]; then
+  cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
+  cat >> "$SYSTEM_PROMPT" <<EOF
 
 TASK CONTEXT:
 - Repository: $REPO_PATH
@@ -144,33 +320,125 @@ TASK CONTEXT:
 - Head SHA: $HEAD_SHA
 - Plan file: $PLAN_PATH
 
-NON-INTERACTIVE EXECUTION MODE:
-- This wrapper runs in a single non-interactive Codex exec call.
+REVIEW MODE: batch
+- Single non-interactive Codex exec call.
 - Do not pause for AskUserQuestion.
 - Assume user selected BIG CHANGE in Step 0.
-- Produce the full review in one response covering Architecture, Code Quality, Test, and Performance sections.
-- Include option recommendations and unresolved decisions inline without waiting for replies.
+- Produce full review in one response covering Architecture, Code Quality, Test, and Performance.
+- Include option recommendations and unresolved decisions inline.
 
 PLAN CONTENT:
 $(cat "$PLAN_PATH")
 EOF
 
-run_codex() {
-  local -a cmd=(codex exec --sandbox read-only --ephemeral)
-  if [[ -n "$MODEL" ]]; then
-    cmd+=(--model "$MODEL")
+  run_codex_prompt "$(cat "$SYSTEM_PROMPT")" | tee "$TMP_OUTPUT"
+  printf '%s\n' "Run ./scripts/plan-review-live to resolve interactive decisions" >> "$BLOCKING_FILE"
+  write_metadata "false"
+else
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    if [[ "$ALLOW_NON_TTY" == "1" ]]; then
+      echo "Warning: PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 set; bypassing TTY requirement for live mode." >&2
+    else
+    echo "Error: live mode requires an interactive terminal (TTY). Use scripts/plan-review for batch mode." >&2
+    exit 1
+    fi
   fi
-  cmd+=(-- "$(cat "$SYSTEM_PROMPT")")
 
-  (
-    cd "$REPO_PATH"
-    "${cmd[@]}"
+  START_TS="$(date +%s)"
+  PLAN_CONTEXT_FILE="$TMP_DIR/plan-context.txt"
+  build_live_plan_context "$PLAN_CONTEXT_FILE"
+
+  cat > "$TMP_OUTPUT" <<EOF
+# Plan Review (Live)
+
+- Plan: $PLAN_PATH
+- Mode: live
+- Started at: $CREATED_AT
+
+EOF
+
+  section_names=(
+    "Architecture"
+    "Code Quality"
+    "Tests"
+    "Performance"
   )
-}
 
-TMP_OUTPUT="$TMP_DIR/review-output.md"
-run_codex | tee "$TMP_OUTPUT"
+  section_instructions=(
+    "Run only Architecture review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+    "Run only Code Quality review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+    "Run only Test review. Include ASCII test diagram and coverage/eval gaps. End by asking for decision labels."
+    "Run only Performance review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+  )
+
+  for idx in "${!section_names[@]}"; do
+    now_ts="$(date +%s)"
+    elapsed=$((now_ts - START_TS))
+    remaining=$((TOTAL_TIMEOUT - elapsed))
+    if (( remaining <= 0 )); then
+      echo "Error: live review exceeded total timeout budget (${TOTAL_TIMEOUT}s)." >&2
+      exit 1
+    fi
+    effective_timeout="$SECTION_TIMEOUT"
+    if (( remaining < SECTION_TIMEOUT )); then
+      effective_timeout="$remaining"
+    fi
+
+    section_name="${section_names[$idx]}"
+    section_instruction="${section_instructions[$idx]}"
+
+    cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
+    cat >> "$SYSTEM_PROMPT" <<EOF
+
+TASK CONTEXT:
+- Repository: $REPO_PATH
+- Base branch: $BASE_BRANCH
+- Current branch: $CURRENT_BRANCH
+- Head SHA: $HEAD_SHA
+- Plan file: $PLAN_PATH
+
+REVIEW MODE: live
+LIVE REVIEW SECTION: $section_name
+- This is one checkpoint in a multi-step interactive review.
+- Review only the named section and do not continue to other sections.
+- Keep decisions explicit and label options so user can select quickly.
+
+SECTION-SPECIFIC INSTRUCTIONS:
+$section_instruction
+
+SHARED PLAN CONTEXT:
+$(cat "$PLAN_CONTEXT_FILE")
+EOF
+
+    section_output="$(run_codex_prompt "$(cat "$SYSTEM_PROMPT")" "$effective_timeout")"
+    {
+      echo
+      echo "## $section_name"
+      echo
+      echo "$section_output"
+      echo
+    } >> "$TMP_OUTPUT"
+
+    echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
+    read -r selected_input
+    append_list_entries "$selected_input" "$RESOLVED_FILE"
+
+    echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
+    read -r blocking_input
+    append_list_entries "$blocking_input" "$BLOCKING_FILE"
+  done
+
+  dedupe_file "$BLOCKING_FILE"
+  if [[ -s "$BLOCKING_FILE" ]]; then
+    write_metadata "false"
+  else
+    write_metadata "true"
+  fi
+fi
+
 mv "$TMP_OUTPUT" "$OUTPUT_PATH"
 
 echo
 echo "✅ Plan review saved: $OUTPUT_PATH"
+echo "✅ Plan review metadata (history): $METADATA_HISTORY_PATH"
+echo "✅ Plan review metadata (latest): $METADATA_LATEST_PATH"

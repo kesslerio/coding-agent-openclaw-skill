@@ -16,6 +16,7 @@ Preferred plan artifact flow:
 ```bash
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
 ./scripts/plan-review --repo /path/to/repo
+./scripts/plan-review-live --repo /path/to/repo
 ```
 
 ## Default Strategy
@@ -54,6 +55,15 @@ timeout 600s codex review --base <base> --title "PR #N Review"
 ```bash
 ./scripts/plan-review --repo /path/to/repo
 ```
+
+### Review latest generated plan (interactive checkpoints)
+
+```bash
+./scripts/plan-review-live --repo /path/to/repo
+```
+
+`code-implement --plan` enforces latest per-plan review metadata readiness.
+If blocking decisions remain unresolved, run `plan-review-live` first or use `--force` to bypass explicitly.
 
 ### Structured non-interactive output
 

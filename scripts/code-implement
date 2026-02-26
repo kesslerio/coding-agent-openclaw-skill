@@ -125,11 +125,129 @@ set_frontmatter_field() {
   mv "$tmp" "$file"
 }
 
+json_extract_string() {
+  local file="$1"
+  local key="$2"
+  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\"[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
+}
+
+json_extract_bool() {
+  local file="$1"
+  local key="$2"
+  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*(true|false)[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
+}
+
+json_extract_number() {
+  local file="$1"
+  local key="$2"
+  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
+}
+
+json_array_length() {
+  local file="$1"
+  local key="$2"
+  local line
+  local content
+  line="$(grep -m1 "\"${key}\"" "$file" || true)"
+  if [[ -z "$line" ]]; then
+    echo "-1"
+    return 0
+  fi
+  content="$(printf '%s\n' "$line" | sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\\[(.*)\\][[:space:]]*,?[[:space:]]*$/\1/p")"
+  if [[ -z "$content" && "$line" != *"[]"* ]]; then
+    echo "-1"
+    return 0
+  fi
+  if [[ -z "$content" ]]; then
+    echo "0"
+    return 0
+  fi
+  printf '%s\n' "$content" | grep -o '"[^"]*"' | wc -l | tr -d '[:space:]'
+}
+
+review_gate_blocked() {
+  local message="$1"
+  local plan_path="$2"
+  echo "Error: review gate blocked implementation." >&2
+  echo "Reason: $message" >&2
+  echo "Remediation:" >&2
+  echo "  1) Run interactive review to resolve blocking decisions:" >&2
+  echo "     ./scripts/plan-review-live --plan $plan_path" >&2
+  echo "  2) Or run batch review to refresh report context:" >&2
+  echo "     ./scripts/plan-review --plan $plan_path" >&2
+  echo "  3) Use --force only when you explicitly accept bypass risk." >&2
+  exit 1
+}
+
+validate_review_gate() {
+  local plan_path="$1"
+  local plan_id="$2"
+  local repo_path="$3"
+  local metadata_file
+  local schema_version
+  local metadata_plan_id
+  local metadata_plan_path
+  local metadata_mode
+  local ready
+  local created_at
+  local review_markdown_path
+  local blocking_count
+
+  metadata_file="$repo_path/.ai/plan-reviews/latest-${plan_id}.json"
+
+  if [[ ! -f "$metadata_file" ]]; then
+    review_gate_blocked "Missing review metadata: $metadata_file" "$plan_path"
+  fi
+
+  schema_version="$(json_extract_number "$metadata_file" "schema_version")"
+  metadata_plan_id="$(json_extract_string "$metadata_file" "plan_id")"
+  metadata_plan_path="$(json_extract_string "$metadata_file" "plan_path")"
+  metadata_mode="$(json_extract_string "$metadata_file" "mode")"
+  ready="$(json_extract_bool "$metadata_file" "ready_for_implementation")"
+  created_at="$(json_extract_string "$metadata_file" "created_at")"
+  review_markdown_path="$(json_extract_string "$metadata_file" "review_markdown_path")"
+  blocking_count="$(json_array_length "$metadata_file" "blocking_decisions")"
+
+  if [[ "$schema_version" != "1" ]]; then
+    review_gate_blocked "Invalid schema_version in $metadata_file (expected 1)." "$plan_path"
+  fi
+  if [[ -z "$metadata_plan_id" || "$metadata_plan_id" != "$plan_id" ]]; then
+    review_gate_blocked "Metadata plan_id mismatch in $metadata_file." "$plan_path"
+  fi
+  if [[ -z "$metadata_plan_path" || "$metadata_plan_path" != "$plan_path" ]]; then
+    review_gate_blocked "Metadata plan_path mismatch in $metadata_file." "$plan_path"
+  fi
+  if [[ "$metadata_mode" != "batch" && "$metadata_mode" != "live" ]]; then
+    review_gate_blocked "Invalid mode in $metadata_file (expected batch/live)." "$plan_path"
+  fi
+  if [[ "$ready" != "true" && "$ready" != "false" ]]; then
+    review_gate_blocked "Invalid ready_for_implementation in $metadata_file." "$plan_path"
+  fi
+  if [[ -z "$created_at" ]]; then
+    review_gate_blocked "Missing created_at in $metadata_file." "$plan_path"
+  fi
+  if [[ -z "$review_markdown_path" || ! -f "$review_markdown_path" ]]; then
+    review_gate_blocked "Missing review_markdown_path target in $metadata_file." "$plan_path"
+  fi
+
+  if [[ "$ready" != "true" ]]; then
+    review_gate_blocked "Latest review is not ready for implementation (ready_for_implementation=false)." "$plan_path"
+  fi
+  if [[ ! "$blocking_count" =~ ^-?[0-9]+$ ]] || (( blocking_count < 0 )); then
+    review_gate_blocked "Invalid blocking_decisions array in $metadata_file." "$plan_path"
+  fi
+  if (( blocking_count > 0 )); then
+    review_gate_blocked "Latest review still has unresolved blocking_decisions." "$plan_path"
+  fi
+}
+
 if [[ -n "$PLAN_PATH" ]]; then
   if [[ ! -f "$PLAN_PATH" ]]; then
     echo "Error: plan file not found: $PLAN_PATH" >&2
     exit 1
   fi
+
+  PLAN_PATH="$(cd "$(dirname "$PLAN_PATH")" && pwd)/$(basename "$PLAN_PATH")"
 
   status="$(get_frontmatter_field "$PLAN_PATH" "status")"
   plan_id="$(get_frontmatter_field "$PLAN_PATH" "id")"
@@ -170,6 +288,12 @@ if [[ -n "$PLAN_PATH" ]]; then
   if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
     echo "Error: plan status must be APPROVED to execute. Use --force to bypass." >&2
     exit 1
+  fi
+
+  if [[ "$FORCE" == "1" ]]; then
+    echo "⚠️  --force enabled: bypassing plan-review readiness gate." >&2
+  else
+    validate_review_gate "$PLAN_PATH" "$plan_id" "$EXEC_REPO"
   fi
 
   echo "Executing approved plan: $PLAN_PATH" >&2
