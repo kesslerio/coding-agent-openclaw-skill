@@ -409,6 +409,199 @@ EOF
   assert_contains "$codex_args" "LIVE REVIEW SECTION: Performance"
 }
 
+test_plan_review_live_non_tty_auto_apply_with_flags() {
+  local repo="$tmp_dir/repo-plan-review-live-auto-flags"
+  local output_file="$repo/.ai/plan-reviews/live-auto-flags.md"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000005-live-auto.md" <<'EOF'
+---
+id: 2026-02-19-000005-live-auto
+status: APPROVED
+---
+
+# Plan: Live Auto
+EOF
+
+  PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-auto-flags.out"
+
+  [[ -f "$output_file" ]] || { echo "Expected non-tty auto-apply output markdown" >&2; exit 1; }
+  assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000005-live-auto.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected latest metadata for non-tty auto-apply" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+  assert_contains "$latest_metadata" "\"blocking_decisions\": []"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
+}
+
+test_plan_review_live_non_tty_auto_apply_with_resolve_file() {
+  local repo="$tmp_dir/repo-plan-review-live-auto-file"
+  local output_file="$repo/.ai/plan-reviews/live-auto-file.md"
+  local resolve_file="$tmp_dir/resolve-file.json"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000006-live-auto.md" <<'EOF'
+---
+id: 2026-02-19-000006-live-auto
+status: APPROVED
+---
+
+# Plan: Live Auto File
+EOF
+
+  cat > "$resolve_file" <<'EOF'
+{
+  "resolved_decisions": ["1A", "1A", "none", "2A", "3A", "4A"],
+  "blocking_decisions": ["none"]
+}
+EOF
+
+  PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000006-live-auto.md" --resolve-file "$resolve_file" --output "$output_file" > "$tmp_dir/plan-review-live-auto-file.out"
+
+  [[ -f "$output_file" ]] || { echo "Expected non-tty auto-apply output markdown (resolve file)" >&2; exit 1; }
+  assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000006-live-auto.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected latest metadata for resolve-file auto-apply" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+  assert_contains "$latest_metadata" "\"blocking_decisions\": []"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
+}
+
+test_plan_review_live_rejects_mixed_resolution_inputs() {
+  local repo="$tmp_dir/repo-plan-review-live-mixed-inputs"
+  local resolve_file="$tmp_dir/resolve-mixed-inputs.json"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000009-live-mixed.md" <<'EOF'
+---
+id: 2026-02-19-000009-live-mixed
+status: APPROVED
+---
+
+# Plan: Live Mixed
+EOF
+
+  cat > "$resolve_file" <<'EOF'
+{
+  "resolved_decisions": ["1A"],
+  "blocking_decisions": []
+}
+EOF
+
+  local output="$tmp_dir/plan-review-live-mixed-inputs.out"
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000009-live-mixed.md" --resolve-file "$resolve_file" --decisions "2B" > "$output" 2>&1; then
+    echo "Expected mixed resolution inputs to fail" >&2
+    exit 1
+  fi
+  assert_contains "$output" "--resolve-file cannot be combined"
+}
+
+test_plan_review_live_non_tty_requires_resolution_inputs() {
+  local repo="$tmp_dir/repo-plan-review-live-no-inputs"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000007-live-no-input.md" <<'EOF'
+---
+id: 2026-02-19-000007-live-no-input
+status: APPROVED
+---
+
+# Plan: Live No Inputs
+EOF
+
+  local output="$tmp_dir/plan-review-live-no-inputs.out"
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000007-live-no-input.md" > "$output" 2>&1; then
+    echo "Expected plan-review-live to fail in non-tty mode without decision inputs" >&2
+    exit 1
+  fi
+  assert_contains "$output" "non-TTY live mode requires decision input"
+  assert_contains "$output" "--resolve-file"
+}
+
+test_plan_review_live_rejects_invalid_resolve_file() {
+  local repo="$tmp_dir/repo-plan-review-live-invalid-resolve"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" <<'EOF'
+---
+id: 2026-02-19-000008-live-invalid
+status: APPROVED
+---
+
+# Plan: Live Invalid
+EOF
+
+  local invalid_json="$tmp_dir/resolve-invalid-json.json"
+  local missing_key="$tmp_dir/resolve-missing-key.json"
+  local wrong_type="$tmp_dir/resolve-wrong-type.json"
+
+  printf '{' > "$invalid_json"
+  cat > "$missing_key" <<'EOF'
+{"resolved_decisions": ["1A"]}
+EOF
+  cat > "$wrong_type" <<'EOF'
+{
+  "resolved_decisions": ["1A", 2],
+  "blocking_decisions": []
+}
+EOF
+
+  local output_json="$tmp_dir/plan-review-live-invalid-json.out"
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$invalid_json" > "$output_json" 2>&1; then
+    echo "Expected invalid JSON resolve-file to fail" >&2
+    exit 1
+  fi
+  assert_contains "$output_json" "invalid resolve file JSON"
+
+  local output_missing="$tmp_dir/plan-review-live-missing-key.out"
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$missing_key" > "$output_missing" 2>&1; then
+    echo "Expected missing-key resolve-file to fail" >&2
+    exit 1
+  fi
+  assert_contains "$output_missing" "missing required key 'blocking_decisions'"
+
+  local output_type="$tmp_dir/plan-review-live-wrong-type.out"
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$wrong_type" > "$output_type" 2>&1; then
+    echo "Expected wrong-type resolve-file to fail" >&2
+    exit 1
+  fi
+  assert_contains "$output_type" "contains non-string entry"
+}
+
 create_approved_plan() {
   local repo="$1"
   local plan_id="$2"
@@ -599,6 +792,31 @@ test_code_implement_force_bypasses_review_gate() {
   assert_contains "$output" "Failed to create tmux session"
 }
 
+test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
+  local repo="$tmp_dir/repo-code-implement-from-auto-apply"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  local plan_path
+  plan_path="$(create_approved_plan "$repo" "2026-02-19-000015-auto-apply-gate")"
+  PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$plan_path" --decisions "1A,2A,3A,4A" --blocking none > "$tmp_dir/plan-review-live-gate.out"
+
+  local output="$tmp_dir/code-implement-auto-apply-gate.out"
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" > "$output" 2>&1); then
+    echo "Expected code-implement to fail later due tmux in smoke environment" >&2
+    exit 1
+  fi
+
+  assert_not_contains "$output" "review gate blocked implementation"
+  assert_contains "$output" "Failed to create tmux session"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_review_prompt_pass_through
@@ -609,10 +827,16 @@ test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact
 test_plan_review_output_parent_dirs_created
 test_plan_review_live_generates_ready_metadata
+test_plan_review_live_non_tty_auto_apply_with_flags
+test_plan_review_live_non_tty_auto_apply_with_resolve_file
+test_plan_review_live_non_tty_requires_resolution_inputs
+test_plan_review_live_rejects_invalid_resolve_file
+test_plan_review_live_rejects_mixed_resolution_inputs
 test_code_implement_blocks_when_metadata_missing
 test_code_implement_blocks_when_metadata_invalid
 test_code_implement_blocks_when_unresolved_blockers_exist
 test_code_implement_allows_ready_metadata
 test_code_implement_force_bypasses_review_gate
+test_code_implement_accepts_metadata_from_non_tty_apply_flow
 
 printf 'Wrapper smoke tests passed.\n'

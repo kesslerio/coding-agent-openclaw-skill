@@ -43,6 +43,11 @@ CLI wrappers:
 # Review with interactive section checkpoints (Architecture -> Code Quality -> Tests -> Performance)
 ./scripts/plan-review-live --repo /path/to/repo
 
+# Non-TTY/chat-safe live review finalization (no interactive prompts)
+./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
+# or
+./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
+
 # Execute an approved plan artifact
 # Requires latest plan-review metadata to be ready unless --force is used.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
@@ -55,7 +60,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
 - `/plan-review [--plan <path>]` → batch plan review (single-pass full report, marks unresolved blocking decisions)
-- `/plan-review-live [--plan <path>]` → interactive review checkpoints, records decisions, sets readiness metadata for execution gate
+- `/plan-review-live [--plan <path>]` → interactive checkpoints in TTY; in non-TTY/chat use `--decisions/--blocking` or `--resolve-file` to finalize readiness metadata
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
 ### Approval Semantics
@@ -85,6 +90,15 @@ To enable this skill’s aliases for your team, add these entries under
 ```
 
 If some commands already exist in your config, keep existing entries and append only missing new ones to avoid overriding other aliases.
+
+Example resolve file for non-TTY finalization:
+
+```json
+{
+  "resolved_decisions": ["1A", "2B", "3A", "4A"],
+  "blocking_decisions": []
+}
+```
 
 ## Requirements
 

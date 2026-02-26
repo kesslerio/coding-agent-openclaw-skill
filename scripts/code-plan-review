@@ -10,7 +10,7 @@ SYSTEM_PROMPT_FILE="$ROOT_DIR/references/templates/plan-review-system-prompt.txt
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  code-plan-review [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>] [--mode <batch|live>]
+  code-plan-review [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>] [--mode <batch|live|apply>] [--resolve-file <path>] [--decisions <csv>] [--blocking <csv|none>] [--non-tty <auto|error>]
 
 Defaults:
   --repo   current working directory
@@ -18,6 +18,7 @@ Defaults:
   --plan   latest generated .ai/plans/*.md (timestamped filename)
   --output .ai/plan-reviews/<timestamp>-<plan-id>.md
   --mode   batch
+  --non-tty auto
 USAGE
 }
 
@@ -27,6 +28,10 @@ PLAN_PATH=""
 MODEL=""
 OUTPUT_PATH=""
 MODE="batch"
+RESOLVE_FILE_PATH=""
+DECISIONS_INPUT=""
+BLOCKING_INPUT=""
+NON_TTY_MODE="auto"
 SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
 TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
 ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
@@ -60,6 +65,22 @@ while [[ $# -gt 0 ]]; do
       MODE="${2:-}"
       shift 2
       ;;
+    --resolve-file)
+      RESOLVE_FILE_PATH="${2:-}"
+      shift 2
+      ;;
+    --decisions)
+      DECISIONS_INPUT="${2:-}"
+      shift 2
+      ;;
+    --blocking)
+      BLOCKING_INPUT="${2:-}"
+      shift 2
+      ;;
+    --non-tty)
+      NON_TTY_MODE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -72,8 +93,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE" != "batch" && "$MODE" != "live" ]]; then
-  echo "Error: --mode must be batch or live" >&2
+if [[ "$MODE" != "batch" && "$MODE" != "live" && "$MODE" != "apply" ]]; then
+  echo "Error: --mode must be batch, live, or apply" >&2
+  exit 1
+fi
+
+if [[ "$NON_TTY_MODE" != "auto" && "$NON_TTY_MODE" != "error" ]]; then
+  echo "Error: --non-tty must be auto or error" >&2
+  exit 1
+fi
+
+if [[ -n "$RESOLVE_FILE_PATH" && ( -n "$DECISIONS_INPUT" || -n "$BLOCKING_INPUT" ) ]]; then
+  echo "Error: --resolve-file cannot be combined with --decisions or --blocking." >&2
   exit 1
 fi
 
@@ -242,6 +273,106 @@ json_array_from_file() {
   printf ']'
 }
 
+has_resolution_inputs() {
+  if [[ -n "$RESOLVE_FILE_PATH" || -n "$DECISIONS_INPUT" || -n "$BLOCKING_INPUT" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+resolution_usage_hint() {
+  cat >&2 <<'EOF'
+Examples:
+  ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
+  ./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
+EOF
+}
+
+parse_resolution_file() {
+  local source_path="$1"
+  local resolved_out="$2"
+  local blocking_out="$3"
+  local abs_path="$source_path"
+
+  if [[ "$abs_path" != /* ]]; then
+    abs_path="$REPO_PATH/$abs_path"
+  fi
+  if [[ ! -f "$abs_path" ]]; then
+    echo "Error: --resolve-file not found: $abs_path" >&2
+    exit 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: python3 is required to parse --resolve-file JSON input." >&2
+    exit 1
+  fi
+
+  if ! python3 - "$abs_path" "$resolved_out" "$blocking_out" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+resolve_path = Path(sys.argv[1])
+resolved_out = Path(sys.argv[2])
+blocking_out = Path(sys.argv[3])
+
+try:
+    payload = json.loads(resolve_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"Error: invalid resolve file JSON: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(payload, dict):
+    print("Error: resolve file must be a JSON object.", file=sys.stderr)
+    raise SystemExit(1)
+
+for key in ("resolved_decisions", "blocking_decisions"):
+    if key not in payload:
+        print(f"Error: resolve file missing required key '{key}'.", file=sys.stderr)
+        raise SystemExit(1)
+    if not isinstance(payload[key], list):
+        print(f"Error: resolve file key '{key}' must be an array of strings.", file=sys.stderr)
+        raise SystemExit(1)
+
+def normalize(values, key_name):
+    normalized = []
+    for idx, value in enumerate(values):
+        if not isinstance(value, str):
+            print(
+                f"Error: resolve file key '{key_name}' contains non-string entry at index {idx}.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        trimmed = value.strip()
+        if not trimmed:
+            continue
+        if trimmed.lower() == "none":
+            continue
+        normalized.append(trimmed)
+    return normalized
+
+resolved = normalize(payload["resolved_decisions"], "resolved_decisions")
+blocking = normalize(payload["blocking_decisions"], "blocking_decisions")
+
+resolved_out.write_text("".join(f"{item}\n" for item in resolved), encoding="utf-8")
+blocking_out.write_text("".join(f"{item}\n" for item in blocking), encoding="utf-8")
+PY
+  then
+    exit 1
+  fi
+}
+
+load_resolution_inputs() {
+  : > "$RESOLVED_FILE"
+  : > "$BLOCKING_FILE"
+
+  if [[ -n "$RESOLVE_FILE_PATH" ]]; then
+    parse_resolution_file "$RESOLVE_FILE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE"
+  else
+    append_list_entries "$DECISIONS_INPUT" "$RESOLVED_FILE"
+    append_list_entries "$BLOCKING_INPUT" "$BLOCKING_FILE"
+  fi
+}
+
 write_metadata() {
   local ready="$1"
   local history_path
@@ -399,23 +530,81 @@ $(cat "$PLAN_PATH")
 EOF
 
   run_codex_prompt "$(cat "$SYSTEM_PROMPT")" | tee "$TMP_OUTPUT"
-  printf '%s\n' "Run ./scripts/plan-review-live to resolve interactive decisions" >> "$BLOCKING_FILE"
-  write_metadata "false"
+  if has_resolution_inputs; then
+    load_resolution_inputs
+    dedupe_file "$BLOCKING_FILE"
+    if [[ -s "$BLOCKING_FILE" ]]; then
+      write_metadata "false"
+    else
+      write_metadata "true"
+    fi
+  else
+    printf '%s\n' "Run ./scripts/plan-review-live to resolve interactive decisions" >> "$BLOCKING_FILE"
+    write_metadata "false"
+  fi
+elif [[ "$MODE" == "apply" ]]; then
+  if ! has_resolution_inputs; then
+    echo "Error: apply mode requires --resolve-file or --decisions/--blocking." >&2
+    resolution_usage_hint
+    exit 1
+  fi
+  load_resolution_inputs
+  {
+    echo "# Plan Review (Applied Decisions)"
+    echo
+    echo "- Plan: $PLAN_PATH"
+    echo "- Mode: apply"
+    echo "- Applied at: $CREATED_AT"
+    echo
+  } > "$TMP_OUTPUT"
+  dedupe_file "$BLOCKING_FILE"
+  if [[ -s "$BLOCKING_FILE" ]]; then
+    write_metadata "false"
+  else
+    write_metadata "true"
+  fi
 else
+  non_tty=0
   if [[ ! -t 0 || ! -t 1 ]]; then
+    non_tty=1
+  fi
+
+  if (( non_tty == 1 )); then
     if [[ "$ALLOW_NON_TTY" == "1" ]]; then
       echo "Warning: PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 set; bypassing TTY requirement for live mode." >&2
+    elif [[ "$NON_TTY_MODE" == "error" ]]; then
+      echo "Error: live mode requires an interactive terminal (TTY)." >&2
+      resolution_usage_hint
+      exit 1
+    elif has_resolution_inputs; then
+      load_resolution_inputs
+      {
+        echo "# Plan Review (Live Auto-Fallback)"
+        echo
+        echo "- Plan: $PLAN_PATH"
+        echo "- Mode: live (non-tty auto-apply)"
+        echo "- Applied at: $CREATED_AT"
+        echo
+      } > "$TMP_OUTPUT"
+      dedupe_file "$BLOCKING_FILE"
+      if [[ -s "$BLOCKING_FILE" ]]; then
+        write_metadata "false"
+      else
+        write_metadata "true"
+      fi
     else
-      echo "Error: live mode requires an interactive terminal (TTY). Use scripts/plan-review for batch mode." >&2
+      echo "Error: non-TTY live mode requires decision input. Use --resolve-file or --decisions/--blocking." >&2
+      resolution_usage_hint
       exit 1
     fi
   fi
 
-  START_TS="$(date +%s)"
-  PLAN_CONTEXT_FILE="$TMP_DIR/plan-context.txt"
-  build_live_plan_context "$PLAN_CONTEXT_FILE"
+  if (( non_tty == 0 || ALLOW_NON_TTY == 1 )); then
+    START_TS="$(date +%s)"
+    PLAN_CONTEXT_FILE="$TMP_DIR/plan-context.txt"
+    build_live_plan_context "$PLAN_CONTEXT_FILE"
 
-  cat > "$TMP_OUTPUT" <<EOF
+    cat > "$TMP_OUTPUT" <<EOF
 # Plan Review (Live)
 
 - Plan: $PLAN_PATH
@@ -423,42 +612,42 @@ else
 - Started at: $CREATED_AT
 
 EOF
-  cp "$TMP_OUTPUT" "$OUTPUT_PATH"
-  printf '%s\n' "$LIVE_INCOMPLETE_MARKER" >> "$BLOCKING_FILE"
-  write_metadata "false"
+    cp "$TMP_OUTPUT" "$OUTPUT_PATH"
+    printf '%s\n' "$LIVE_INCOMPLETE_MARKER" >> "$BLOCKING_FILE"
+    write_metadata "false"
 
-  section_names=(
-    "Architecture"
-    "Code Quality"
-    "Tests"
-    "Performance"
-  )
+    section_names=(
+      "Architecture"
+      "Code Quality"
+      "Tests"
+      "Performance"
+    )
 
-  section_instructions=(
-    "Run only Architecture review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
-    "Run only Code Quality review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
-    "Run only Test review. Include ASCII test diagram and coverage/eval gaps. End by asking for decision labels."
-    "Run only Performance review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
-  )
+    section_instructions=(
+      "Run only Architecture review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+      "Run only Code Quality review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+      "Run only Test review. Include ASCII test diagram and coverage/eval gaps. End by asking for decision labels."
+      "Run only Performance review. Identify up to 4 top issues with options and explicit recommendation. End by asking for decision labels."
+    )
 
-  for idx in "${!section_names[@]}"; do
-    now_ts="$(date +%s)"
-    elapsed=$((now_ts - START_TS))
-    remaining=$((TOTAL_TIMEOUT - elapsed))
-    if (( remaining <= 0 )); then
-      echo "Error: live review exceeded total timeout budget (${TOTAL_TIMEOUT}s)." >&2
-      exit 1
-    fi
-    effective_timeout="$SECTION_TIMEOUT"
-    if (( remaining < SECTION_TIMEOUT )); then
-      effective_timeout="$remaining"
-    fi
+    for idx in "${!section_names[@]}"; do
+      now_ts="$(date +%s)"
+      elapsed=$((now_ts - START_TS))
+      remaining=$((TOTAL_TIMEOUT - elapsed))
+      if (( remaining <= 0 )); then
+        echo "Error: live review exceeded total timeout budget (${TOTAL_TIMEOUT}s)." >&2
+        exit 1
+      fi
+      effective_timeout="$SECTION_TIMEOUT"
+      if (( remaining < SECTION_TIMEOUT )); then
+        effective_timeout="$remaining"
+      fi
 
-    section_name="${section_names[$idx]}"
-    section_instruction="${section_instructions[$idx]}"
+      section_name="${section_names[$idx]}"
+      section_instruction="${section_instructions[$idx]}"
 
-    cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
-    cat >> "$SYSTEM_PROMPT" <<EOF
+      cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
+      cat >> "$SYSTEM_PROMPT" <<EOF
 
 TASK CONTEXT:
 - Repository: $REPO_PATH
@@ -480,32 +669,33 @@ SHARED PLAN CONTEXT:
 $(cat "$PLAN_CONTEXT_FILE")
 EOF
 
-    section_output="$(run_codex_prompt "$(cat "$SYSTEM_PROMPT")" "$effective_timeout")"
-    {
-      echo
-      echo "## $section_name"
-      echo
-      echo "$section_output"
-      echo
-    } >> "$TMP_OUTPUT"
+      section_output="$(run_codex_prompt "$(cat "$SYSTEM_PROMPT")" "$effective_timeout")"
+      {
+        echo
+        echo "## $section_name"
+        echo
+        echo "$section_output"
+        echo
+      } >> "$TMP_OUTPUT"
 
-    echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
-    read -r selected_input
-    append_list_entries "$selected_input" "$RESOLVED_FILE"
+      echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
+      read -r selected_input
+      append_list_entries "$selected_input" "$RESOLVED_FILE"
 
-    echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
-    read -r blocking_input
-    append_list_entries "$blocking_input" "$BLOCKING_FILE"
-  done
+      echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
+      read -r blocking_input
+      append_list_entries "$blocking_input" "$BLOCKING_FILE"
+    done
 
-  tmp_filtered="$(mktemp)"
-  grep -Fxv "$LIVE_INCOMPLETE_MARKER" "$BLOCKING_FILE" > "$tmp_filtered" || true
-  mv "$tmp_filtered" "$BLOCKING_FILE"
-  dedupe_file "$BLOCKING_FILE"
-  if [[ -s "$BLOCKING_FILE" ]]; then
-    write_metadata "false"
-  else
-    write_metadata "true"
+    tmp_filtered="$(mktemp)"
+    grep -Fxv "$LIVE_INCOMPLETE_MARKER" "$BLOCKING_FILE" > "$tmp_filtered" || true
+    mv "$tmp_filtered" "$BLOCKING_FILE"
+    dedupe_file "$BLOCKING_FILE"
+    if [[ -s "$BLOCKING_FILE" ]]; then
+      write_metadata "false"
+    else
+      write_metadata "true"
+    fi
   fi
 fi
 
