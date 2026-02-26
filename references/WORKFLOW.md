@@ -26,7 +26,7 @@
 
 ### Channel Alias Notes
 
-Some channels expose aliases (`/coding`, `/plan`, `/plan-review`, `/review_pr`).
+Some channels expose aliases (`/coding`, `/plan`, `/plan-review`, `/plan-review-live`, `/review_pr`).
 These aliases do not change core policy:
 - Plan-first for non-trivial work
 - Explicit approval gate before writes
@@ -210,8 +210,12 @@ For non-trivial work, generate a plan artifact before implementation:
 ```bash
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
 ./scripts/plan-review --repo /path/to/repo
+./scripts/plan-review-live --repo /path/to/repo
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
+
+`code-implement --plan` now enforces the latest per-plan review metadata gate. Use
+`plan-review-live` to resolve blocking decisions before execution, or `--force` to bypass explicitly.
 
 ### Code Review Process
 
