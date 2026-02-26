@@ -15,6 +15,7 @@ Preferred plan artifact flow:
 
 ```bash
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
+./scripts/plan-review --repo /path/to/repo
 ```
 
 ## Default Strategy
@@ -46,6 +47,12 @@ codex exec resume --last "Address review findings from the previous run"
 
 ```bash
 timeout 600s codex review --base <base> --title "PR #N Review"
+```
+
+### Review latest generated plan (read-only)
+
+```bash
+./scripts/plan-review --repo /path/to/repo
 ```
 
 ### Structured non-interactive output

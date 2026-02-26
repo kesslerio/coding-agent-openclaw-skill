@@ -216,6 +216,39 @@ test_safe_impl_claude_plan_mode_no_dangerous_skip() {
   fi
 }
 
+test_plan_review_generates_artifact() {
+  local repo="$tmp_dir/repo-plan-review"
+  local codex_args="$tmp_dir/codex-plan-review-args.txt"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-smoke.md" <<'EOF'
+---
+id: 2026-02-19-smoke
+status: PENDING
+---
+
+# Plan: Smoke
+EOF
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/plan-review" --repo "$repo" --base main > "$tmp_dir/plan-review.out"
+
+  local review_file
+  review_file="$(find "$repo/.ai/plan-reviews" -maxdepth 1 -type f -name '*.md' | head -1)"
+  [[ -n "$review_file" && -f "$review_file" ]] || { echo "Expected plan review artifact" >&2; exit 1; }
+  assert_contains "$codex_args" "exec"
+  assert_contains "$codex_args" "--sandbox"
+  assert_contains "$codex_args" "read-only"
+  assert_contains "$codex_args" "--ephemeral"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_review_prompt_pass_through
@@ -223,5 +256,6 @@ test_invalid_impl_mode_rejected
 test_impl_direct_mode_uses_codex_exec
 test_code_plan_generates_artifact
 test_safe_impl_claude_plan_mode_no_dangerous_skip
+test_plan_review_generates_artifact
 
 printf 'Wrapper smoke tests passed.\n'
