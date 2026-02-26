@@ -212,6 +212,10 @@ For non-trivial work, generate a plan artifact before implementation:
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
 ./scripts/plan-review --repo /path/to/repo
 ./scripts/plan-review-live --repo /path/to/repo
+# Non-TTY/chat-safe finalization:
+./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
+# Or:
+./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
