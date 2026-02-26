@@ -100,6 +100,12 @@ If some commands already exist in your config, keep existing entries and append 
 ./scripts/smoke-wrappers.sh
 ```
 
+## CI Workflows
+
+- `wrapper-smoke.yml`: wrapper syntax, drift, and smoke validation.
+- `pr-policy.yml`: PR policy caller for `main`/`master` pull requests.
+- `reusable-pr-checks.yml`: reusable branch/title/linked-issue policy checks with concurrency cancellation.
+
 ## References
 
 - `references/WORKFLOW.md`
