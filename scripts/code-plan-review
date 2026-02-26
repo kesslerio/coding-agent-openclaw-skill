@@ -31,6 +31,8 @@ SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
 TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
 ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
 SCHEMA_VERSION=1
+LIVE_INCOMPLETE_MARKER="Live review incomplete or failed"
+METADATA_WRITE_SEQ=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -158,7 +160,13 @@ fi
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 TIMESTAMP="$(date +"%Y-%m-%d-%H%M%S")"
-METADATA_HISTORY_PATH="$REVIEW_DIR/${TIMESTAMP}-${PLAN_ID}.json"
+METADATA_RUN_ID="${TIMESTAMP}-$$-${RANDOM}"
+if ns="$(date +%N 2>/dev/null)"; then
+  if [[ "$ns" =~ ^[0-9]+$ ]]; then
+    METADATA_RUN_ID="${TIMESTAMP}-${ns}-$$-${RANDOM}"
+  fi
+fi
+METADATA_HISTORY_PREFIX="$REVIEW_DIR/${TIMESTAMP}-${PLAN_ID}-${METADATA_RUN_ID}"
 METADATA_LATEST_PATH="$REVIEW_DIR/latest-${PLAN_ID}.json"
 
 TMP_DIR="$(mktemp -d)"
@@ -236,10 +244,13 @@ json_array_from_file() {
 
 write_metadata() {
   local ready="$1"
+  local history_path
   local tmp_meta
   local latest_tmp
   local resolved_json
   local blocking_json
+  METADATA_WRITE_SEQ=$((METADATA_WRITE_SEQ + 1))
+  history_path="${METADATA_HISTORY_PREFIX}-${METADATA_WRITE_SEQ}.json"
   tmp_meta="$(mktemp)"
   latest_tmp="$(mktemp)"
 
@@ -263,9 +274,65 @@ write_metadata() {
 }
 EOF
 
-  mv "$tmp_meta" "$METADATA_HISTORY_PATH"
-  cp "$METADATA_HISTORY_PATH" "$latest_tmp"
+  mv "$tmp_meta" "$history_path"
+  cp "$history_path" "$latest_tmp"
   mv "$latest_tmp" "$METADATA_LATEST_PATH"
+  LAST_METADATA_HISTORY_PATH="$history_path"
+}
+
+cleanup_timeout_children() {
+  local file="$1"
+  local pid
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+  while IFS= read -r pid; do
+    if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+      continue
+    fi
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -TERM "$pid" >/dev/null 2>&1 || true
+    fi
+  done < "$file"
+  sleep 5
+  while IFS= read -r pid; do
+    if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+      continue
+    fi
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  done < "$file"
+}
+
+run_with_timeout_checked() {
+  local timeout_seconds="$1"
+  shift
+  local -a cmd=("$@")
+  local child_file
+  local wrapper_pid
+  local rc
+  child_file="$(mktemp)"
+
+  timeout -k5s "${timeout_seconds}s" "${cmd[@]}" &
+  wrapper_pid=$!
+
+  while kill -0 "$wrapper_pid" >/dev/null 2>&1; do
+    pgrep -P "$wrapper_pid" >> "$child_file" 2>/dev/null || true
+    sleep 0.1
+  done
+
+  set +e
+  wait "$wrapper_pid"
+  rc=$?
+  set -e
+
+  sort -u -o "$child_file" "$child_file" 2>/dev/null || true
+  if [[ "$rc" == "124" || "$rc" == "137" ]]; then
+    cleanup_timeout_children "$child_file"
+  fi
+  rm -f "$child_file"
+  return "$rc"
 }
 
 run_codex_prompt() {
@@ -284,7 +351,7 @@ run_codex_prompt() {
         echo "Error: timeout command is required for live mode. Install coreutils timeout." >&2
         exit 1
       fi
-      timeout -k5s "${timeout_seconds}s" "${cmd[@]}"
+      run_with_timeout_checked "$timeout_seconds" "${cmd[@]}"
     else
       "${cmd[@]}"
     fi
@@ -339,8 +406,8 @@ else
     if [[ "$ALLOW_NON_TTY" == "1" ]]; then
       echo "Warning: PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 set; bypassing TTY requirement for live mode." >&2
     else
-    echo "Error: live mode requires an interactive terminal (TTY). Use scripts/plan-review for batch mode." >&2
-    exit 1
+      echo "Error: live mode requires an interactive terminal (TTY). Use scripts/plan-review for batch mode." >&2
+      exit 1
     fi
   fi
 
@@ -356,6 +423,9 @@ else
 - Started at: $CREATED_AT
 
 EOF
+  cp "$TMP_OUTPUT" "$OUTPUT_PATH"
+  printf '%s\n' "$LIVE_INCOMPLETE_MARKER" >> "$BLOCKING_FILE"
+  write_metadata "false"
 
   section_names=(
     "Architecture"
@@ -428,6 +498,9 @@ EOF
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
   done
 
+  tmp_filtered="$(mktemp)"
+  grep -Fxv "$LIVE_INCOMPLETE_MARKER" "$BLOCKING_FILE" > "$tmp_filtered" || true
+  mv "$tmp_filtered" "$BLOCKING_FILE"
   dedupe_file "$BLOCKING_FILE"
   if [[ -s "$BLOCKING_FILE" ]]; then
     write_metadata "false"
@@ -440,5 +513,5 @@ mv "$TMP_OUTPUT" "$OUTPUT_PATH"
 
 echo
 echo "✅ Plan review saved: $OUTPUT_PATH"
-echo "✅ Plan review metadata (history): $METADATA_HISTORY_PATH"
+echo "✅ Plan review metadata (history): $LAST_METADATA_HISTORY_PATH"
 echo "✅ Plan review metadata (latest): $METADATA_LATEST_PATH"
