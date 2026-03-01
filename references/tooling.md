@@ -201,6 +201,7 @@ Cleanup:
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `CODING_AGENT_IMPL_MODE` | Implementation routing policy (`direct|tmux|auto`) | `direct` |
+| `CODING_AGENT_VERBOSE` | Execution progress verbosity (`off` by default; truthy: `1|true|on|yes|verbose`) | `off` |
 | `CODING_AGENT_CLAUDE_BIN` | Explicit Claude CLI path override | unset |
 | `OPENCLAW_TMUX_SOCKET_DIR` | Socket directory (preferred) | `${TMPDIR:-/tmp}/openclaw-tmux-sockets` |
 | `CLAWDBOT_TMUX_SOCKET_DIR` | Legacy socket directory | unset |

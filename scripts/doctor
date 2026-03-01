@@ -47,6 +47,14 @@ fi
 
 printf '[info] implementation mode default: %s (set CODING_AGENT_IMPL_MODE=direct|tmux|auto to override)\n' "${CODING_AGENT_IMPL_MODE:-direct}"
 
+verbose_mode="off"
+case "${CODING_AGENT_VERBOSE:-}" in
+  1|[Tt][Rr][Uu][Ee]|[Oo][Nn]|[Yy][Ee][Ss]|[Vv][Ee][Rr][Bb][Oo][Ss][Ee])
+    verbose_mode="on"
+    ;;
+esac
+printf '[info] progress verbosity: %s (set CODING_AGENT_VERBOSE=1 to enable Now/Why/Next updates)\n' "$verbose_mode"
+
 if [[ "$failures" -gt 0 ]]; then
   printf '\nPreflight failed with %s issue(s).\n' "$failures" >&2
   exit 1

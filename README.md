@@ -115,6 +115,33 @@ Example resolve file for non-TTY finalization:
 ./scripts/smoke-wrappers.sh
 ```
 
+## Verbosity Configuration
+
+The coding-agent skill supports an opt-in execution progress verbosity mode via
+`CODING_AGENT_VERBOSE`.
+
+- Default: off (concise updates)
+- On: structured progress updates (`Now`, `Why`, `Next`) during execution
+- Scope: progress updates only (not globally longer planning/review prose)
+
+Truthy values (case-insensitive): `1`, `true`, `on`, `yes`, `verbose`
+
+One-shot example:
+
+```bash
+CODING_AGENT_VERBOSE=1 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+```
+
+Persistent OpenClaw gateway setup:
+
+1. Add to `~/.config/systemd/user/secrets.conf`:
+   `CODING_AGENT_VERBOSE="1"`
+2. Reload the user unit:
+
+```bash
+systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.service
+```
+
 ## CI Workflows
 
 - `wrapper-smoke.yml`: wrapper syntax, drift, and smoke validation.
