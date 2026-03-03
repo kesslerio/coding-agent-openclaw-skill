@@ -33,6 +33,11 @@ This repository contains the `plan-review-live` Lobster workflow used by
 ./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 ```
 
+Resume behavior persists decision state in:
+- `<review-markdown-path>.lobster-session.json`
+
+That file is removed automatically when the live review completes successfully.
+
 ## Environment
 
 - `PLAN_REVIEW_LIVE_ENGINE`: `lobster` (default) or `legacy`.

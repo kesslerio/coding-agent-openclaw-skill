@@ -47,6 +47,14 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 3. Get explicit `APPROVE` before file writes, package installs, or system changes.
 4. After approval, execute end-to-end and report progress, results, and deviations.
 
+### Review Routing Contract (Hard Rule)
+
+- Plan artifact reviews must run through wrappers first:
+  - `scripts/plan-review`
+  - `scripts/plan-review-live`
+- PR/code reviews must run via `codex review --base ...` directly or `scripts/safe-review.sh`.
+- Never post a manual review summary before the corresponding wrapper/CLI run is attempted.
+
 ### Verbosity Mode
 
 - `CODING_AGENT_VERBOSE` controls execution progress verbosity and is opt-in.
@@ -61,6 +69,12 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
   - `timeout -k5s 60s bash -lc 'exec npx --yes tsx scripts/tool-schema-lint.ts'`
 - Avoid `timeout --foreground`.
 - After timeout, verify child processes are stopped; if not, run `pkill -P <wrapper_pid>`.
+- Hard-fail run status contract:
+  - Emit `RUN_EVENT start` when a wrapper run begins.
+  - For runs exceeding 30 seconds, emit `RUN_EVENT heartbeat` every 20 seconds.
+  - On interruption/timeouts/signals, emit `RUN_EVENT interrupted` immediately.
+  - On non-interruption failure, emit `RUN_EVENT failed`.
+  - Emit `RUN_EVENT done` on success.
 
 ## Code Standards
 

@@ -31,6 +31,12 @@ If no matching approved plan exists, stop and request:
 - unit/integration/e2e tests as applicable
 5. Report exact commands run, outcomes, and residual risk.
 
+### Review Routing Contract (Hard Rule)
+
+- Plan artifact review must run via `scripts/plan-review` or `scripts/plan-review-live`.
+- PR/code review must run via `codex review --base ...` (or `safe-review.sh` wrapper).
+- Do not publish a manual review summary before running the review command/wrapper.
+
 ## ACP-First Routing
 
 For harness-style implementation/review requests, ACP routing is mode-specific:
@@ -59,6 +65,15 @@ When verbose mode is on:
 
 Verbosity must not block execution. After explaining intent, proceed immediately
 unless waiting on a required user decision or an explicit approval gate.
+
+### Long-Run Hard-Fail Policy
+
+For wrapper/CLI runs expected to exceed 30 seconds:
+- Emit `RUN_EVENT start`.
+- Emit `RUN_EVENT heartbeat` every 20 seconds while running.
+- Emit `RUN_EVENT interrupted` immediately on signal/timeout/interruption.
+- Emit `RUN_EVENT failed` on non-interruption errors.
+- Emit `RUN_EVENT done` on success.
 ## Guardrails
 
 - No bypass-by-default. Do not use approval-bypass flags unless the user explicitly requests bypass.

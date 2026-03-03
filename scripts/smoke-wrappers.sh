@@ -507,7 +507,7 @@ test_code_plan_generates_artifact() {
 
   PATH="$fake_bin:$PATH" \
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
-  "$SCRIPT_DIR/code-plan" --engine codex --repo "$repo" --base main "smoke plan request" > "$tmp_dir/code-plan.out"
+  "$SCRIPT_DIR/code-plan" --engine codex --repo "$repo" --base main "smoke plan request" > "$tmp_dir/code-plan.out" 2>&1
 
   local plan_file
   plan_file="$(find "$repo/.ai/plans" -maxdepth 1 -type f -name '*.md' | head -1)"
@@ -515,6 +515,8 @@ test_code_plan_generates_artifact() {
   assert_contains "$codex_args" "--sandbox"
   assert_contains "$codex_args" "read-only"
   assert_contains "$codex_args" "--ephemeral"
+  assert_contains "$tmp_dir/code-plan.out" "RUN_EVENT start"
+  assert_contains "$tmp_dir/code-plan.out" "RUN_EVENT done"
   assert_contains "$plan_file" "status: PENDING"
   assert_contains "$plan_file" "## 8. Approval prompt"
 }
@@ -579,7 +581,7 @@ EOF
 
   PATH="$fake_bin:$PATH" \
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
-  "$SCRIPT_DIR/plan-review" --repo "$repo" > "$tmp_dir/plan-review.out"
+  "$SCRIPT_DIR/plan-review" --repo "$repo" > "$tmp_dir/plan-review.out" 2>&1
 
   local review_file
   review_file="$(find "$repo/.ai/plan-reviews" -maxdepth 1 -type f -name '*.md' | head -1)"
@@ -593,6 +595,8 @@ EOF
   assert_contains "$codex_args" "--sandbox"
   assert_contains "$codex_args" "read-only"
   assert_contains "$codex_args" "--ephemeral"
+  assert_contains "$tmp_dir/plan-review.out" "RUN_EVENT start"
+  assert_contains "$tmp_dir/plan-review.out" "RUN_EVENT done"
   assert_contains "$codex_args" "Plan file: $repo/.ai/plans/2026-02-19-000002-new.md"
   assert_contains "$codex_args" "REVIEW MODE: batch"
   assert_contains "$latest_metadata" "\"ready_for_implementation\": false"
@@ -667,6 +671,59 @@ EOF
   assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
   assert_contains "$latest_metadata" "\"blocking_decisions\": []"
   assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
+}
+
+test_plan_review_live_lobster_resume_preserves_decisions() {
+  local repo="$tmp_dir/repo-plan-review-live-lobster-resume"
+  local output_file="$repo/.ai/plan-reviews/live-output.md"
+  local lobster_state="$tmp_dir/lobster-state-resume.txt"
+  local session_state
+  session_state="${output_file}.lobster-session.json"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000004b-live.md" <<'EOF'
+---
+id: 2026-02-19-000004b-live
+status: APPROVED
+---
+
+# Plan: Live Lobster Resume
+EOF
+
+  # First run intentionally stops after one section to leave resumable state.
+  set +e
+  printf '1A\nnone\n' | \
+    PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004b-live.md" --output "$output_file" > "$tmp_dir/plan-review-live-lobster-resume-step1.out" 2>&1
+  step1_rc=$?
+  set -e
+  if [[ "$step1_rc" -eq 0 ]]; then
+    echo "Expected first lobster run to stop early due missing stdin decisions" >&2
+    exit 1
+  fi
+  [[ -f "$session_state" ]] || { echo "Expected lobster session state file" >&2; exit 1; }
+  assert_contains "$session_state" "\"resolved_decisions\": [\"1A\"]"
+
+  # Resume from second section and ensure first decision persists to final metadata.
+  printf '2A\nnone\n3A\nnone\n4A\nnone\n' | \
+    PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004b-live.md" --output "$output_file" --resume-token "token-2" > "$tmp_dir/plan-review-live-lobster-resume-step2.out"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000004b-live.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected lobster resume latest metadata file" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\"]"
+  [[ ! -f "$session_state" ]] || { echo "Expected session state file to be cleared after completion" >&2; exit 1; }
 }
 
 test_plan_review_live_generates_ready_metadata() {
@@ -1203,6 +1260,7 @@ test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact
 test_plan_review_output_parent_dirs_created
 test_plan_review_live_lobster_default_engine
+test_plan_review_live_lobster_resume_preserves_decisions
 test_plan_review_live_generates_ready_metadata
 test_plan_review_live_non_tty_auto_apply_with_flags
 test_plan_review_live_resolution_inputs_override_allow_non_tty

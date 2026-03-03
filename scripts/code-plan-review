@@ -35,9 +35,43 @@ NON_TTY_MODE="auto"
 SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
 TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
 ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
+STATUS_PING_SECONDS="${CODING_AGENT_STATUS_PING_SECONDS:-20}"
+LONG_RUN_THRESHOLD_SECONDS="${CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS:-30}"
 SCHEMA_VERSION=1
 LIVE_INCOMPLETE_MARKER="Live review incomplete or failed"
 METADATA_WRITE_SEQ=0
+CURRENT_CHILD_PID=""
+
+emit_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  if [[ -n "$details" ]]; then
+    echo "RUN_EVENT $event ts=$(date -Iseconds) $details" >&2
+  else
+    echo "RUN_EVENT $event ts=$(date -Iseconds)" >&2
+  fi
+}
+
+validate_positive_int() {
+  local value="$1"
+  local name="$2"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value <= 0 )); then
+    echo "Error: $name must be a positive integer, got '$value'" >&2
+    exit 1
+  fi
+}
+
+handle_interrupt() {
+  local signal_name="$1"
+  emit_run_event "interrupted" "phase=plan-review mode=$MODE signal=$signal_name"
+  if [[ -n "$CURRENT_CHILD_PID" ]] && kill -0 "$CURRENT_CHILD_PID" >/dev/null 2>&1; then
+    kill "-$signal_name" "$CURRENT_CHILD_PID" >/dev/null 2>&1 || true
+  fi
+  exit 130
+}
+
+trap 'handle_interrupt INT' INT
+trap 'handle_interrupt TERM' TERM
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -102,6 +136,9 @@ if [[ "$NON_TTY_MODE" != "auto" && "$NON_TTY_MODE" != "error" ]]; then
   echo "Error: --non-tty must be auto or error" >&2
   exit 1
 fi
+
+validate_positive_int "$STATUS_PING_SECONDS" "CODING_AGENT_STATUS_PING_SECONDS"
+validate_positive_int "$LONG_RUN_THRESHOLD_SECONDS" "CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS"
 
 if [[ -n "$RESOLVE_FILE_PATH" && ( -n "$DECISIONS_INPUT" || -n "$BLOCKING_INPUT" ) ]]; then
   echo "Error: --resolve-file cannot be combined with --decisions or --blocking." >&2
@@ -471,10 +508,29 @@ run_codex_prompt() {
   local prompt="$1"
   local timeout_seconds="${2:-0}"
   local -a cmd=(codex exec --sandbox read-only --ephemeral)
+  local output_file
+  local start_ts
+  local now_ts
+  local elapsed
+  local last_ping=0
+  local rc
+  local run_label
+  local run_id
   if [[ -n "$MODEL" ]]; then
     cmd+=(--model "$MODEL")
   fi
   cmd+=(-- "$prompt")
+
+  run_id="$(date +%s)-$$-${RANDOM}"
+  run_label="run=${run_id}"
+  if [[ "$MODE" == "live" ]]; then
+    run_label="$run_label mode=live"
+  else
+    run_label="$run_label mode=$MODE"
+  fi
+  output_file="$(mktemp)"
+  start_ts="$(date +%s)"
+  emit_run_event "start" "phase=plan-review-codex $run_label timeout=${timeout_seconds}s"
 
   (
     cd "$REPO_PATH"
@@ -487,7 +543,39 @@ run_codex_prompt() {
     else
       "${cmd[@]}"
     fi
-  )
+  ) > "$output_file" &
+  CURRENT_CHILD_PID=$!
+
+  while kill -0 "$CURRENT_CHILD_PID" >/dev/null 2>&1; do
+    now_ts="$(date +%s)"
+    elapsed=$((now_ts - start_ts))
+    if (( elapsed >= LONG_RUN_THRESHOLD_SECONDS )); then
+      if (( last_ping == 0 || now_ts - last_ping >= STATUS_PING_SECONDS )); then
+        emit_run_event "heartbeat" "phase=plan-review-codex $run_label elapsed=${elapsed}s"
+        last_ping="$now_ts"
+      fi
+    fi
+    sleep 1
+  done
+
+  set +e
+  wait "$CURRENT_CHILD_PID"
+  rc=$?
+  set -e
+  CURRENT_CHILD_PID=""
+  cat "$output_file"
+  rm -f "$output_file"
+
+  now_ts="$(date +%s)"
+  elapsed=$((now_ts - start_ts))
+  if [[ "$rc" == "0" ]]; then
+    emit_run_event "done" "phase=plan-review-codex $run_label elapsed=${elapsed}s"
+  elif [[ "$rc" == "130" || "$rc" == "143" || "$rc" == "124" || "$rc" == "137" ]]; then
+    emit_run_event "interrupted" "phase=plan-review-codex $run_label exit_code=$rc elapsed=${elapsed}s"
+  else
+    emit_run_event "failed" "phase=plan-review-codex $run_label exit_code=$rc elapsed=${elapsed}s"
+  fi
+  return "$rc"
 }
 
 build_live_plan_context() {
@@ -509,6 +597,7 @@ build_live_plan_context() {
 }
 
 if [[ "$MODE" == "batch" ]]; then
+  emit_run_event "start" "phase=plan-review mode=batch plan_id=$PLAN_ID repo=$REPO_PATH"
   cat "$SYSTEM_PROMPT_FILE" > "$SYSTEM_PROMPT"
   cat >> "$SYSTEM_PROMPT" <<EOF
 
@@ -544,6 +633,7 @@ EOF
     write_metadata "false"
   fi
 elif [[ "$MODE" == "apply" ]]; then
+  emit_run_event "start" "phase=plan-review mode=apply plan_id=$PLAN_ID repo=$REPO_PATH"
   if ! has_resolution_inputs; then
     echo "Error: apply mode requires --resolve-file or --decisions/--blocking." >&2
     resolution_usage_hint
@@ -565,6 +655,7 @@ elif [[ "$MODE" == "apply" ]]; then
     write_metadata "true" "live"
   fi
 else
+  emit_run_event "start" "phase=plan-review mode=live plan_id=$PLAN_ID repo=$REPO_PATH"
   non_tty=0
   auto_applied_non_tty=0
   if [[ ! -t 0 || ! -t 1 ]]; then
@@ -704,6 +795,7 @@ fi
 
 mv "$TMP_OUTPUT" "$OUTPUT_PATH"
 
+emit_run_event "done" "phase=plan-review mode=$MODE plan_id=$PLAN_ID output=$OUTPUT_PATH"
 echo
 echo "✅ Plan review saved: $OUTPUT_PATH"
 echo "✅ Plan review metadata (history): $LAST_METADATA_HISTORY_PATH"

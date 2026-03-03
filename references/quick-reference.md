@@ -59,6 +59,17 @@ Skip only when:
 ✅ Architecture: TIMEOUT=600 minimum
 ```
 
+## Review Routing + Run Events (Hard Rules)
+
+- Plan artifact review: `./scripts/plan-review` or `./scripts/plan-review-live`
+- PR/code review: `timeout 600s codex review --base <base> --title "PR #N Review"` or `safe-review.sh`
+- Never produce manual review output before running the matching command.
+- Required wrapper events:
+  - `RUN_EVENT start`
+  - `RUN_EVENT heartbeat` every 20s after 30s elapsed
+  - `RUN_EVENT interrupted` or `RUN_EVENT failed`
+  - `RUN_EVENT done`
+
 ## Tool Fallback Chain
 
 ```

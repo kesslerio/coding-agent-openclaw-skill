@@ -215,6 +215,7 @@ if ns="$(date +%N 2>/dev/null)"; then
 fi
 METADATA_HISTORY_PREFIX="$REVIEW_DIR/${TIMESTAMP}-${PLAN_ID}-${METADATA_RUN_ID}"
 METADATA_LATEST_PATH="$REVIEW_DIR/latest-${PLAN_ID}.json"
+SESSION_STATE_PATH="${OUTPUT_PATH}.lobster-session.json"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -386,6 +387,96 @@ load_resolution_inputs() {
   fi
 }
 
+reset_session_state() {
+  rm -f "$SESSION_STATE_PATH"
+}
+
+save_session_state() {
+  local tmp_state
+  local resolved_json
+  local blocking_json
+  dedupe_file "$RESOLVED_FILE"
+  dedupe_file "$BLOCKING_FILE"
+  resolved_json="$(json_array_from_file "$RESOLVED_FILE")"
+  blocking_json="$(json_array_from_file "$BLOCKING_FILE")"
+  tmp_state="$(mktemp)"
+  cat > "$tmp_state" <<JSON
+{
+  "schema_version": 1,
+  "plan_id": "$(json_escape "$PLAN_ID")",
+  "plan_path": "$(json_escape "$PLAN_PATH")",
+  "review_markdown_path": "$(json_escape "$OUTPUT_PATH")",
+  "resolved_decisions": $resolved_json,
+  "blocking_decisions": $blocking_json,
+  "updated_at": "$(date -Iseconds)"
+}
+JSON
+  mv "$tmp_state" "$SESSION_STATE_PATH"
+}
+
+load_session_state() {
+  if [[ ! -f "$SESSION_STATE_PATH" ]]; then
+    return 0
+  fi
+  if ! python3 - "$SESSION_STATE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE" "$PLAN_ID" "$PLAN_PATH" "$OUTPUT_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+session_path = Path(sys.argv[1])
+resolved_out = Path(sys.argv[2])
+blocking_out = Path(sys.argv[3])
+expected_plan_id = sys.argv[4]
+expected_plan_path = sys.argv[5]
+expected_output = sys.argv[6]
+
+try:
+    payload = json.loads(session_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"Error: invalid session state JSON: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(payload, dict):
+    print("Error: session state must be a JSON object.", file=sys.stderr)
+    raise SystemExit(1)
+
+plan_id = payload.get("plan_id")
+if plan_id != expected_plan_id:
+    print("Error: session state plan_id does not match current plan.", file=sys.stderr)
+    raise SystemExit(1)
+
+plan_path = payload.get("plan_path")
+if plan_path != expected_plan_path:
+    print("Error: session state plan_path does not match current plan.", file=sys.stderr)
+    raise SystemExit(1)
+
+output_path = payload.get("review_markdown_path")
+if output_path != expected_output:
+    print("Error: session state review_markdown_path does not match current output path.", file=sys.stderr)
+    raise SystemExit(1)
+
+for key in ("resolved_decisions", "blocking_decisions"):
+    value = payload.get(key)
+    if not isinstance(value, list):
+        print(f"Error: session state key '{key}' must be an array of strings.", file=sys.stderr)
+        raise SystemExit(1)
+    normalized = []
+    for idx, item in enumerate(value):
+        if not isinstance(item, str):
+            print(f"Error: session state key '{key}' contains non-string entry at index {idx}.", file=sys.stderr)
+            raise SystemExit(1)
+        trimmed = item.strip()
+        if not trimmed:
+            continue
+        normalized.append(trimmed)
+    target = resolved_out if key == "resolved_decisions" else blocking_out
+    target.write_text("".join(f"{entry}\n" for entry in normalized), encoding="utf-8")
+PY
+  then
+    exit 1
+  fi
+}
+
 write_metadata() {
   local ready="$1"
   local mode_override="live"
@@ -504,6 +595,7 @@ fi
 
 if (( non_tty == 1 )); then
   if has_resolution_inputs; then
+    reset_session_state
     load_resolution_inputs
     {
       echo "# Plan Review (Live Auto-Fallback)"
@@ -549,6 +641,17 @@ if [[ -n "$RESUME_TOKEN" && ! -f "$OUTPUT_PATH" ]]; then
   } > "$OUTPUT_PATH"
 fi
 
+if [[ -n "$RESUME_TOKEN" ]]; then
+  if [[ ! -f "$SESSION_STATE_PATH" ]]; then
+    echo "Error: resume token requires existing session state: $SESSION_STATE_PATH" >&2
+    echo "Restart without --resume-token to begin a new live review session." >&2
+    exit 1
+  fi
+  load_session_state
+else
+  reset_session_state
+fi
+
 if [[ -f "$OUTPUT_PATH" ]]; then
   cp "$OUTPUT_PATH" "$TMP_OUTPUT"
 else
@@ -563,6 +666,7 @@ else
 fi
 
 printf '%s\n' "$LIVE_INCOMPLETE_MARKER" >> "$BLOCKING_FILE"
+save_session_state
 write_metadata "false"
 
 if [[ -n "$RESUME_TOKEN" ]]; then
@@ -601,6 +705,7 @@ while true; do
     echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
     read -r blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
+    save_session_state
 
     if [[ -z "$token" ]]; then
       echo "Error: lobster response missing resume token for approval step." >&2
@@ -630,6 +735,8 @@ if [[ -s "$BLOCKING_FILE" ]]; then
 else
   write_metadata "true"
 fi
+
+reset_session_state
 
 mv "$TMP_OUTPUT" "$OUTPUT_PATH"
 

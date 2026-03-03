@@ -19,6 +19,19 @@ This repo now ships two sibling skills:
 
 Guardrail: no bypass flags (`--yolo`, `--dangerously-skip-permissions`) unless explicitly requested.
 
+## Review Routing + Run Status Contract
+
+- Plan artifact review: use `./scripts/plan-review` or `./scripts/plan-review-live`.
+- PR/code review: use `codex review --base ...` directly or `./scripts/safe-review.sh`.
+- Never provide a manual review summary before running the matching wrapper/command.
+
+Long-run wrapper status events (hard-fail policy):
+- `RUN_EVENT start`
+- `RUN_EVENT heartbeat` every 20s after 30s elapsed
+- `RUN_EVENT interrupted` on signal/timeout/interruption
+- `RUN_EVENT failed` on non-interruption errors
+- `RUN_EVENT done` on success
+
 ## Usage
 
 In OpenClaw:
@@ -143,6 +156,10 @@ The coding-agent skill supports an opt-in execution progress verbosity mode via
 - Scope: progress updates only (not globally longer planning/review prose)
 
 Truthy values (case-insensitive): `1`, `true`, `on`, `yes`, `verbose`
+
+Planning/review wrapper heartbeat settings:
+- `CODING_AGENT_STATUS_PING_SECONDS` (default `20`)
+- `CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS` (default `30`)
 
 One-shot example:
 

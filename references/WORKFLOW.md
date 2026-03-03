@@ -33,6 +33,14 @@ These aliases do not change core policy:
 - No bypass-by-default flags unless the user explicitly requests bypass.
 - Plan completion is approved through explicit `APPROVE` reply (there is no separate `ExitPlanMode` tool call in this repo flow).
 
+### Review Routing + Run Status (Hard Rules)
+
+- Plan artifact reviews must use wrappers first: `scripts/plan-review` or `scripts/plan-review-live`.
+- PR/code reviews must use `codex review --base ...` (or `safe-review.sh` wrapper).
+- Do not send manual review findings before the matching review command executes.
+- For runs >30 seconds, emit wrapper status updates every 20 seconds.
+- On interruption/timeout/signal, emit immediate interruption status with exit code and remediation command.
+
 ## Git Workflow
 
 **Note:** Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested.

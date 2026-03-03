@@ -28,6 +28,15 @@ When invoked via channel aliases:
 - `/plan-review-live` → route to interactive plan review checkpoints using `scripts/plan-review-live` (Lobster in-repo workflow first, legacy fallback).
 - `/review_pr` → route to review flow using `references/reviews.md`.
 
+## Runtime Status Contract
+
+When wrappers are used for planning/review:
+- Emit `RUN_EVENT start` at run start.
+- If the run exceeds 30s, emit `RUN_EVENT heartbeat` every 20s.
+- If interrupted or timed out, emit `RUN_EVENT interrupted` immediately with exit code.
+- On non-interruption failure, emit `RUN_EVENT failed`.
+- On success, emit `RUN_EVENT done`.
+
 ## Non-Negotiable Gates
 
 1. Never write files, install packages, commit, or open PRs before explicit `APPROVE`.
