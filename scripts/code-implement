@@ -81,6 +81,22 @@ if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
 fi
 TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
 
+emit_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  if [[ -n "$details" ]]; then
+    echo "RUN_EVENT $event ts=$(date -Iseconds) $details" >&2
+  else
+    echo "RUN_EVENT $event ts=$(date -Iseconds)" >&2
+  fi
+}
+
+extract_kv_value() {
+  local line="$1"
+  local key="$2"
+  printf '%s\n' "$line" | sed -nE "s/.*[[:space:]]${key}=([^[:space:]]+).*/\\1/p" | head -n 1
+}
+
 get_frontmatter_field() {
   local file="$1"
   local key="$2"
@@ -332,14 +348,146 @@ if ! command -v timeout &> /dev/null; then
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-TMUX_RUN="$SCRIPT_DIR/tmux-run"
+TMUX_RUN="${CODE_IMPLEMENT_TMUX_RUN:-$SCRIPT_DIR/tmux-run}"
 if [[ ! -x "$TMUX_RUN" ]]; then
   echo "Error: tmux-run not found or not executable: $TMUX_RUN" >&2
   exit 1
 fi
 
+tmp_stream_dir="$(mktemp -d)"
+tmp_stream="$tmp_stream_dir/stream.fifo"
+tmp_status="$(mktemp)"
+run_id=""
+log_path=""
+terminal_emitted=0
+start_emitted=0
+event_token="evt-$(date +%s)-$$-$RANDOM"
+producer_pid=""
+
+# shellcheck disable=SC2317
+cleanup_tmp_files() {
+  rm -rf "$tmp_stream_dir"
+  rm -f "$tmp_status"
+}
+
+emit_terminal_event_for_rc() {
+  local rc="$1"
+  if [[ "$start_emitted" != "1" ]]; then
+    emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+    start_emitted=1
+  fi
+  if [[ "$terminal_emitted" == "1" ]]; then
+    return 0
+  fi
+  if [[ "$rc" == "0" ]]; then
+    emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  elif [[ "$rc" == "124" || "$rc" == "130" || "$rc" == "137" || "$rc" == "143" ]]; then
+    emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  else
+    emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  fi
+  terminal_emitted=1
+}
+
+# shellcheck disable=SC2317
+handle_signal() {
+  local sig="$1"
+  local rc="$2"
+  emit_terminal_event_for_rc "$rc"
+  if [[ -n "$producer_pid" ]]; then
+    kill -TERM "$producer_pid" 2>/dev/null || true
+    set +e
+    wait "$producer_pid" 2>/dev/null
+    set -e
+  fi
+  cleanup_tmp_files
+  trap - EXIT INT TERM
+  echo "code-implement interrupted by ${sig}" >&2
+  exit "$rc"
+}
+
+trap cleanup_tmp_files EXIT
+trap 'handle_signal INT 130' INT
+trap 'handle_signal TERM 143' TERM
+
+mkfifo "$tmp_stream"
+
 (
-  cd "$EXEC_REPO"
-  CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-    "$TMUX_RUN" timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$PROMPT"
-)
+  set +e
+  (
+    cd "$EXEC_REPO"
+    CODEX_TMUX_EVENT_TOKEN="$event_token" \
+    CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+      "$TMUX_RUN" --wait timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$PROMPT"
+  ) >"$tmp_stream" 2>&1
+  rc=$?
+  printf '%s\n' "$rc" >"$tmp_status"
+) &
+producer_pid=$!
+
+while IFS= read -r line; do
+  if [[ "$line" == TMUX_RUN_EVENT* ]]; then
+    event="$(printf '%s\n' "$line" | awk '{print $2}')"
+    token_val="$(extract_kv_value "$line" "token")"
+    if [[ -z "$token_val" || "$token_val" != "$event_token" ]]; then
+      echo "$line" >&2
+      continue
+    fi
+    session_val="$(extract_kv_value "$line" "session")"
+    log_val="$(extract_kv_value "$line" "log_path")"
+    exit_code_val="$(extract_kv_value "$line" "exit_code")"
+    elapsed_val="$(extract_kv_value "$line" "elapsed_s")"
+
+    if [[ -n "$session_val" ]]; then
+      run_id="$session_val"
+    fi
+    if [[ -n "$log_val" ]]; then
+      log_path="$log_val"
+    fi
+
+    case "$event" in
+      start)
+        emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+        start_emitted=1
+        ;;
+      heartbeat)
+        emit_run_event "heartbeat" "phase=code-implement run_id=${run_id:-unknown} elapsed=${elapsed_val:-unknown}s"
+        ;;
+      done)
+        emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-0} elapsed=${elapsed_val:-unknown}s"
+        terminal_emitted=1
+        ;;
+      failed)
+        emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
+        terminal_emitted=1
+        ;;
+      interrupted)
+        emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
+        terminal_emitted=1
+        ;;
+      *)
+        echo "$line" >&2
+        ;;
+    esac
+  else
+    echo "$line" >&2
+  fi
+done < "$tmp_stream"
+
+set +e
+wait "$producer_pid"
+set -e
+if [[ -f "$tmp_status" ]]; then
+  tmux_rc="$(cat "$tmp_status" 2>/dev/null || echo 1)"
+else
+  tmux_rc=1
+fi
+
+if [[ "$start_emitted" != "1" ]]; then
+  emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+  start_emitted=1
+fi
+
+emit_terminal_event_for_rc "$tmux_rc"
+
+exit "$tmux_rc"

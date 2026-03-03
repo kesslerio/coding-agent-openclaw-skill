@@ -23,6 +23,10 @@ EOF
 
 WAIT="${CODEX_TMUX_WAIT:-0}"
 CLEANUP="${CODEX_TMUX_CLEANUP:-0}"
+HEARTBEAT_SECONDS="${CODEX_TMUX_HEARTBEAT_SECONDS:-20}"
+HEARTBEAT_MIN_ELAPSED_SECONDS="${CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS:-30}"
+CAPTURE_LINES="${CODEX_TMUX_CAPTURE_LINES:-400}"
+EVENT_TOKEN="${CODEX_TMUX_EVENT_TOKEN:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +46,43 @@ if [[ $# -lt 1 ]]; then
   usage
   exit 1
 fi
+
+if [[ ! "$HEARTBEAT_SECONDS" =~ ^[0-9]+$ ]] || (( HEARTBEAT_SECONDS <= 0 )); then
+  echo "Error: CODEX_TMUX_HEARTBEAT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
+
+if [[ ! "$HEARTBEAT_MIN_ELAPSED_SECONDS" =~ ^[0-9]+$ ]] || (( HEARTBEAT_MIN_ELAPSED_SECONDS < 0 )); then
+  echo "Error: CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS must be a non-negative integer" >&2
+  exit 1
+fi
+
+if [[ ! "$CAPTURE_LINES" =~ ^[0-9]+$ ]] || (( CAPTURE_LINES <= 0 )); then
+  echo "Error: CODEX_TMUX_CAPTURE_LINES must be a positive integer" >&2
+  exit 1
+fi
+
+wait_timeout="${CODEX_TMUX_WAIT_TIMEOUT:-}"
+if [[ "$WAIT" == "1" && -n "$wait_timeout" ]]; then
+  if [[ ! "$wait_timeout" =~ ^[0-9]+$ ]] || (( wait_timeout <= 0 )); then
+    echo "Error: CODEX_TMUX_WAIT_TIMEOUT must be a positive integer" >&2
+    exit 1
+  fi
+fi
+
+emit_tmux_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  local token_details=""
+  if [[ -n "$EVENT_TOKEN" ]]; then
+    token_details=" token=$EVENT_TOKEN"
+  fi
+  if [[ -n "$details" ]]; then
+    echo "TMUX_RUN_EVENT $event ts=$(date -Iseconds)${token_details} $details" >&2
+  else
+    echo "TMUX_RUN_EVENT $event ts=$(date -Iseconds)${token_details}" >&2
+  fi
+}
 
 if ! command -v tmux &>/dev/null; then
   echo "Error: tmux not found in PATH" >&2
@@ -65,6 +106,7 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/${SESSION}.log"
 : > "$LOG_FILE"
 EXIT_FILE="$LOG_DIR/${SESSION}.exit"
+rm -f "$EXIT_FILE"
 
 if ! tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell; then
   echo "Error: Failed to create tmux session on socket: $SOCKET" >&2
@@ -122,34 +164,68 @@ To monitor:
   tail -f "$LOG_FILE"
 EOF
 
+mode_label="nowait"
 if [[ "$WAIT" == "1" ]]; then
-  wait_timeout="${CODEX_TMUX_WAIT_TIMEOUT:-}"
-  if [[ -n "$wait_timeout" ]]; then
-    if command -v timeout &>/dev/null; then
-      if ! timeout "${wait_timeout}s" tmux -S "$SOCKET" wait-for "$SESSION.done"; then
-        echo "Warning: wait timed out after ${wait_timeout}s" >&2
-        exit 1
+  mode_label="wait"
+fi
+emit_tmux_run_event "start" "session=$SESSION log_path=$LOG_FILE socket=$SOCKET mode=$mode_label"
+
+if [[ "$WAIT" == "1" ]]; then
+  start_ts="$(date +%s)"
+  last_heartbeat="$start_ts"
+  timed_out=0
+  lost_session=0
+  exit_ready=0
+  rc=1
+  while true; do
+    if [[ -f "$EXIT_FILE" ]]; then
+      rc_candidate="$(cat "$EXIT_FILE" 2>/dev/null || true)"
+      if [[ "$rc_candidate" =~ ^[0-9]+$ ]]; then
+        rc="$rc_candidate"
+        exit_ready=1
+        break
       fi
-    else
-      echo "Warning: timeout command not found; waiting without timeout" >&2
-      tmux -S "$SOCKET" wait-for "$SESSION.done"
     fi
-  else
-    tmux -S "$SOCKET" wait-for "$SESSION.done"
+    if ! tmux -S "$SOCKET" has-session -t "$SESSION" >/dev/null 2>&1; then
+      echo "Warning: tmux session disappeared before exit status was recorded" >&2
+      lost_session=1
+      break
+    fi
+
+    now_ts="$(date +%s)"
+    elapsed=$((now_ts - start_ts))
+    if (( elapsed >= HEARTBEAT_MIN_ELAPSED_SECONDS && now_ts - last_heartbeat >= HEARTBEAT_SECONDS )); then
+      emit_tmux_run_event "heartbeat" "session=$SESSION elapsed_s=${elapsed}"
+      last_heartbeat="$now_ts"
+    fi
+
+    if [[ -n "$wait_timeout" && "$elapsed" -ge "$wait_timeout" ]]; then
+      echo "Warning: wait timed out after ${wait_timeout}s" >&2
+      timed_out=1
+      break
+    fi
+    sleep 1
+  done
+
+  if (( timed_out == 1 )); then
+    rc=124
+  elif (( lost_session == 1 )); then
+    rc=1
+  elif (( exit_ready != 1 )); then
+    echo "Warning: Exit code file not ready: $EXIT_FILE" >&2
+    rc=1
   fi
 
-  # Dump pane content to stdout so callers can capture it
-  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S - 2>/dev/null || true
+  # Dump the most recent pane content to stdout; full output remains in LOG_FILE.
+  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S "-${CAPTURE_LINES}" 2>/dev/null || true
 
-  if [[ -f "$EXIT_FILE" ]]; then
-    rc="$(cat "$EXIT_FILE" 2>/dev/null || echo 1)"
-    if [[ ! "$rc" =~ ^[0-9]+$ ]]; then
-      echo "Warning: Invalid exit code in $EXIT_FILE (got: $rc)" >&2
-      rc=1
-    fi
+  elapsed_total=$(( $(date +%s) - start_ts ))
+  if [[ "$rc" == "0" ]]; then
+    emit_tmux_run_event "done" "session=$SESSION exit_code=$rc elapsed_s=${elapsed_total}"
+  elif [[ "$rc" == "124" || "$rc" == "130" || "$rc" == "137" || "$rc" == "143" ]]; then
+    emit_tmux_run_event "interrupted" "session=$SESSION exit_code=$rc elapsed_s=${elapsed_total}"
   else
-    echo "Warning: Exit code file not found: $EXIT_FILE" >&2
-    rc=1
+    emit_tmux_run_event "failed" "session=$SESSION exit_code=$rc elapsed_s=${elapsed_total}"
   fi
 
   if [[ "$CLEANUP" == "1" ]]; then
