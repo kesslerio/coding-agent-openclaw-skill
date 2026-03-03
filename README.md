@@ -135,6 +135,14 @@ Example resolve file for non-TTY finalization:
 ./scripts/smoke-wrappers.sh
 ```
 
+## Canonical Local Repo Path
+
+- Canonical local clone path: `/home/art/projects/skills/shared/coding-agent`
+- Do not maintain independent duplicate clones for this repository.
+- Wrappers fail fast when run from a non-canonical clone.
+- Temporary override (recovery-only): `CODING_AGENT_ALLOW_NONCANONICAL=1`
+- CI bypass: canonical-path guard is bypassed automatically when `CI=true`/`GITHUB_ACTIONS=true`.
+
 ## ACP-First Wrapper Routing
 
 Execution routing in `scripts/safe-fallback.sh` is mode-specific:
@@ -145,6 +153,10 @@ Execution routing in `scripts/safe-fallback.sh` is mode-specific:
 - `CODING_AGENT_ACP_ENABLE`: `1` (default) or `0` to skip ACP attempt
 - `CODING_AGENT_ACP_AGENT`: ACP harness alias (default: `codex`)
 - `CODING_AGENT_ACPX_CMD`: executable path override for ACPX binary
+
+Known runtime limitation:
+- Issue #43 tracks upstream ACP observability and relay profile alias behavior.
+- Repo-side mitigations and bounded fallbacks are documented in `references/acp-troubleshooting.md`.
 
 ## Verbosity Configuration
 
@@ -191,6 +203,7 @@ systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.serv
 - `references/claude-code.md`
 - `references/reviews.md`
 - `references/lobster-workflows.md`
+- `references/acp-troubleshooting.md`
 
 ## License
 

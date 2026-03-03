@@ -7,7 +7,10 @@ export PATH="$PATH:/run/current-system/sw/bin"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resolve-cli.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
 failures=0
 
@@ -60,6 +63,10 @@ fi
 printf '[info] implementation mode default: %s (set CODING_AGENT_IMPL_MODE=direct|tmux|auto to override)\n' "${CODING_AGENT_IMPL_MODE:-direct}"
 printf '[info] ACP-first routing: %s (set CODING_AGENT_ACP_ENABLE=0 to skip ACP attempt)\n' "${CODING_AGENT_ACP_ENABLE:-1}"
 printf '[info] ACP agent alias: %s (set CODING_AGENT_ACP_AGENT to override)\n' "${CODING_AGENT_ACP_AGENT:-codex}"
+printf '[warn] known-issue: ACP spawned-run observability may be restricted by upstream runtime visibility controls (issue #43)\n'
+printf '[warn] known-issue: browser relay profile alias profile=chrome may not map to available profiles in some environments (issue #43)\n'
+printf '[info] troubleshooting: see references/acp-troubleshooting.md for bounded checks and fallback commands\n'
+printf '[info] fallback: use ./scripts/safe-fallback.sh review|impl when ACP runtime behavior is degraded\n'
 
 verbose_mode="off"
 case "${CODING_AGENT_VERBOSE:-}" in

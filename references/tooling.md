@@ -112,6 +112,7 @@ Run CLI drift checks before changing command docs:
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 - ACPX discovery in this order: `CODING_AGENT_ACPX_CMD` -> `acpx` in `PATH` (warning-only; CLI fallback remains available)
+- canonical local clone enforcement (default canonical path: `/home/art/projects/skills/shared/coding-agent`)
 
 ## Wrapper Scripts (Plan + Implementation)
 
@@ -206,6 +207,8 @@ Cleanup:
 | `CODING_AGENT_ACP_ENABLE` | Enable ACP-first attempt in `safe-fallback.sh` (`0|1`) | `1` |
 | `CODING_AGENT_ACP_AGENT` | ACP harness alias for ACPX execution | `codex` |
 | `CODING_AGENT_ACPX_CMD` | Explicit ACPX binary path override | unset |
+| `CODING_AGENT_ALLOW_NONCANONICAL` | Temporary bypass for canonical-clone guard (`0|1`) | `0` |
+| `CI` / `GITHUB_ACTIONS` | Automatic canonical-clone guard bypass in CI runners | unset |
 | `CODING_AGENT_VERBOSE` | Execution progress verbosity (`off` by default; truthy: `1|true|on|yes|verbose`) | `off` |
 | `CODING_AGENT_CLAUDE_BIN` | Explicit Claude CLI path override | unset |
 | `OPENCLAW_TMUX_SOCKET_DIR` | Socket directory (preferred) | `${TMPDIR:-/tmp}/openclaw-tmux-sockets` |

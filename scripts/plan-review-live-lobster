@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SYSTEM_PROMPT_FILE="$ROOT_DIR/references/templates/plan-review-system-prompt.txt"
 DEFAULT_WORKFLOW_FILE="$ROOT_DIR/workflows/plan-review-live.lobster"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -45,7 +48,6 @@ LAST_METADATA_HISTORY_PATH=""
 HEARTBEAT_PID=""
 WRAPPER_START_TS=""
 RUN_FINALIZED=0
-INTERRUPTED_BY_SIGNAL=0
 LAST_RESUME_TOKEN=""
 LAST_PENDING_SECTION_NAME=""
 LAST_PENDING_RESUME_TOKEN=""
@@ -152,11 +154,21 @@ stop_heartbeat() {
 
 handle_signal_interrupt() {
   local signal="$1"
-  INTERRUPTED_BY_SIGNAL=1
   RUN_FINALIZED=1
   stop_heartbeat
   emit_run_event "interrupted" "phase=plan-review mode=live plan_id=$PLAN_ID signal=$signal repo=$REPO_PATH"
   exit 130
+}
+
+handle_exit_cleanup() {
+  local rc="$1"
+  if (( RUN_FINALIZED == 0 )); then
+    stop_heartbeat
+    if (( rc != 0 )); then
+      emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID exit=$rc repo=$REPO_PATH"
+    fi
+  fi
+  rm -rf "$TMP_DIR"
 }
 
 if [[ "$NON_TTY_MODE" != "auto" && "$NON_TTY_MODE" != "error" ]]; then
@@ -291,16 +303,7 @@ start_heartbeat
 trap 'handle_signal_interrupt TERM' TERM
 trap 'handle_signal_interrupt INT' INT
 trap 'handle_signal_interrupt HUP' HUP
-trap '
-  rc=$?
-  if (( RUN_FINALIZED == 0 )); then
-    stop_heartbeat
-    if (( INTERRUPTED_BY_SIGNAL == 0 && rc != 0 )); then
-      emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID exit=$rc repo=$REPO_PATH"
-    fi
-  fi
-  rm -rf "$TMP_DIR"
-' EXIT
+trap 'handle_exit_cleanup "$?"' EXIT
 
 json_escape() {
   local s="$1"

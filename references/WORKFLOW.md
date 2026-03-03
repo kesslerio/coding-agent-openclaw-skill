@@ -41,6 +41,20 @@ These aliases do not change core policy:
 - For runs >30 seconds, emit wrapper status updates every 20 seconds.
 - On interruption/timeout/signal, emit immediate interruption status with exit code and remediation command.
 
+### Known ACP Runtime Limitation
+
+- Upstream issue #43 can affect spawned ACP run observability and browser relay profile alias mapping (`profile=chrome`).
+- This repo provides bounded mitigations and fallback commands only.
+- See `references/acp-troubleshooting.md` for triage and fallback guidance.
+
+### Canonical Local Repo Policy (Anti-Divergence)
+
+- Canonical local path for this repository is `/home/art/projects/skills/shared/coding-agent`.
+- Do not maintain independent duplicate clones for this repo.
+- Wrappers enforce canonical-path execution by default and fail fast on non-canonical clones.
+- Temporary override exists for controlled recovery only: `CODING_AGENT_ALLOW_NONCANONICAL=1`.
+- CI runs bypass canonical-path enforcement automatically (`CI=true` or `GITHUB_ACTIONS=true`).
+
 ## Git Workflow
 
 **Note:** Niemand does NOT create branches, commit code, or merge PRs unless explicitly requested.

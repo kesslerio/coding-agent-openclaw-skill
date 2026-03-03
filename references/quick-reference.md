@@ -79,6 +79,15 @@ Reviews:        Codex CLI (direct) → ACPX → Claude CLI → BLOCKED
 ⛔ NEVER skip to direct edits — request user override instead
 ```
 
+Known limitation:
+- Upstream issue #43 can affect ACP spawned-run observability and `profile=chrome` relay expectations.
+- See `references/acp-troubleshooting.md` for bounded checks and fallback commands.
+
+Canonical local repo policy:
+- Use `/home/art/projects/skills/shared/coding-agent` as the only local clone for this repo.
+- Wrappers fail fast on non-canonical clones unless `CODING_AGENT_ALLOW_NONCANONICAL=1` is explicitly set.
+- CI bypass is automatic when `CI=true` or `GITHUB_ACTIONS=true`.
+
 Implementation mode routing:
 - `CODING_AGENT_IMPL_MODE=direct|tmux|auto` (default: `direct`)
 - `auto` -> tmux-first only in interactive TTY + tmux available; otherwise direct-first

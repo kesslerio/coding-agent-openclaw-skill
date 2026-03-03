@@ -11,6 +11,14 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 - Add nested `AGENTS.md` files only when a subdirectory needs different rules.
 - `CLAUDE.md` should remain a symlink to this file.
 
+## Canonical Local Clone (Anti-Divergence)
+
+- Canonical local repo path: `/home/art/projects/skills/shared/coding-agent`.
+- Do not maintain independent duplicate clones of this repository.
+- Wrapper scripts enforce canonical-path execution and fail fast on non-canonical clones.
+- Temporary override for controlled recovery only: `CODING_AGENT_ALLOW_NONCANONICAL=1`.
+- CI runs are exempt from canonical-path enforcement (`CI=true` or `GITHUB_ACTIONS=true`).
+
 ## Language
 
 - English only for code, comments, docs, examples, commits, configs, errors, and tests.

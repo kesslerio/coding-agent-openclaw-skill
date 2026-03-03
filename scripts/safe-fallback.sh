@@ -28,7 +28,10 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resolve-cli.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
 # Timeouts
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
