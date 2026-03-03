@@ -37,6 +37,12 @@ When wrappers are used for planning/review:
 - On non-interruption failure, emit `RUN_EVENT failed`.
 - On success, emit `RUN_EVENT done`.
 
+## Known ACP Runtime Limitation
+
+Issue #43 (upstream) may affect spawned ACP run observability and browser relay
+profile alias mapping. Use repo-side mitigations and bounded fallback guidance in:
+- `references/acp-troubleshooting.md`
+
 ## Non-Negotiable Gates
 
 1. Never write files, install packages, commit, or open PRs before explicit `APPROVE`.

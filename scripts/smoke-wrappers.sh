@@ -48,6 +48,16 @@ fi
 exec "$@"
 EOF
 
+cat >"$fake_bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  echo "gh version smoke"
+  exit 0
+fi
+exit 0
+EOF
+
 cat >"$fake_bin/codex" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -295,7 +305,7 @@ echo "unsupported command" >&2
 exit 2
 EOF
 
-chmod +x "$fake_bin/timeout" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx" "$fake_bin/tmux" "$fake_bin/lobster"
+chmod +x "$fake_bin/timeout" "$fake_bin/gh" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx" "$fake_bin/tmux" "$fake_bin/lobster"
 
 assert_contains() {
   local file="$1"
@@ -335,6 +345,34 @@ test_invalid_cli_rejected() {
     exit 1
   fi
   assert_contains "$output" "Unknown CLI"
+}
+
+test_doctor_known_issue_guidance() {
+  local output="$tmp_dir/doctor-known-issue.txt"
+  PATH="$fake_bin:$PATH" "$SCRIPT_DIR/doctor" >"$output" 2>&1
+  assert_contains "$output" "[warn] known-issue: ACP spawned-run observability may be restricted by upstream runtime visibility controls (issue #43)"
+  assert_contains "$output" "[warn] known-issue: browser relay profile alias profile=chrome may not map to available profiles in some environments (issue #43)"
+  assert_contains "$output" "[info] troubleshooting: see references/acp-troubleshooting.md for bounded checks and fallback commands"
+  assert_contains "$output" "[info] fallback: use ./scripts/safe-fallback.sh review|impl when ACP runtime behavior is degraded"
+}
+
+test_canonical_guard_behavior() {
+  local guard="$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+  local output_fail="$tmp_dir/canonical-guard-fail.txt"
+  local output_pass="$tmp_dir/canonical-guard-pass.txt"
+
+  mkdir -p "$tmp_dir/noncanonical-repo"
+
+  if bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_fail" 2>&1; then
+    echo "Expected canonical repo guard to reject non-canonical path" >&2
+    exit 1
+  fi
+  assert_contains "$output_fail" "[fail] canonical-repo: non-canonical clone detected"
+
+  if ! CODING_AGENT_ALLOW_NONCANONICAL=1 bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_pass" 2>&1; then
+    echo "Expected canonical repo guard override to allow non-canonical path" >&2
+    exit 1
+  fi
 }
 
 test_review_prompt_pass_through() {
@@ -1246,6 +1284,8 @@ test_code_implement_accepts_metadata_from_apply_mode() {
 
 test_invalid_mode_rejected
 test_invalid_cli_rejected
+test_doctor_known_issue_guidance
+test_canonical_guard_behavior
 test_review_prompt_pass_through
 test_invalid_impl_mode_rejected
 test_invalid_acp_enable_rejected

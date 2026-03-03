@@ -48,6 +48,10 @@ For harness-style implementation/review requests, ACP routing is mode-specific:
 - Override ACPX binary path with `CODING_AGENT_ACPX_CMD`.
 - Override ACP agent alias with `CODING_AGENT_ACP_AGENT` (default: `codex`).
 
+Known runtime limitation:
+- Issue #43 tracks upstream ACP spawned-run observability and relay profile alias behavior.
+- Use repo-side mitigation and fallback guidance in `references/acp-troubleshooting.md`.
+
 ## Verbosity Mode (Progress Updates)
 
 `CODING_AGENT_VERBOSE` controls execution progress verbosity. Default is off.

@@ -8,7 +8,10 @@ ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SYSTEM_PROMPT_FILE="$ROOT_DIR/references/templates/plan-system-prompt.txt"
 
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resolve-cli.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
 usage() {
   cat >&2 <<'USAGE'
