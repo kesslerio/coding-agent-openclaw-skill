@@ -36,10 +36,17 @@ WORKFLOW_FILE="${PLAN_REVIEW_LOBSTER_FILE:-$DEFAULT_WORKFLOW_FILE}"
 SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
 TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
 ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
+STATUS_PING_SECONDS="${CODING_AGENT_STATUS_PING_SECONDS:-20}"
+LONG_RUN_THRESHOLD_SECONDS="${CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS:-30}"
 SCHEMA_VERSION=1
 LIVE_INCOMPLETE_MARKER="Live review incomplete or failed"
 METADATA_WRITE_SEQ=0
 LAST_METADATA_HISTORY_PATH=""
+HEARTBEAT_PID=""
+WRAPPER_START_TS=""
+RUN_FINALIZED=0
+INTERRUPTED_BY_SIGNAL=0
+LAST_RESUME_TOKEN=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -98,6 +105,57 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ ! "$STATUS_PING_SECONDS" =~ ^[0-9]+$ ]] || (( STATUS_PING_SECONDS <= 0 )); then
+  echo "Error: CODING_AGENT_STATUS_PING_SECONDS must be a positive integer (seconds)" >&2
+  exit 1
+fi
+if [[ ! "$LONG_RUN_THRESHOLD_SECONDS" =~ ^[0-9]+$ ]] || (( LONG_RUN_THRESHOLD_SECONDS < 0 )); then
+  echo "Error: CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS must be a non-negative integer (seconds)" >&2
+  exit 1
+fi
+
+emit_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  if [[ -n "$details" ]]; then
+    echo "RUN_EVENT $event ts=$(date -Iseconds) $details" >&2
+  else
+    echo "RUN_EVENT $event ts=$(date -Iseconds)" >&2
+  fi
+}
+
+start_heartbeat() {
+  (
+    while true; do
+      sleep "$STATUS_PING_SECONDS"
+      local now elapsed
+      now="$(date +%s)"
+      elapsed=$((now - WRAPPER_START_TS))
+      if (( elapsed >= LONG_RUN_THRESHOLD_SECONDS )); then
+        emit_run_event "heartbeat" "phase=plan-review mode=live plan_id=$PLAN_ID elapsed=${elapsed}s repo=$REPO_PATH"
+      fi
+    done
+  ) &
+  HEARTBEAT_PID=$!
+}
+
+stop_heartbeat() {
+  if [[ -n "$HEARTBEAT_PID" ]]; then
+    kill "$HEARTBEAT_PID" >/dev/null 2>&1 || true
+    wait "$HEARTBEAT_PID" 2>/dev/null || true
+    HEARTBEAT_PID=""
+  fi
+}
+
+handle_signal_interrupt() {
+  local signal="$1"
+  INTERRUPTED_BY_SIGNAL=1
+  RUN_FINALIZED=1
+  stop_heartbeat
+  emit_run_event "interrupted" "phase=plan-review mode=live plan_id=$PLAN_ID signal=$signal repo=$REPO_PATH"
+  exit 130
+}
 
 if [[ "$NON_TTY_MODE" != "auto" && "$NON_TTY_MODE" != "error" ]]; then
   echo "Error: --non-tty must be auto or error" >&2
@@ -225,6 +283,22 @@ BLOCKING_FILE="$TMP_DIR/blocking-decisions.txt"
 RESPONSE_FILE="$TMP_DIR/lobster-response.json"
 : > "$RESOLVED_FILE"
 : > "$BLOCKING_FILE"
+
+WRAPPER_START_TS="$(date +%s)"
+emit_run_event "start" "phase=plan-review mode=live plan_id=$PLAN_ID repo=$REPO_PATH"
+start_heartbeat
+trap 'handle_signal_interrupt TERM' TERM
+trap 'handle_signal_interrupt INT' INT
+trap 'handle_signal_interrupt HUP' HUP
+trap '
+  rc=$?
+  if (( RUN_FINALIZED == 0 )); then
+    stop_heartbeat
+    if (( INTERRUPTED_BY_SIGNAL == 0 && rc != 0 )); then
+      emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID exit=$rc repo=$REPO_PATH"
+    fi
+  fi
+' EXIT
 
 json_escape() {
   local s="$1"
@@ -392,6 +466,7 @@ reset_session_state() {
 }
 
 save_session_state() {
+  local resume_token="${1:-}"
   local tmp_state
   local resolved_json
   local blocking_json
@@ -406,6 +481,7 @@ save_session_state() {
   "plan_id": "$(json_escape "$PLAN_ID")",
   "plan_path": "$(json_escape "$PLAN_PATH")",
   "review_markdown_path": "$(json_escape "$OUTPUT_PATH")",
+  "resume_token": "$(json_escape "$resume_token")",
   "resolved_decisions": $resolved_json,
   "blocking_decisions": $blocking_json,
   "updated_at": "$(date -Iseconds)"
@@ -418,7 +494,7 @@ load_session_state() {
   if [[ ! -f "$SESSION_STATE_PATH" ]]; then
     return 0
   fi
-  if ! python3 - "$SESSION_STATE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE" "$PLAN_ID" "$PLAN_PATH" "$OUTPUT_PATH" <<'PY'
+  LAST_RESUME_TOKEN="$(python3 - "$SESSION_STATE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE" "$PLAN_ID" "$PLAN_PATH" "$OUTPUT_PATH" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -471,10 +547,18 @@ for key in ("resolved_decisions", "blocking_decisions"):
         normalized.append(trimmed)
     target = resolved_out if key == "resolved_decisions" else blocking_out
     target.write_text("".join(f"{entry}\n" for entry in normalized), encoding="utf-8")
+
+resume_token = payload.get("resume_token")
+if resume_token is None:
+    resume_token = ""
+if not isinstance(resume_token, str):
+    print("Error: session state key 'resume_token' must be a string.", file=sys.stderr)
+    raise SystemExit(1)
+print(resume_token)
 PY
-  then
+)" || {
     exit 1
-  fi
+  }
 }
 
 write_metadata() {
@@ -612,6 +696,9 @@ if (( non_tty == 1 )); then
       write_metadata "true"
     fi
     mv "$TMP_OUTPUT" "$OUTPUT_PATH"
+    stop_heartbeat
+    RUN_FINALIZED=1
+    emit_run_event "done" "phase=plan-review mode=live plan_id=$PLAN_ID output=$OUTPUT_PATH"
     echo
     echo "✅ Plan review saved: $OUTPUT_PATH"
     echo "✅ Plan review metadata (history): $LAST_METADATA_HISTORY_PATH"
@@ -648,6 +735,9 @@ if [[ -n "$RESUME_TOKEN" ]]; then
     exit 1
   fi
   load_session_state
+  if [[ -n "$LAST_RESUME_TOKEN" && "$LAST_RESUME_TOKEN" != "$RESUME_TOKEN" ]]; then
+    echo "Warning: provided --resume-token does not match session state's last resume token; continuing anyway." >&2
+  fi
 else
   reset_session_state
 fi
@@ -666,7 +756,7 @@ else
 fi
 
 printf '%s\n' "$LIVE_INCOMPLETE_MARKER" >> "$BLOCKING_FILE"
-save_session_state
+save_session_state "$RESUME_TOKEN"
 write_metadata "false"
 
 if [[ -n "$RESUME_TOKEN" ]]; then
@@ -683,6 +773,10 @@ while true; do
     prompt="$(response_prompt)"
     preview="$(response_preview)"
     token="$(response_token)"
+    if [[ -z "$token" ]]; then
+      echo "Error: lobster response missing resume token for approval step." >&2
+      exit 1
+    fi
 
     if [[ -n "$preview" ]]; then
       {
@@ -697,6 +791,8 @@ while true; do
     if [[ -z "$section_name" ]]; then
       section_name="Section"
     fi
+    echo "[$section_name] Resume token: $token" >&2
+    save_session_state "$token"
 
     echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
     read -r selected_input
@@ -705,12 +801,8 @@ while true; do
     echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
     read -r blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
-    save_session_state
+    save_session_state "$token"
 
-    if [[ -z "$token" ]]; then
-      echo "Error: lobster response missing resume token for approval step." >&2
-      exit 1
-    fi
     run_lobster_resume "$token"
     continue
   fi
@@ -739,6 +831,10 @@ fi
 reset_session_state
 
 mv "$TMP_OUTPUT" "$OUTPUT_PATH"
+
+stop_heartbeat
+RUN_FINALIZED=1
+emit_run_event "done" "phase=plan-review mode=live plan_id=$PLAN_ID output=$OUTPUT_PATH"
 
 echo
 echo "✅ Plan review saved: $OUTPUT_PATH"
