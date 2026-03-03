@@ -25,10 +25,12 @@ right implementation is:
 This keeps operational continuity when ACPX is missing or unhealthy, while
 making harness-aware flows the default when ACPX is present.
 
-The key boundary is install/repair behavior. Auto-installing ACPX inside this
+The key boundaries are install/repair behavior and review quality. Auto-installing ACPX inside this
 skill pack would create side effects and environment coupling that are out of
 scope for a routing upgrade. So ACPX discovery should be explicit and cheap:
 `CODING_AGENT_ACPX_CMD` override first, then `acpx` on `PATH`.
+For review mode, preserving review-native behavior (`codex review --base`) is
+the quality baseline, with ACP kept as fallback.
 
 ## Strategy
 
@@ -41,6 +43,8 @@ To keep behavior legible and reversible:
 
 - Add `CODING_AGENT_ACP_ENABLE` (`1` default, `0` kill switch).
 - Add `CODING_AGENT_ACP_AGENT` (default `codex`).
+- Keep implementation ACP-first, but keep review mode on `codex review --base`
+  first and use ACP as fallback to avoid review-quality regression.
 - Keep `safe-fallback` timeout semantics and existing CLI sequence unchanged
   after ACP failure.
 - Make `doctor` report ACPX as warning-only so missing ACPX does not falsely
@@ -57,10 +61,9 @@ Once ACP-first became the target, the important pivot was to make fake ACPX
 fail by default in smoke tests. That preserves existing test expectations while
 allowing explicit ACP-success tests to prove the new precedence rule.
 
-Another discovery was that review-mode ACP execution still needs base-branch
-context, otherwise ACP-first review quality can regress versus
-`codex review --base`. Injecting base-branch guidance into the ACP prompt keeps
-review behavior aligned with prior intent.
+Another discovery was that ACP-first review mode degrades confidence compared
+to `codex review --base` semantics. The strategy pivot is to keep review-native
+CLI first and retain ACP as the fallback path for review mode.
 
 ## Open Questions
 

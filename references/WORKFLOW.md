@@ -226,8 +226,8 @@ For non-trivial work, generate a plan artifact before implementation:
 ### Code Review Process
 
 **Hierarchy:**
-1. **ACPX**: Primary routing for harness-style review/implementation requests.
-2. **Codex**: Primary CLI fallback (`codex review --base <base>`).
+1. **Codex**: Primary reviewer (`codex review --base <base>`).
+2. **ACPX**: Review fallback path through harness routing.
 3. **Claude**: Secondary CLI fallback if Codex is unavailable.
 4. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
 5. **Sub-agent**: Last resort for orchestration.

@@ -107,15 +107,7 @@ FAILURES=()
 
 build_acpx_prompt() {
   if [[ "$MODE" == "review" ]]; then
-    local base_branch
-    base_branch="$(detect_base_branch)"
-    cat <<EOF
-Review changes against base branch '$base_branch'. Focus on bugs, regressions, security, and missing tests.
-Return findings first in severity order with file references, then a short summary.
-
-Additional user prompt:
-$PROMPT
-EOF
+    printf '%s\n' "$PROMPT"
     return 0
   fi
 
@@ -284,16 +276,19 @@ report_blocker() {
 main() {
   # All status to stderr so stdout only has tool output
   echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
-  echo "ACP-first routing: $CODING_AGENT_ACP_ENABLE (agent: $CODING_AGENT_ACP_AGENT)" >&2
+  echo "ACP routing: $CODING_AGENT_ACP_ENABLE (agent: $CODING_AGENT_ACP_AGENT)" >&2
   echo "Gemini fallback: $GEMINI_FALLBACK_ENABLE" >&2
-
-  try_acpx && exit 0
-  warn "ACPX unavailable, trying CLI fallback chain..."
 
   if [[ "$MODE" == "review" ]]; then
     try_codex_cli_direct && exit 0
-    warn "Codex CLI unavailable for review, trying next..."
+    warn "Codex CLI unavailable for review, trying ACP fallback..."
+
+    try_acpx && exit 0
+    warn "ACPX unavailable for review, trying next..."
   else
+    try_acpx && exit 0
+    warn "ACPX unavailable, trying CLI fallback chain..."
+
     impl_mode="$(resolve_impl_mode)"
     case "$impl_mode" in
       direct|tmux|auto)

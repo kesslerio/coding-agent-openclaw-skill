@@ -63,7 +63,7 @@ Skip only when:
 
 ```
 Implementation: ACPX → Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
-Reviews:        ACPX → Codex CLI (direct) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (direct) → ACPX → Claude CLI → BLOCKED
 
 ⛔ NEVER skip to direct edits — request user override instead
 ```

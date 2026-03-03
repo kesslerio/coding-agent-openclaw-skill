@@ -22,7 +22,7 @@ For non-trivial changes:
 |------|---------|-----------|-------|
 | Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
 | Implementation | ACPX (`safe-fallback.sh` ACP-first) | direct/tmux Codex CLI | Use CLI fallback when ACP is unavailable; lower reasoning only for simple/docs or explicit fast/cheap requests |
-| PR review | ACPX (`safe-fallback.sh` ACP-first) | `codex review --base <base>` then Claude CLI | Keep timeout >= 600s |
+| PR review | `codex review --base <base>` | ACPX then Claude CLI | Keep timeout >= 600s |
 | Long-running implementation | tmux transport | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
@@ -126,7 +126,7 @@ Run CLI drift checks before changing command docs:
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
-For reviews, use direct CLI — no wrapper needed:
+For review-first behavior, use direct CLI:
 
 ```bash
 # Detect base branch: main, master, or trunk (whichever exists)

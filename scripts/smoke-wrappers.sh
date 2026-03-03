@@ -280,11 +280,11 @@ test_impl_uses_acpx_first_when_available() {
   fi
 }
 
-test_review_uses_acpx_first_when_available() {
-  local prompt="Review this PR via acpx first."
-  local acpx_args="$tmp_dir/acpx-review-args.txt"
-  local codex_args="$tmp_dir/codex-review-no-call.txt"
-  local output="$tmp_dir/review-acpx-first.txt"
+test_review_uses_codex_review_first() {
+  local prompt="Review this PR via codex review first."
+  local acpx_args="$tmp_dir/acpx-review-no-call.txt"
+  local codex_args="$tmp_dir/codex-review-first-args.txt"
+  local output="$tmp_dir/review-codex-first.txt"
 
   PATH="$fake_bin:$PATH" \
   SMOKE_ACPX_BEHAVIOR=success \
@@ -292,13 +292,37 @@ test_review_uses_acpx_first_when_available() {
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
   "$SCRIPT_DIR/safe-fallback.sh" review "$prompt" >"$output" 2>&1
 
-  assert_contains "$acpx_args" "codex"
-  assert_contains "$acpx_args" "exec"
-  assert_contains "$acpx_args" "Review changes against base branch"
-  assert_contains "$acpx_args" "$prompt"
-  if [[ -f "$codex_args" ]]; then
-    assert_not_contains "$codex_args" "---CALL---"
+  assert_contains "$codex_args" "review"
+  assert_contains "$codex_args" "--base"
+  assert_contains "$codex_args" "$prompt"
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
   fi
+}
+
+test_invalid_acp_enable_rejected() {
+  local output="$tmp_dir/invalid-acp-enable.txt"
+  if CODING_AGENT_ACP_ENABLE=2 "$SCRIPT_DIR/safe-fallback.sh" impl "prompt" >"$output" 2>&1; then
+    printf 'Expected safe-fallback.sh to reject invalid CODING_AGENT_ACP_ENABLE\n' >&2
+    exit 1
+  fi
+  assert_contains "$output" "CODING_AGENT_ACP_ENABLE must be 0 or 1"
+}
+
+test_acp_agent_alias_forwarded() {
+  local prompt="Use ACP alias forwarding."
+  local acpx_args="$tmp_dir/acpx-alias-args.txt"
+  local output="$tmp_dir/acpx-alias.txt"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_ACP_AGENT=gemini \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  assert_contains "$acpx_args" "gemini"
+  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "$prompt"
 }
 
 test_acpx_cmd_override_is_used() {
@@ -1006,9 +1030,11 @@ test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_review_prompt_pass_through
 test_invalid_impl_mode_rejected
+test_invalid_acp_enable_rejected
 test_impl_direct_mode_uses_codex_exec
 test_impl_uses_acpx_first_when_available
-test_review_uses_acpx_first_when_available
+test_review_uses_codex_review_first
+test_acp_agent_alias_forwarded
 test_acpx_cmd_override_is_used
 test_acp_disable_skips_acpx
 test_code_plan_generates_artifact

@@ -16,7 +16,7 @@ Canonical sibling skills live at:
 
 1. If user asks to plan/scope/estimate/design, follow `plan-issue` behavior.
 2. For non-trivial implementation requests, produce a plan first and wait for exact `APPROVE` before any writes.
-3. Only after `APPROVE`, follow `coding-agent` behavior with ACP-first execution routing and CLI fallback.
+3. Only after `APPROVE`, follow `coding-agent` behavior with ACP-aware execution routing and CLI fallback.
 
 ## Command Routing (Channel Aliases)
 

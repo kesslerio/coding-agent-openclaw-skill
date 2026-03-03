@@ -117,8 +117,10 @@ Example resolve file for non-TTY finalization:
 
 ## ACP-First Wrapper Routing
 
-Execution wrappers attempt ACP first (via `acpx`) and then fall back to the CLI
-chain (`codex`/`claude`/optional `gemini`) when ACP is unavailable.
+Execution routing in `scripts/safe-fallback.sh` is mode-specific:
+
+- `impl`: ACP first (via `acpx`), then CLI fallback chain
+- `review`: `codex review --base` first, then ACP fallback, then remaining CLI fallback chain
 
 - `CODING_AGENT_ACP_ENABLE`: `1` (default) or `0` to skip ACP attempt
 - `CODING_AGENT_ACP_AGENT`: ACP harness alias (default: `codex`)

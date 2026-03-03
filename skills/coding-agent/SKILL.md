@@ -33,10 +33,10 @@ If no matching approved plan exists, stop and request:
 
 ## ACP-First Routing
 
-For harness-style implementation/review requests, attempt ACP first (via `acpx`)
-and use direct CLI wrappers only as fallback.
+For harness-style implementation/review requests, ACP routing is mode-specific:
 
-- ACP-first is enabled by default in wrappers.
+- Implementation uses ACP first (via `acpx`) with CLI fallback.
+- Review keeps review-native `codex review --base` first, then ACP fallback.
 - CLI fallback chain remains mandatory if ACP is unavailable.
 - Disable ACP-first per run with `CODING_AGENT_ACP_ENABLE=0`.
 - Override ACPX binary path with `CODING_AGENT_ACPX_CMD`.
