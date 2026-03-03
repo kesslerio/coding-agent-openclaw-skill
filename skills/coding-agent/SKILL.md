@@ -31,6 +31,24 @@ If no matching approved plan exists, stop and request:
 - unit/integration/e2e tests as applicable
 5. Report exact commands run, outcomes, and residual risk.
 
+## Verbosity Mode (Progress Updates)
+
+`CODING_AGENT_VERBOSE` controls execution progress verbosity. Default is off.
+
+- `off` (default): concise progress updates.
+- `on`: include structured progress updates with `Now`, `Why`, and `Next`.
+
+Accepted truthy values (case-insensitive): `1`, `true`, `on`, `yes`, `verbose`.
+Accepted falsy values: unset, `0`, `false`, `off`, `no`.
+
+When verbose mode is on:
+- Send kickoff execution status in `Now/Why/Next` format.
+- For long-running tasks, send periodic status updates.
+- Send a completion update with outcome and blockers (if any).
+
+Verbosity must not block execution. After explaining intent, proceed immediately
+unless waiting on a required user decision or an explicit approval gate.
+
 ## Guardrails
 
 - No bypass-by-default. Do not use approval-bypass flags unless the user explicitly requests bypass.
