@@ -363,7 +363,8 @@ test_canonical_guard_behavior() {
 
   mkdir -p "$tmp_dir/noncanonical-repo"
 
-  if bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_fail" 2>&1; then
+  if CODING_AGENT_ALLOW_NONCANONICAL=0 CI= GITHUB_ACTIONS= \
+    bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_fail" 2>&1; then
     echo "Expected canonical repo guard to reject non-canonical path" >&2
     exit 1
   fi
