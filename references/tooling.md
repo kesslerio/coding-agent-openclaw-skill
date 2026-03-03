@@ -187,11 +187,11 @@ CODEX_TMUX_SESSION_PREFIX=codex-impl \
 Logs: `${XDG_STATE_HOME:-$HOME/.local/state}/openclaw/tmux/<session>.log`
 
 Structured lifecycle events (stderr):
-- `TMUX_RUN_EVENT start ts=<iso> session=<name> log_path=<path> socket=<path> mode=<wait|nowait>`
-- `TMUX_RUN_EVENT heartbeat ts=<iso> session=<name> elapsed_s=<seconds>` (wait mode only)
-- `TMUX_RUN_EVENT done ts=<iso> session=<name> exit_code=0 elapsed_s=<seconds>`
-- `TMUX_RUN_EVENT failed ts=<iso> session=<name> exit_code=<nonzero> elapsed_s=<seconds>`
-- `TMUX_RUN_EVENT interrupted ts=<iso> session=<name> exit_code=<124|130|137|143> elapsed_s=<seconds>`
+- `TMUX_RUN_EVENT start ts=<iso> token=<id> session=<name> log_path=<path> socket=<path> mode=<wait|nowait>`
+- `TMUX_RUN_EVENT heartbeat ts=<iso> token=<id> session=<name> elapsed_s=<seconds>` (wait mode only)
+- `TMUX_RUN_EVENT done ts=<iso> token=<id> session=<name> exit_code=0 elapsed_s=<seconds>`
+- `TMUX_RUN_EVENT failed ts=<iso> token=<id> session=<name> exit_code=<nonzero> elapsed_s=<seconds>`
+- `TMUX_RUN_EVENT interrupted ts=<iso> token=<id> session=<name> exit_code=<124|130|137|143> elapsed_s=<seconds>`
 
 When running in wait mode, `tmux-run` prints only the most recent pane lines to stdout for relay safety. Full output remains in the log file path above.
 
@@ -232,6 +232,7 @@ Cleanup:
 | `CODEX_TMUX_WAIT_TIMEOUT` | Optional wait timeout (seconds) | unset |
 | `CODEX_TMUX_HEARTBEAT_SECONDS` | Heartbeat interval during wait loop | `20` |
 | `CODEX_TMUX_CAPTURE_LINES` | Max pane lines emitted to stdout in wait mode | `400` |
+| `CODEX_TMUX_EVENT_TOKEN` | Optional event correlation token for trusted lifecycle parsing | unset |
 | `CODEX_TMUX_DISABLE` | Legacy override: force direct mode | `0` |
 | `CODEX_TMUX_REQUIRED` | Legacy override: force tmux mode | `0` |
 | `GEMINI_FALLBACK_ENABLE` | Enable Gemini fallback in `safe-fallback.sh` | `0` |

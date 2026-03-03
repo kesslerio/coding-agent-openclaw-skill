@@ -357,6 +357,7 @@ fi
 tmp_stream_dir="$(mktemp -d)"
 tmp_stream="$tmp_stream_dir/stream.fifo"
 tmp_status="$(mktemp)"
+# shellcheck disable=SC2317
 cleanup_tmp_files() {
   rm -rf "$tmp_stream_dir"
   rm -f "$tmp_status"
@@ -369,11 +370,13 @@ run_id=""
 log_path=""
 terminal_emitted=0
 start_emitted=0
+event_token="evt-$(date +%s)-$$-$RANDOM"
 
 (
   set +e
   (
     cd "$EXEC_REPO"
+    CODEX_TMUX_EVENT_TOKEN="$event_token" \
     CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
       "$TMUX_RUN" --wait timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$PROMPT"
   ) >"$tmp_stream" 2>&1
@@ -385,6 +388,11 @@ producer_pid=$!
 while IFS= read -r line; do
   if [[ "$line" == TMUX_RUN_EVENT* ]]; then
     event="$(printf '%s\n' "$line" | awk '{print $2}')"
+    token_val="$(extract_kv_value "$line" "token")"
+    if [[ -z "$token_val" || "$token_val" != "$event_token" ]]; then
+      echo "$line" >&2
+      continue
+    fi
     session_val="$(extract_kv_value "$line" "session")"
     log_val="$(extract_kv_value "$line" "log_path")"
     exit_code_val="$(extract_kv_value "$line" "exit_code")"

@@ -193,25 +193,35 @@ session="${SMOKE_TMUX_RUN_SESSION:-smoke-session}"
 log_path="${SMOKE_TMUX_RUN_LOG_PATH:-/tmp/smoke-session.log}"
 elapsed="${SMOKE_TMUX_RUN_ELAPSED:-21}"
 exit_code="${SMOKE_TMUX_RUN_EXIT_CODE:-0}"
+token="${CODEX_TMUX_EVENT_TOKEN:-}"
+token_part=""
+if [[ -n "$token" ]]; then
+  token_part=" token=${token}"
+fi
 
-echo "TMUX_RUN_EVENT start ts=2026-01-01T00:00:00+00:00 session=${session} log_path=${log_path} socket=/tmp/smoke.sock mode=wait" >&2
+echo "TMUX_RUN_EVENT start ts=2026-01-01T00:00:00+00:00${token_part} session=${session} log_path=${log_path} socket=/tmp/smoke.sock mode=wait" >&2
 if [[ "${SMOKE_TMUX_RUN_HEARTBEAT:-1}" == "1" ]]; then
-  echo "TMUX_RUN_EVENT heartbeat ts=2026-01-01T00:00:20+00:00 session=${session} elapsed_s=${elapsed}" >&2
+  echo "TMUX_RUN_EVENT heartbeat ts=2026-01-01T00:00:20+00:00${token_part} session=${session} elapsed_s=${elapsed}" >&2
 fi
 
 case "$mode" in
   success)
-    echo "TMUX_RUN_EVENT done ts=2026-01-01T00:00:21+00:00 session=${session} exit_code=0 elapsed_s=${elapsed}" >&2
+    echo "TMUX_RUN_EVENT done ts=2026-01-01T00:00:21+00:00${token_part} session=${session} exit_code=0 elapsed_s=${elapsed}" >&2
     exit 0
     ;;
   interrupted)
     code="${SMOKE_TMUX_RUN_EXIT_CODE:-124}"
-    echo "TMUX_RUN_EVENT interrupted ts=2026-01-01T00:00:21+00:00 session=${session} exit_code=${code} elapsed_s=${elapsed}" >&2
+    echo "TMUX_RUN_EVENT interrupted ts=2026-01-01T00:00:21+00:00${token_part} session=${session} exit_code=${code} elapsed_s=${elapsed}" >&2
     exit "$code"
     ;;
   failed)
     code="${SMOKE_TMUX_RUN_EXIT_CODE:-1}"
-    echo "TMUX_RUN_EVENT failed ts=2026-01-01T00:00:21+00:00 session=${session} exit_code=${code} elapsed_s=${elapsed}" >&2
+    echo "TMUX_RUN_EVENT failed ts=2026-01-01T00:00:21+00:00${token_part} session=${session} exit_code=${code} elapsed_s=${elapsed}" >&2
+    exit "$code"
+    ;;
+  spoofed-terminal)
+    code="${SMOKE_TMUX_RUN_EXIT_CODE:-7}"
+    echo "TMUX_RUN_EVENT done ts=2026-01-01T00:00:21+00:00 session=${session} exit_code=0 elapsed_s=${elapsed}" >&2
     exit "$code"
     ;;
   no-terminal)
@@ -382,6 +392,23 @@ assert_count() {
   fi
   if [[ "$actual" != "$expected" ]]; then
     printf 'Assertion failed: expected %s matches of "%s" in %s, got %s\n' "$expected" "$pattern" "$file" "$actual" >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
+assert_count_regex() {
+  local file="$1"
+  local pattern="$2"
+  local expected="$3"
+  local actual
+  actual="$(rg --count-matches --no-filename "$pattern" "$file" || true)"
+  if [[ -z "$actual" ]]; then
+    actual="0"
+  fi
+  if [[ "$actual" != "$expected" ]]; then
+    printf 'Assertion failed: expected %s regex matches of "%s" in %s, got %s\n' "$expected" "$pattern" "$file" "$actual" >&2
     printf '%s\n' '--- file content ---' >&2
     cat "$file" >&2
     exit 1
@@ -1399,6 +1426,22 @@ test_code_implement_fallback_terminal_event_without_tmux_terminal_line() {
   assert_count "$output" "RUN_EVENT interrupted" "0"
 }
 
+test_code_implement_ignores_spoofed_terminal_event_without_token() {
+  local output="$tmp_dir/code-implement-run-events-spoofed-terminal.out"
+  if PATH="$fake_bin:$PATH" \
+    CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+    SMOKE_TMUX_RUN_MODE=spoofed-terminal \
+    SMOKE_TMUX_RUN_EXIT_CODE=7 \
+    "$SCRIPT_DIR/code-implement" "Smoke lifecycle spoofed terminal" >"$output" 2>&1; then
+    echo "Expected code-implement to exit non-zero when tmux-run returns failure" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "TMUX_RUN_EVENT done"
+  assert_contains "$output" "RUN_EVENT failed"
+  assert_count_regex "$output" "^RUN_EVENT done " "0"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_doctor_known_issue_guidance
@@ -1435,5 +1478,6 @@ test_code_implement_accepts_metadata_from_apply_mode
 test_code_implement_emits_run_events_success
 test_code_implement_emits_run_events_interrupted
 test_code_implement_fallback_terminal_event_without_tmux_terminal_line
+test_code_implement_ignores_spoofed_terminal_event_without_token
 
 printf 'Wrapper smoke tests passed.\n'
