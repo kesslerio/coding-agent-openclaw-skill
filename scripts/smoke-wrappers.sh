@@ -386,8 +386,12 @@ assert_count() {
   local pattern="$2"
   local expected="$3"
   local actual
-  actual="$(rg -F --count-matches --no-filename "$pattern" "$file" || true)"
-  if [[ -z "$actual" ]]; then
+  if command -v rg >/dev/null 2>&1; then
+    actual="$(rg -F --count-matches --no-filename "$pattern" "$file" || true)"
+  else
+    actual="$(grep -F -o -- "$pattern" "$file" 2>/dev/null | wc -l | tr -d '[:space:]')"
+  fi
+  if [[ -z "$actual" || ! "$actual" =~ ^[0-9]+$ ]]; then
     actual="0"
   fi
   if [[ "$actual" != "$expected" ]]; then
@@ -403,8 +407,12 @@ assert_count_regex() {
   local pattern="$2"
   local expected="$3"
   local actual
-  actual="$(rg --count-matches --no-filename "$pattern" "$file" || true)"
-  if [[ -z "$actual" ]]; then
+  if command -v rg >/dev/null 2>&1; then
+    actual="$(rg --count-matches --no-filename "$pattern" "$file" || true)"
+  else
+    actual="$(grep -E -c -- "$pattern" "$file" 2>/dev/null | tr -d '[:space:]')"
+  fi
+  if [[ -z "$actual" || ! "$actual" =~ ^[0-9]+$ ]]; then
     actual="0"
   fi
   if [[ "$actual" != "$expected" ]]; then
