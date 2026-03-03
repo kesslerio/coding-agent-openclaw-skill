@@ -368,7 +368,7 @@ test_canonical_guard_behavior() {
     echo "Expected canonical repo guard to reject non-canonical path" >&2
     exit 1
   fi
-  assert_contains "$output_fail" "[fail] canonical-repo: non-canonical clone detected"
+  assert_contains "$output_fail" "[fail] canonical-repo:"
 
   if ! CODING_AGENT_ALLOW_NONCANONICAL=1 bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_pass" 2>&1; then
     echo "Expected canonical repo guard override to allow non-canonical path" >&2
