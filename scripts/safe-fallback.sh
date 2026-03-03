@@ -142,7 +142,7 @@ try_acpx() {
   acpx_prompt="$(build_acpx_prompt)"
 
   info "Trying ACPX (${CODING_AGENT_ACP_AGENT})..."
-  if timeout "${TIMEOUT}s" "$acpx_bin" "$CODING_AGENT_ACP_AGENT" exec --cwd "$PWD" --format quiet "$acpx_prompt"; then
+  if timeout "${TIMEOUT}s" "$acpx_bin" --cwd "$PWD" --format quiet "$CODING_AGENT_ACP_AGENT" exec "$acpx_prompt"; then
     ok "ACPX succeeded"
     return 0
   fi
