@@ -60,6 +60,8 @@ timeout 600s codex review --base <base> --title "PR #N Review"
 
 ```bash
 ./scripts/plan-review-live --repo /path/to/repo
+# Optional: force legacy engine
+./scripts/plan-review-live --engine legacy --repo /path/to/repo
 ```
 
 `code-implement --plan` enforces latest per-plan review metadata readiness.

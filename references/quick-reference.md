@@ -124,11 +124,17 @@ claude --resume
 # Interactive section-by-section review with decision checkpoints
 ./scripts/plan-review-live --repo /path/to/repo
 
+# Force legacy live-review engine
+./scripts/plan-review-live --engine legacy --repo /path/to/repo
+
 # Non-TTY/chat-safe finalization (no interactive prompts)
 ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
 
 # Resolve from machine-readable file
 ./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
+
+# Resume a paused Lobster run
+./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 
 # Execute approved plan (prompts for approval if still PENDING)
 # Requires latest plan-review metadata to be ready unless --force is used.
@@ -183,7 +189,7 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
-For plan-first flow, use `/plan <task>` (maps to `scripts/plan`), `/plan-review` (batch), and `/plan-review-live` (interactive in TTY; pass `--decisions/--blocking` or `--resolve-file` in non-TTY chat flows).
+For plan-first flow, use `/plan <task>` (maps to `scripts/plan`), `/plan-review` (batch), and `/plan-review-live` (Lobster workflow by default with legacy fallback; pass `--decisions/--blocking` or `--resolve-file` in non-TTY chat flows).
 
 ### Agent CLI Commands
 

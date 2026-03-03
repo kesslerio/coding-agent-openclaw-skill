@@ -174,8 +174,128 @@ echo "mock tmux unavailable" >&2
 exit 1
 EOF
 
-chmod +x "$fake_bin/timeout" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx"
-chmod +x "$fake_bin/tmux"
+cat >"$fake_bin/lobster" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_file="${SMOKE_LOBSTER_STATE_FILE:-}"
+if [[ -z "$state_file" ]]; then
+  state_file="$(mktemp)"
+fi
+
+mode=""
+cmd=""
+token=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    run|resume)
+      cmd="$1"
+      shift
+      ;;
+    --mode)
+      mode="${2:-}"
+      shift 2
+      ;;
+    --token)
+      token="${2:-}"
+      shift 2
+      ;;
+    --file|--args-json|--approve)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+if [[ "${SMOKE_LOBSTER_BEHAVIOR:-ok}" == "fail" ]]; then
+  echo "lobster fail" >&2
+  exit 1
+fi
+
+if [[ "$mode" != "tool" ]]; then
+  echo "unsupported mode" >&2
+  exit 2
+fi
+
+read_state() {
+  if [[ -f "$state_file" ]]; then
+    cat "$state_file"
+  else
+    echo "0"
+  fi
+}
+
+write_state() {
+  printf '%s' "$1" > "$state_file"
+}
+
+emit_approval() {
+  local section="$1"
+  local idx="$2"
+  cat <<JSON
+{
+  "protocolVersion": 1,
+  "ok": true,
+  "status": "needs_approval",
+  "output": [],
+  "requiresApproval": {
+    "type": "approval_request",
+    "prompt": "[$section] Review checkpoint complete. Approve to continue to the next section.",
+    "items": [],
+    "preview": "## $section\n\n# $section Findings\n\n1. $section issue.\nA) Do recommended $section option.\nB) Do alternate $section option.",
+    "resumeToken": "token-$idx"
+  }
+}
+JSON
+}
+
+if [[ "$cmd" == "run" ]]; then
+  write_state "1"
+  emit_approval "Architecture" "1"
+  exit 0
+fi
+
+if [[ "$cmd" == "resume" ]]; then
+  case "$(read_state)" in
+    1)
+      write_state "2"
+      emit_approval "Code Quality" "2"
+      ;;
+    2)
+      write_state "3"
+      emit_approval "Tests" "3"
+      ;;
+    3)
+      write_state "4"
+      emit_approval "Performance" "4"
+      ;;
+    *)
+      write_state "5"
+      cat <<'JSON'
+{
+  "protocolVersion": 1,
+  "ok": true,
+  "status": "ok",
+  "output": [
+    {
+      "status": "ok"
+    }
+  ],
+  "requiresApproval": null
+}
+JSON
+      ;;
+  esac
+  exit 0
+fi
+
+echo "unsupported command" >&2
+exit 2
+EOF
+
+chmod +x "$fake_bin/timeout" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx" "$fake_bin/tmux" "$fake_bin/lobster"
 
 assert_contains() {
   local file="$1"
@@ -508,6 +628,47 @@ EOF
   [[ -f "$output_path" ]] || { echo "Expected nested output artifact" >&2; exit 1; }
 }
 
+test_plan_review_live_lobster_default_engine() {
+  local repo="$tmp_dir/repo-plan-review-live-lobster-default"
+  local output_file="$repo/.ai/plan-reviews/live-output.md"
+  local lobster_state="$tmp_dir/lobster-state.txt"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000004a-live.md" <<'EOF'
+---
+id: 2026-02-19-000004a-live
+status: APPROVED
+---
+
+# Plan: Live Lobster
+EOF
+
+  printf '1A\nnone\n2A\nnone\n3A\nnone\n4A\nnone\n' | \
+    PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004a-live.md" --output "$output_file" > "$tmp_dir/plan-review-live-lobster-default.out"
+
+  [[ -f "$output_file" ]] || { echo "Expected live review markdown output (lobster)" >&2; exit 1; }
+  assert_contains "$output_file" "## Architecture"
+  assert_contains "$output_file" "## Code Quality"
+  assert_contains "$output_file" "## Tests"
+  assert_contains "$output_file" "## Performance"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000004a-live.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected lobster live latest metadata file" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"mode\": \"live\""
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+  assert_contains "$latest_metadata" "\"blocking_decisions\": []"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
+}
+
 test_plan_review_live_generates_ready_metadata() {
   local repo="$tmp_dir/repo-plan-review-live"
   local codex_args="$tmp_dir/codex-plan-review-live-args.txt"
@@ -533,7 +694,7 @@ EOF
     PATH="$fake_bin:$PATH" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
     PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
-    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004-live.md" --output "$output_file" > "$tmp_dir/plan-review-live.out"
+    "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004-live.md" --output "$output_file" > "$tmp_dir/plan-review-live.out"
 
   [[ -f "$output_file" ]] || { echo "Expected live review markdown output" >&2; exit 1; }
   assert_contains "$output_file" "## Architecture"
@@ -576,7 +737,7 @@ status: APPROVED
 EOF
 
   PATH="$fake_bin:$PATH" \
-    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-auto-flags.out"
+    "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-auto-flags.out"
 
   [[ -f "$output_file" ]] || { echo "Expected non-tty auto-apply output markdown" >&2; exit 1; }
   assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
@@ -611,7 +772,7 @@ EOF
   # Do not pass SMOKE_CODEX_ARGS_FILE on purpose: if interactive flow runs, fake codex will fail.
   PATH="$fake_bin:$PATH" \
     PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
-    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005b-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-allow-priority.out"
+    "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000005b-live-auto.md" --decisions "1A,2A,3A,4A" --blocking none --output "$output_file" > "$tmp_dir/plan-review-live-allow-priority.out"
 
   [[ -f "$output_file" ]] || { echo "Expected auto-apply output with ALLOW_NON_TTY set" >&2; exit 1; }
   assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
@@ -649,7 +810,7 @@ EOF
 EOF
 
   PATH="$fake_bin:$PATH" \
-    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000006-live-auto.md" --resolve-file "$resolve_file" --output "$output_file" > "$tmp_dir/plan-review-live-auto-file.out"
+    "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000006-live-auto.md" --resolve-file "$resolve_file" --output "$output_file" > "$tmp_dir/plan-review-live-auto-file.out"
 
   [[ -f "$output_file" ]] || { echo "Expected non-tty auto-apply output markdown (resolve file)" >&2; exit 1; }
   assert_contains "$output_file" "Mode: live (non-tty auto-apply)"
@@ -689,7 +850,7 @@ EOF
 EOF
 
   local output="$tmp_dir/plan-review-live-mixed-inputs.out"
-  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000009-live-mixed.md" --resolve-file "$resolve_file" --decisions "2B" > "$output" 2>&1; then
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000009-live-mixed.md" --resolve-file "$resolve_file" --decisions "2B" > "$output" 2>&1; then
     echo "Expected mixed resolution inputs to fail" >&2
     exit 1
   fi
@@ -716,7 +877,7 @@ status: APPROVED
 EOF
 
   local output="$tmp_dir/plan-review-live-no-inputs.out"
-  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000007-live-no-input.md" > "$output" 2>&1; then
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000007-live-no-input.md" > "$output" 2>&1; then
     echo "Expected plan-review-live to fail in non-tty mode without decision inputs" >&2
     exit 1
   fi
@@ -759,21 +920,21 @@ EOF
 EOF
 
   local output_json="$tmp_dir/plan-review-live-invalid-json.out"
-  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$invalid_json" > "$output_json" 2>&1; then
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$invalid_json" > "$output_json" 2>&1; then
     echo "Expected invalid JSON resolve-file to fail" >&2
     exit 1
   fi
   assert_contains "$output_json" "invalid resolve file JSON"
 
   local output_missing="$tmp_dir/plan-review-live-missing-key.out"
-  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$missing_key" > "$output_missing" 2>&1; then
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$missing_key" > "$output_missing" 2>&1; then
     echo "Expected missing-key resolve-file to fail" >&2
     exit 1
   fi
   assert_contains "$output_missing" "missing required key 'blocking_decisions'"
 
   local output_type="$tmp_dir/plan-review-live-wrong-type.out"
-  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$wrong_type" > "$output_type" 2>&1; then
+  if PATH="$fake_bin:$PATH" "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000008-live-invalid.md" --resolve-file "$wrong_type" > "$output_type" 2>&1; then
     echo "Expected wrong-type resolve-file to fail" >&2
     exit 1
   fi
@@ -983,7 +1144,7 @@ test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
   local plan_path
   plan_path="$(create_approved_plan "$repo" "2026-02-19-000015-auto-apply-gate")"
   PATH="$fake_bin:$PATH" \
-    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$plan_path" --decisions "1A,2A,3A,4A" --blocking none > "$tmp_dir/plan-review-live-gate.out"
+    "$SCRIPT_DIR/plan-review-live" --engine legacy --repo "$repo" --plan "$plan_path" --decisions "1A,2A,3A,4A" --blocking none > "$tmp_dir/plan-review-live-gate.out"
 
   local output="$tmp_dir/code-implement-auto-apply-gate.out"
   if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" > "$output" 2>&1); then
@@ -1041,6 +1202,7 @@ test_code_plan_generates_artifact
 test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact
 test_plan_review_output_parent_dirs_created
+test_plan_review_live_lobster_default_engine
 test_plan_review_live_generates_ready_metadata
 test_plan_review_live_non_tty_auto_apply_with_flags
 test_plan_review_live_resolution_inputs_override_allow_non_tty

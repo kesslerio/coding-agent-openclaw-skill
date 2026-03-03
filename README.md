@@ -41,12 +41,19 @@ CLI wrappers:
 ./scripts/plan-review --repo /path/to/repo
 
 # Review with interactive section checkpoints (Architecture -> Code Quality -> Tests -> Performance)
+# Default engine: Lobster workflow in this repo (falls back to legacy engine if lobster is unavailable)
 ./scripts/plan-review-live --repo /path/to/repo
 
 # Non-TTY/chat-safe live review finalization (no interactive prompts)
 ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
 # or
 ./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
+
+# Force legacy engine explicitly
+./scripts/plan-review-live --engine legacy --repo /path/to/repo
+
+# Resume a paused Lobster approval run
+./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 
 # Execute an approved plan artifact
 # Requires latest plan-review metadata to be ready unless --force is used.
@@ -60,7 +67,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
 - `/plan-review [--plan <path>]` → batch plan review (single-pass full report, marks unresolved blocking decisions)
-- `/plan-review-live [--plan <path>]` → interactive checkpoints in TTY; in non-TTY/chat use `--decisions/--blocking` or `--resolve-file` to finalize readiness metadata
+- `/plan-review-live [--plan <path>]` → Lobster workflow checkpoints by default (in-repo `workflows/plan-review-live.lobster`), legacy fallback if Lobster is unavailable; in non-TTY/chat use `--decisions/--blocking` or `--resolve-file` to finalize readiness metadata
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
 ### Approval Semantics
@@ -166,6 +173,7 @@ systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.serv
 - `references/codex-cli.md`
 - `references/claude-code.md`
 - `references/reviews.md`
+- `references/lobster-workflows.md`
 
 ## License
 

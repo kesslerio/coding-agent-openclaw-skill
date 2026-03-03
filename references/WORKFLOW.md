@@ -213,6 +213,8 @@ For non-trivial work, generate a plan artifact before implementation:
 ./scripts/plan --engine codex --repo /path/to/repo "Implement feature X"
 ./scripts/plan-review --repo /path/to/repo
 ./scripts/plan-review-live --repo /path/to/repo
+# Force legacy engine (bypass Lobster workflow path)
+./scripts/plan-review-live --engine legacy --repo /path/to/repo
 # Non-TTY/chat-safe finalization:
 ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
 # Or:
@@ -220,8 +222,10 @@ For non-trivial work, generate a plan artifact before implementation:
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
-`code-implement --plan` now enforces the latest per-plan review metadata gate. Use
-`plan-review-live` to resolve blocking decisions before execution, or `--force` to bypass explicitly.
+`code-implement --plan` now enforces the latest per-plan review metadata gate. `plan-review-live`
+uses the in-repo Lobster workflow by default and falls back to the legacy live-review engine when
+Lobster is unavailable. Use `plan-review-live` to resolve blocking decisions before execution, or
+`--force` to bypass explicitly.
 
 ### Code Review Process
 

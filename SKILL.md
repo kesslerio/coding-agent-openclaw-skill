@@ -25,7 +25,7 @@ When invoked via channel aliases:
 - `/coding` → use this compatibility skill as router.
 - `/plan` → route directly to `plan-issue` behavior.
 - `/plan-review` → route to plan review flow using `scripts/plan-review`.
-- `/plan-review-live` → route to interactive plan review checkpoints using `scripts/plan-review-live`.
+- `/plan-review-live` → route to interactive plan review checkpoints using `scripts/plan-review-live` (Lobster in-repo workflow first, legacy fallback).
 - `/review_pr` → route to review flow using `references/reviews.md`.
 
 ## Non-Negotiable Gates
