@@ -62,6 +62,14 @@ if [[ ! "$CAPTURE_LINES" =~ ^[0-9]+$ ]] || (( CAPTURE_LINES <= 0 )); then
   exit 1
 fi
 
+wait_timeout="${CODEX_TMUX_WAIT_TIMEOUT:-}"
+if [[ "$WAIT" == "1" && -n "$wait_timeout" ]]; then
+  if [[ ! "$wait_timeout" =~ ^[0-9]+$ ]] || (( wait_timeout <= 0 )); then
+    echo "Error: CODEX_TMUX_WAIT_TIMEOUT must be a positive integer" >&2
+    exit 1
+  fi
+fi
+
 emit_tmux_run_event() {
   local event="$1"
   local details="${2:-}"
@@ -163,14 +171,6 @@ fi
 emit_tmux_run_event "start" "session=$SESSION log_path=$LOG_FILE socket=$SOCKET mode=$mode_label"
 
 if [[ "$WAIT" == "1" ]]; then
-  wait_timeout="${CODEX_TMUX_WAIT_TIMEOUT:-}"
-  if [[ -n "$wait_timeout" ]]; then
-    if [[ ! "$wait_timeout" =~ ^[0-9]+$ ]] || (( wait_timeout <= 0 )); then
-      echo "Error: CODEX_TMUX_WAIT_TIMEOUT must be a positive integer" >&2
-      exit 1
-    fi
-  fi
-
   start_ts="$(date +%s)"
   last_heartbeat="$start_ts"
   timed_out=0
