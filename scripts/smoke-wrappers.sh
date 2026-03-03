@@ -1462,7 +1462,6 @@ test_code_implement_emits_interrupted_on_sigterm() {
   local output="$tmp_dir/code-implement-run-events-sigterm.out"
   local impl_pid=""
   local saw_start=0
-  local i
 
   set +e
   PATH="$fake_bin:$PATH" \
@@ -1472,7 +1471,7 @@ test_code_implement_emits_interrupted_on_sigterm() {
   impl_pid=$!
   set -e
 
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     if [[ -f "$output" ]] && grep -Fq "RUN_EVENT start" "$output"; then
       saw_start=1
       break
