@@ -47,6 +47,8 @@ WRAPPER_START_TS=""
 RUN_FINALIZED=0
 INTERRUPTED_BY_SIGNAL=0
 LAST_RESUME_TOKEN=""
+LAST_PENDING_SECTION_NAME=""
+LAST_PENDING_RESUME_TOKEN=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -276,7 +278,6 @@ METADATA_LATEST_PATH="$REVIEW_DIR/latest-${PLAN_ID}.json"
 SESSION_STATE_PATH="${OUTPUT_PATH}.lobster-session.json"
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
 TMP_OUTPUT="$TMP_DIR/review-output.md"
 RESOLVED_FILE="$TMP_DIR/resolved-decisions.txt"
 BLOCKING_FILE="$TMP_DIR/blocking-decisions.txt"
@@ -298,6 +299,7 @@ trap '
       emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID exit=$rc repo=$REPO_PATH"
     fi
   fi
+  rm -rf "$TMP_DIR"
 ' EXIT
 
 json_escape() {
@@ -467,6 +469,8 @@ reset_session_state() {
 
 save_session_state() {
   local resume_token="${1:-}"
+  local pending_section_name="${2:-}"
+  local pending_resume_token="${3:-}"
   local tmp_state
   local resolved_json
   local blocking_json
@@ -482,6 +486,8 @@ save_session_state() {
   "plan_path": "$(json_escape "$PLAN_PATH")",
   "review_markdown_path": "$(json_escape "$OUTPUT_PATH")",
   "resume_token": "$(json_escape "$resume_token")",
+  "pending_section_name": "$(json_escape "$pending_section_name")",
+  "pending_resume_token": "$(json_escape "$pending_resume_token")",
   "resolved_decisions": $resolved_json,
   "blocking_decisions": $blocking_json,
   "updated_at": "$(date -Iseconds)"
@@ -494,7 +500,7 @@ load_session_state() {
   if [[ ! -f "$SESSION_STATE_PATH" ]]; then
     return 0
   fi
-  LAST_RESUME_TOKEN="$(python3 - "$SESSION_STATE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE" "$PLAN_ID" "$PLAN_PATH" "$OUTPUT_PATH" <<'PY'
+  session_fields="$(python3 - "$SESSION_STATE_PATH" "$RESOLVED_FILE" "$BLOCKING_FILE" "$PLAN_ID" "$PLAN_PATH" "$OUTPUT_PATH" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -554,11 +560,29 @@ if resume_token is None:
 if not isinstance(resume_token, str):
     print("Error: session state key 'resume_token' must be a string.", file=sys.stderr)
     raise SystemExit(1)
+pending_section_name = payload.get("pending_section_name")
+if pending_section_name is None:
+    pending_section_name = ""
+if not isinstance(pending_section_name, str):
+    print("Error: session state key 'pending_section_name' must be a string.", file=sys.stderr)
+    raise SystemExit(1)
+pending_resume_token = payload.get("pending_resume_token")
+if pending_resume_token is None:
+    pending_resume_token = ""
+if not isinstance(pending_resume_token, str):
+    print("Error: session state key 'pending_resume_token' must be a string.", file=sys.stderr)
+    raise SystemExit(1)
 print(resume_token)
+print(pending_section_name)
+print(pending_resume_token)
 PY
 )" || {
     exit 1
   }
+  mapfile -t session_lines <<< "$session_fields"
+  LAST_RESUME_TOKEN="${session_lines[0]:-}"
+  LAST_PENDING_SECTION_NAME="${session_lines[1]:-}"
+  LAST_PENDING_RESUME_TOKEN="${session_lines[2]:-}"
 }
 
 write_metadata() {
@@ -760,6 +784,19 @@ save_session_state "$RESUME_TOKEN"
 write_metadata "false"
 
 if [[ -n "$RESUME_TOKEN" ]]; then
+  if [[ -n "$LAST_PENDING_SECTION_NAME" && -n "$LAST_PENDING_RESUME_TOKEN" ]]; then
+    if [[ "$RESUME_TOKEN" != "$LAST_PENDING_RESUME_TOKEN" ]]; then
+      echo "Warning: pending section token in session state differs from --resume-token." >&2
+    fi
+    echo "[$LAST_PENDING_SECTION_NAME] Resume recovered pending checkpoint." >&2
+    echo "[$LAST_PENDING_SECTION_NAME] Enter selected decision labels (comma-separated, or none):" >&2
+    read -r selected_input
+    append_list_entries "$selected_input" "$RESOLVED_FILE"
+    echo "[$LAST_PENDING_SECTION_NAME] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
+    read -r blocking_input
+    append_list_entries "$blocking_input" "$BLOCKING_FILE"
+    save_session_state "$RESUME_TOKEN"
+  fi
   run_lobster_resume "$RESUME_TOKEN"
 else
   start_epoch="$(date +%s)"
@@ -792,7 +829,7 @@ while true; do
       section_name="Section"
     fi
     echo "[$section_name] Resume token: $token" >&2
-    save_session_state "$token"
+    save_session_state "$token" "$section_name" "$token"
 
     echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
     read -r selected_input

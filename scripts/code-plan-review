@@ -635,6 +635,7 @@ EOF
 elif [[ "$MODE" == "apply" ]]; then
   emit_run_event "start" "phase=plan-review mode=apply plan_id=$PLAN_ID repo=$REPO_PATH"
   if ! has_resolution_inputs; then
+    emit_run_event "failed" "phase=plan-review mode=apply plan_id=$PLAN_ID reason=missing_resolution_inputs repo=$REPO_PATH"
     echo "Error: apply mode requires --resolve-file or --decisions/--blocking." >&2
     resolution_usage_hint
     exit 1

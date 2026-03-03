@@ -722,7 +722,7 @@ EOF
   local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000004b-live.json"
   [[ -f "$latest_metadata" ]] || { echo "Expected lobster resume latest metadata file" >&2; exit 1; }
   assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
-  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\"]"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
   [[ ! -f "$session_state" ]] || { echo "Expected session state file to be cleared after completion" >&2; exit 1; }
 }
 

@@ -61,6 +61,8 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 - Default behavior is concise when the variable is unset or falsy.
 - When enabled, use `Now/Why/Next` progress updates for active execution.
 - Verbosity must never delay action once execution is approved and unblocked.
+- Status updates are not a pause point: after any progress update, execute the next unblocked step immediately.
+- Do not end on a progress-only response when a command can be run in the same turn.
 
 ## Long-Running Commands
 

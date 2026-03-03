@@ -65,6 +65,7 @@ When verbose mode is on:
 
 Verbosity must not block execution. After explaining intent, proceed immediately
 unless waiting on a required user decision or an explicit approval gate.
+Status updates are not a wait state: if the next step is executable, run it in the same turn.
 
 ### Long-Run Hard-Fail Policy
 
