@@ -364,6 +364,7 @@ start_emitted=0
 event_token="evt-$(date +%s)-$$-$RANDOM"
 producer_pid=""
 
+# shellcheck disable=SC2317
 cleanup_tmp_files() {
   rm -rf "$tmp_stream_dir"
   rm -f "$tmp_status"
@@ -388,6 +389,7 @@ emit_terminal_event_for_rc() {
   terminal_emitted=1
 }
 
+# shellcheck disable=SC2317
 handle_signal() {
   local sig="$1"
   local rc="$2"
