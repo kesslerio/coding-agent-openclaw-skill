@@ -141,6 +141,7 @@ Example resolve file for non-TTY finalization:
 - Do not maintain independent duplicate clones for this repository.
 - Wrappers fail fast when run from a non-canonical clone.
 - Temporary override (recovery-only): `CODING_AGENT_ALLOW_NONCANONICAL=1`
+- CI bypass: canonical-path guard is bypassed automatically when `CI=true`/`GITHUB_ACTIONS=true`.
 
 ## ACP-First Wrapper Routing
 

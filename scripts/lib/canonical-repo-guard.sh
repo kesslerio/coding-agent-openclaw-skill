@@ -15,6 +15,10 @@ ensure_canonical_repo_root() {
   local expected_root
   local current_root
 
+  if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    return 0
+  fi
+
   if [[ "${CODING_AGENT_ALLOW_NONCANONICAL:-0}" == "1" ]]; then
     return 0
   fi

@@ -53,6 +53,7 @@ These aliases do not change core policy:
 - Do not maintain independent duplicate clones for this repo.
 - Wrappers enforce canonical-path execution by default and fail fast on non-canonical clones.
 - Temporary override exists for controlled recovery only: `CODING_AGENT_ALLOW_NONCANONICAL=1`.
+- CI runs bypass canonical-path enforcement automatically (`CI=true` or `GITHUB_ACTIONS=true`).
 
 ## Git Workflow
 

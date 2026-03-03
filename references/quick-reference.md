@@ -86,6 +86,7 @@ Known limitation:
 Canonical local repo policy:
 - Use `/home/art/projects/skills/shared/coding-agent` as the only local clone for this repo.
 - Wrappers fail fast on non-canonical clones unless `CODING_AGENT_ALLOW_NONCANONICAL=1` is explicitly set.
+- CI bypass is automatic when `CI=true` or `GITHUB_ACTIONS=true`.
 
 Implementation mode routing:
 - `CODING_AGENT_IMPL_MODE=direct|tmux|auto` (default: `direct`)

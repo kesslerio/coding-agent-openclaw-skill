@@ -312,7 +312,7 @@ assert_contains() {
   local expected="$2"
   if ! grep -Fq -- "$expected" "$file"; then
     printf 'Assertion failed: expected "%s" in %s\n' "$expected" "$file" >&2
-    printf '--- file content ---\n' >&2
+    printf '%s\n' '--- file content ---' >&2
     cat "$file" >&2
     exit 1
   fi
@@ -371,6 +371,12 @@ test_canonical_guard_behavior() {
 
   if ! CODING_AGENT_ALLOW_NONCANONICAL=1 bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_pass" 2>&1; then
     echo "Expected canonical repo guard override to allow non-canonical path" >&2
+    exit 1
+  fi
+
+  local output_ci="$tmp_dir/canonical-guard-ci.txt"
+  if ! CI=true bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_ci" 2>&1; then
+    echo "Expected canonical repo guard to bypass in CI environment" >&2
     exit 1
   fi
 }

@@ -17,6 +17,7 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 - Do not maintain independent duplicate clones of this repository.
 - Wrapper scripts enforce canonical-path execution and fail fast on non-canonical clones.
 - Temporary override for controlled recovery only: `CODING_AGENT_ALLOW_NONCANONICAL=1`.
+- CI runs are exempt from canonical-path enforcement (`CI=true` or `GITHUB_ACTIONS=true`).
 
 ## Language
 

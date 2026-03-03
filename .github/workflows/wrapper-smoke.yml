@@ -10,6 +10,8 @@ on:
 jobs:
   wrappers:
     runs-on: ubuntu-latest
+    env:
+      CODING_AGENT_ALLOW_NONCANONICAL: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
