@@ -231,6 +231,7 @@ Cleanup:
 | `CODEX_TMUX_CLEANUP` | Kill session after completion | `0` |
 | `CODEX_TMUX_WAIT_TIMEOUT` | Optional wait timeout (seconds) | unset |
 | `CODEX_TMUX_HEARTBEAT_SECONDS` | Heartbeat interval during wait loop | `20` |
+| `CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS` | Minimum elapsed seconds before first wait-loop heartbeat is emitted | `30` |
 | `CODEX_TMUX_CAPTURE_LINES` | Max pane lines emitted to stdout in wait mode | `400` |
 | `CODEX_TMUX_EVENT_TOKEN` | Optional event correlation token for trusted lifecycle parsing | unset |
 | `CODEX_TMUX_DISABLE` | Legacy override: force direct mode | `0` |

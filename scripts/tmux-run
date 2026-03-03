@@ -24,6 +24,7 @@ EOF
 WAIT="${CODEX_TMUX_WAIT:-0}"
 CLEANUP="${CODEX_TMUX_CLEANUP:-0}"
 HEARTBEAT_SECONDS="${CODEX_TMUX_HEARTBEAT_SECONDS:-20}"
+HEARTBEAT_MIN_ELAPSED_SECONDS="${CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS:-30}"
 CAPTURE_LINES="${CODEX_TMUX_CAPTURE_LINES:-400}"
 EVENT_TOKEN="${CODEX_TMUX_EVENT_TOKEN:-}"
 
@@ -48,6 +49,11 @@ fi
 
 if [[ ! "$HEARTBEAT_SECONDS" =~ ^[0-9]+$ ]] || (( HEARTBEAT_SECONDS <= 0 )); then
   echo "Error: CODEX_TMUX_HEARTBEAT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
+
+if [[ ! "$HEARTBEAT_MIN_ELAPSED_SECONDS" =~ ^[0-9]+$ ]] || (( HEARTBEAT_MIN_ELAPSED_SECONDS < 0 )); then
+  echo "Error: CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS must be a non-negative integer" >&2
   exit 1
 fi
 
@@ -188,7 +194,7 @@ if [[ "$WAIT" == "1" ]]; then
 
     now_ts="$(date +%s)"
     elapsed=$((now_ts - start_ts))
-    if (( now_ts - last_heartbeat >= HEARTBEAT_SECONDS )); then
+    if (( elapsed >= HEARTBEAT_MIN_ELAPSED_SECONDS && now_ts - last_heartbeat >= HEARTBEAT_SECONDS )); then
       emit_tmux_run_event "heartbeat" "session=$SESSION elapsed_s=${elapsed}"
       last_heartbeat="$now_ts"
     fi

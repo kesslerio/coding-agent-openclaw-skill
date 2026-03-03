@@ -229,6 +229,13 @@ case "$mode" in
     echo "tmux-run exited without terminal event" >&2
     exit "$code"
     ;;
+  hang)
+    term_code="${SMOKE_TMUX_RUN_TERM_EXIT_CODE:-143}"
+    trap "exit ${term_code}" TERM
+    while true; do
+      sleep 1
+    done
+    ;;
   *)
     echo "invalid SMOKE_TMUX_RUN_MODE" >&2
     exit 2
@@ -1451,6 +1458,48 @@ test_code_implement_ignores_spoofed_terminal_event_without_token() {
   assert_count_regex "$output" "^RUN_EVENT done " "0"
 }
 
+test_code_implement_emits_interrupted_on_sigterm() {
+  local output="$tmp_dir/code-implement-run-events-sigterm.out"
+  local impl_pid=""
+  local saw_start=0
+  local i
+
+  set +e
+  PATH="$fake_bin:$PATH" \
+    CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+    SMOKE_TMUX_RUN_MODE=hang \
+    "$SCRIPT_DIR/code-implement" "Smoke lifecycle interrupted by signal" >"$output" 2>&1 &
+  impl_pid=$!
+  set -e
+
+  for i in $(seq 1 30); do
+    if [[ -f "$output" ]] && grep -Fq "RUN_EVENT start" "$output"; then
+      saw_start=1
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ "$saw_start" != "1" ]]; then
+    echo "Expected code-implement to emit RUN_EVENT start before signal" >&2
+    cat "$output" >&2 || true
+    exit 1
+  fi
+
+  kill -TERM "$impl_pid"
+  set +e
+  wait "$impl_pid"
+  local rc=$?
+  set -e
+  if [[ "$rc" != "143" ]]; then
+    echo "Expected code-implement SIGTERM exit code 143, got $rc" >&2
+    cat "$output" >&2 || true
+    exit 1
+  fi
+
+  assert_contains "$output" "RUN_EVENT interrupted"
+  assert_count_regex "$output" "^RUN_EVENT (done|failed) " "0"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_doctor_known_issue_guidance
@@ -1488,5 +1537,6 @@ test_code_implement_emits_run_events_success
 test_code_implement_emits_run_events_interrupted
 test_code_implement_fallback_terminal_event_without_tmux_terminal_line
 test_code_implement_ignores_spoofed_terminal_event_without_token
+test_code_implement_emits_interrupted_on_sigterm
 
 printf 'Wrapper smoke tests passed.\n'

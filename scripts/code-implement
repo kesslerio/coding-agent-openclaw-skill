@@ -357,20 +357,58 @@ fi
 tmp_stream_dir="$(mktemp -d)"
 tmp_stream="$tmp_stream_dir/stream.fifo"
 tmp_status="$(mktemp)"
-# shellcheck disable=SC2317
-cleanup_tmp_files() {
-  rm -rf "$tmp_stream_dir"
-  rm -f "$tmp_status"
-}
-trap cleanup_tmp_files EXIT
-
-mkfifo "$tmp_stream"
-
 run_id=""
 log_path=""
 terminal_emitted=0
 start_emitted=0
 event_token="evt-$(date +%s)-$$-$RANDOM"
+producer_pid=""
+
+cleanup_tmp_files() {
+  rm -rf "$tmp_stream_dir"
+  rm -f "$tmp_status"
+}
+
+emit_terminal_event_for_rc() {
+  local rc="$1"
+  if [[ "$start_emitted" != "1" ]]; then
+    emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+    start_emitted=1
+  fi
+  if [[ "$terminal_emitted" == "1" ]]; then
+    return 0
+  fi
+  if [[ "$rc" == "0" ]]; then
+    emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  elif [[ "$rc" == "124" || "$rc" == "130" || "$rc" == "137" || "$rc" == "143" ]]; then
+    emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  else
+    emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+  fi
+  terminal_emitted=1
+}
+
+handle_signal() {
+  local sig="$1"
+  local rc="$2"
+  emit_terminal_event_for_rc "$rc"
+  if [[ -n "$producer_pid" ]]; then
+    kill -TERM "$producer_pid" 2>/dev/null || true
+    set +e
+    wait "$producer_pid" 2>/dev/null
+    set -e
+  fi
+  cleanup_tmp_files
+  trap - EXIT INT TERM
+  echo "code-implement interrupted by ${sig}" >&2
+  exit "$rc"
+}
+
+trap cleanup_tmp_files EXIT
+trap 'handle_signal INT 130' INT
+trap 'handle_signal TERM 143' TERM
+
+mkfifo "$tmp_stream"
 
 (
   set +e
@@ -445,16 +483,9 @@ fi
 
 if [[ "$start_emitted" != "1" ]]; then
   emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+  start_emitted=1
 fi
 
-if [[ "$terminal_emitted" != "1" ]]; then
-  if [[ "$tmux_rc" == "0" ]]; then
-    emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=$tmux_rc"
-  elif [[ "$tmux_rc" == "124" || "$tmux_rc" == "130" || "$tmux_rc" == "137" || "$tmux_rc" == "143" ]]; then
-    emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=$tmux_rc"
-  else
-    emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=$tmux_rc"
-  fi
-fi
+emit_terminal_event_for_rc "$tmux_rc"
 
 exit "$tmux_rc"
