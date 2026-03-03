@@ -15,7 +15,7 @@ This repo now ships two sibling skills:
 
 1. Use `plan-issue` for planning/scoping tasks.
 2. Wait for explicit `APPROVE`.
-3. Use `coding-agent` to execute the approved plan.
+3. Use `coding-agent` to execute the approved plan with ACP-first routing, then CLI fallback.
 
 Guardrail: no bypass flags (`--yolo`, `--dangerously-skip-permissions`) unless explicitly requested.
 
@@ -115,6 +115,14 @@ Example resolve file for non-TTY finalization:
 ./scripts/smoke-wrappers.sh
 ```
 
+## ACP-First Wrapper Routing
+
+Execution wrappers attempt ACP first (via `acpx`) and then fall back to the CLI
+chain (`codex`/`claude`/optional `gemini`) when ACP is unavailable.
+
+- `CODING_AGENT_ACP_ENABLE`: `1` (default) or `0` to skip ACP attempt
+- `CODING_AGENT_ACP_AGENT`: ACP harness alias (default: `codex`)
+- `CODING_AGENT_ACPX_CMD`: executable path override for ACPX binary
 ## CI Workflows
 
 - `wrapper-smoke.yml`: wrapper syntax, drift, and smoke validation.

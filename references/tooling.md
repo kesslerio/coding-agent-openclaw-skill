@@ -11,6 +11,7 @@ For non-trivial changes:
 
 | Method | Reliability | Output | Best For |
 |--------|-------------|--------|----------|
+| ACPX (`acpx <agent> exec`) | ⚠️ Medium | Quiet assistant text | ACP harness-first execution and relay flows |
 | Direct Codex CLI (`exec` + `resume`) | ✅ High | Text/JSON stream | Most implementation loops and iterative follow-ups |
 | tmux transport + Codex CLI | ✅ High | Full TTY + logs | Long-running tasks requiring reattach and terminal durability |
 | Claude CLI fallback | ⚠️ Medium | Text stream | When Codex is unavailable |
@@ -20,8 +21,8 @@ For non-trivial changes:
 | Task | Primary | Secondary | Notes |
 |------|---------|-----------|-------|
 | Plan mode | `scripts/code-plan --engine codex` | `scripts/code-plan --engine claude` | Read-only planning artifact + approval gate |
-| Implementation | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | tmux transport | Use `codex exec resume --last` for follow-up; lower reasoning only for simple/docs or explicit fast/cheap requests |
-| PR review | `codex review --base <base>` | Claude CLI | Keep timeout >= 600s |
+| Implementation | ACPX (`safe-fallback.sh` ACP-first) | direct/tmux Codex CLI | Use CLI fallback when ACP is unavailable; lower reasoning only for simple/docs or explicit fast/cheap requests |
+| PR review | ACPX (`safe-fallback.sh` ACP-first) | `codex review --base <base>` then Claude CLI | Keep timeout >= 600s |
 | Long-running implementation | tmux transport | direct `codex -c 'model_reasoning_effort="high"' exec --full-auto` | Use tmux when persistence/reattach is required |
 
 Implementation routing is configurable:
@@ -110,6 +111,7 @@ Run CLI drift checks before changing command docs:
 - `gh`
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
+- ACPX discovery in this order: `CODING_AGENT_ACPX_CMD` -> `acpx` in `PATH` (warning-only; CLI fallback remains available)
 
 ## Wrapper Scripts (Plan + Implementation)
 
@@ -201,6 +203,9 @@ Cleanup:
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `CODING_AGENT_IMPL_MODE` | Implementation routing policy (`direct|tmux|auto`) | `direct` |
+| `CODING_AGENT_ACP_ENABLE` | Enable ACP-first attempt in `safe-fallback.sh` (`0|1`) | `1` |
+| `CODING_AGENT_ACP_AGENT` | ACP harness alias for ACPX execution | `codex` |
+| `CODING_AGENT_ACPX_CMD` | Explicit ACPX binary path override | unset |
 | `CODING_AGENT_CLAUDE_BIN` | Explicit Claude CLI path override | unset |
 | `OPENCLAW_TMUX_SOCKET_DIR` | Socket directory (preferred) | `${TMPDIR:-/tmp}/openclaw-tmux-sockets` |
 | `CLAWDBOT_TMUX_SOCKET_DIR` | Legacy socket directory | unset |

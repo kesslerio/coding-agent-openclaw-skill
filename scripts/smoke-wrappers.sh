@@ -138,6 +138,35 @@ set -euo pipefail
 exit 0
 EOF
 
+cat >"$fake_bin/acpx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${SMOKE_ACPX_ARGS_FILE:-}" ]]; then
+  {
+    printf -- '---CALL---\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+  } >>"$SMOKE_ACPX_ARGS_FILE"
+fi
+
+case "${SMOKE_ACPX_BEHAVIOR:-fail}" in
+  success)
+    printf 'acpx ok\n'
+    exit 0
+    ;;
+  fail)
+    printf 'acpx fail\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'invalid SMOKE_ACPX_BEHAVIOR\n' >&2
+    exit 2
+    ;;
+esac
+EOF
+
 cat >"$fake_bin/tmux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -145,7 +174,7 @@ echo "mock tmux unavailable" >&2
 exit 1
 EOF
 
-chmod +x "$fake_bin/timeout" "$fake_bin/codex" "$fake_bin/claude"
+chmod +x "$fake_bin/timeout" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx"
 chmod +x "$fake_bin/tmux"
 
 assert_contains() {
@@ -224,6 +253,99 @@ test_impl_direct_mode_uses_codex_exec() {
   "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
 
   assert_contains "$codex_args" "--yolo"
+  assert_contains "$codex_args" "exec"
+  assert_contains "$codex_args" "$prompt"
+}
+
+test_impl_uses_acpx_first_when_available() {
+  local prompt="Implement feature via acpx first."
+  local acpx_args="$tmp_dir/acpx-impl-args.txt"
+  local codex_args="$tmp_dir/codex-impl-no-call.txt"
+  local output="$tmp_dir/impl-acpx-first.txt"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_IMPL_MODE=direct \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  assert_contains "$acpx_args" "codex"
+  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "--cwd"
+  assert_contains "$acpx_args" "--format"
+  assert_contains "$acpx_args" "quiet"
+  if [[ -f "$codex_args" ]]; then
+    assert_not_contains "$codex_args" "---CALL---"
+  fi
+}
+
+test_review_uses_acpx_first_when_available() {
+  local prompt="Review this PR via acpx first."
+  local acpx_args="$tmp_dir/acpx-review-args.txt"
+  local codex_args="$tmp_dir/codex-review-no-call.txt"
+  local output="$tmp_dir/review-acpx-first.txt"
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" review "$prompt" >"$output" 2>&1
+
+  assert_contains "$acpx_args" "codex"
+  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "Review changes against base branch"
+  assert_contains "$acpx_args" "$prompt"
+  if [[ -f "$codex_args" ]]; then
+    assert_not_contains "$codex_args" "---CALL---"
+  fi
+}
+
+test_acpx_cmd_override_is_used() {
+  local custom_acpx="$tmp_dir/custom-acpx"
+  local acpx_args="$tmp_dir/acpx-override-args.txt"
+  local output="$tmp_dir/acpx-override.txt"
+  local prompt="Use overridden acpx binary."
+
+  cat >"$custom_acpx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${SMOKE_ACPX_ARGS_FILE:?}"
+{
+  printf -- '---OVERRIDE---\n'
+  for arg in "$@"; do
+    printf '%s\n' "$arg"
+  done
+} >>"$SMOKE_ACPX_ARGS_FILE"
+exit 0
+EOF
+  chmod +x "$custom_acpx"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_ACPX_CMD="$custom_acpx" \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  assert_contains "$acpx_args" "---OVERRIDE---"
+  assert_contains "$acpx_args" "$prompt"
+}
+
+test_acp_disable_skips_acpx() {
+  local prompt="Skip acpx when disabled."
+  local acpx_args="$tmp_dir/acpx-disabled-args.txt"
+  local codex_args="$tmp_dir/codex-disabled-args.txt"
+  local output="$tmp_dir/acpx-disabled.txt"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_ACP_ENABLE=0 \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
   assert_contains "$codex_args" "exec"
   assert_contains "$codex_args" "$prompt"
 }
@@ -885,6 +1007,10 @@ test_invalid_cli_rejected
 test_review_prompt_pass_through
 test_invalid_impl_mode_rejected
 test_impl_direct_mode_uses_codex_exec
+test_impl_uses_acpx_first_when_available
+test_review_uses_acpx_first_when_available
+test_acpx_cmd_override_is_used
+test_acp_disable_skips_acpx
 test_code_plan_generates_artifact
 test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact
