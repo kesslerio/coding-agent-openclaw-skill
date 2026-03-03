@@ -25,19 +25,18 @@ right implementation is:
 This keeps operational continuity when ACPX is missing or unhealthy, while
 making harness-aware flows the default when ACPX is present.
 
-The key boundaries are install/repair behavior and review quality. Auto-installing ACPX inside this
-skill pack would create side effects and environment coupling that are out of
-scope for a routing upgrade. So ACPX discovery should be explicit and cheap:
-`CODING_AGENT_ACPX_CMD` override first, then `acpx` on `PATH`.
-For review mode, preserving review-native behavior (`codex review --base`) is
-the quality baseline, with ACP kept as fallback.
+The key boundaries are install/repair behavior and review quality.
+Auto-installing ACPX inside this skill pack would create side effects and
+environment coupling that are out of scope for a routing upgrade. So ACPX
+discovery should be explicit and cheap: `CODING_AGENT_ACPX_CMD` override first,
+then `acpx` on `PATH`. For review mode, preserving review-native behavior
+(`codex review --base`) is the quality baseline, with ACP kept as fallback.
 
 ## Strategy
 
 The leverage point is `scripts/safe-fallback.sh`, because it already owns the
-tool ordering and blocker reporting contract. Implementing ACP-first there
-automatically upgrades both impl and review wrapper flows without introducing a
-new command surface.
+tool ordering and blocker reporting contract. Implementing ACP routing there
+upgrades wrapper behavior without introducing a new command surface.
 
 To keep behavior legible and reversible:
 

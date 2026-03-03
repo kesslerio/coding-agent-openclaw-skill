@@ -206,6 +206,7 @@ Cleanup:
 | `CODING_AGENT_ACP_ENABLE` | Enable ACP-first attempt in `safe-fallback.sh` (`0|1`) | `1` |
 | `CODING_AGENT_ACP_AGENT` | ACP harness alias for ACPX execution | `codex` |
 | `CODING_AGENT_ACPX_CMD` | Explicit ACPX binary path override | unset |
+| `CODING_AGENT_VERBOSE` | Execution progress verbosity (`off` by default; truthy: `1|true|on|yes|verbose`) | `off` |
 | `CODING_AGENT_CLAUDE_BIN` | Explicit Claude CLI path override | unset |
 | `OPENCLAW_TMUX_SOCKET_DIR` | Socket directory (preferred) | `${TMPDIR:-/tmp}/openclaw-tmux-sockets` |
 | `CLAWDBOT_TMUX_SOCKET_DIR` | Legacy socket directory | unset |

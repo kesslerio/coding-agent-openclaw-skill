@@ -47,6 +47,13 @@ Keep this file concise; move long examples and deep procedures to `README.md` an
 3. Get explicit `APPROVE` before file writes, package installs, or system changes.
 4. After approval, execute end-to-end and report progress, results, and deviations.
 
+### Verbosity Mode
+
+- `CODING_AGENT_VERBOSE` controls execution progress verbosity and is opt-in.
+- Default behavior is concise when the variable is unset or falsy.
+- When enabled, use `Now/Why/Next` progress updates for active execution.
+- Verbosity must never delay action once execution is approved and unblocked.
+
 ## Long-Running Commands
 
 - Ensure `tsx` scripts close watchers/timers and call `process.exit(0)`.

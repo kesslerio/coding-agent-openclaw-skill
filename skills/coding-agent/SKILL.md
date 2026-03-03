@@ -41,6 +41,24 @@ For harness-style implementation/review requests, ACP routing is mode-specific:
 - Disable ACP-first per run with `CODING_AGENT_ACP_ENABLE=0`.
 - Override ACPX binary path with `CODING_AGENT_ACPX_CMD`.
 - Override ACP agent alias with `CODING_AGENT_ACP_AGENT` (default: `codex`).
+
+## Verbosity Mode (Progress Updates)
+
+`CODING_AGENT_VERBOSE` controls execution progress verbosity. Default is off.
+
+- `off` (default): concise progress updates.
+- `on`: include structured progress updates with `Now`, `Why`, and `Next`.
+
+Accepted truthy values (case-insensitive): `1`, `true`, `on`, `yes`, `verbose`.
+Accepted falsy values: unset, `0`, `false`, `off`, `no`.
+
+When verbose mode is on:
+- Send kickoff execution status in `Now/Why/Next` format.
+- For long-running tasks, send periodic status updates.
+- Send a completion update with outcome and blockers (if any).
+
+Verbosity must not block execution. After explaining intent, proceed immediately
+unless waiting on a required user decision or an explicit approval gate.
 ## Guardrails
 
 - No bypass-by-default. Do not use approval-bypass flags unless the user explicitly requests bypass.
