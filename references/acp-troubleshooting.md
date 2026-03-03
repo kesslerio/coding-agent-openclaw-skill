@@ -47,6 +47,11 @@ acpx --version
 timeout 120s acpx --cwd "$PWD" --format text --timeout 90 codex exec "Reply with READY only."
 ```
 
+4. Repeatable local smoke check from this repo:
+```bash
+./scripts/acp-smoke-local.sh
+```
+
 ## Recommended Fallbacks
 
 When ACP observability is degraded, use direct wrapper/CLI review and
