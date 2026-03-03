@@ -1,6 +1,6 @@
 ---
 name: coding-agent
-description: "Implementation/review workflow for approved plans. Use after explicit APPROVE."
+description: "Implementation/review workflow for approved plans. Route ACP-first, then CLI fallback. Use after explicit APPROVE."
 disable-model-invocation: true
 metadata: {"openclaw":{"emoji":"💻","requires":{"bins":["gh"],"anyBins":["codex","claude"],"env":[]}}}
 ---
@@ -31,6 +31,17 @@ If no matching approved plan exists, stop and request:
 - unit/integration/e2e tests as applicable
 5. Report exact commands run, outcomes, and residual risk.
 
+## ACP-First Routing
+
+For harness-style implementation/review requests, ACP routing is mode-specific:
+
+- Implementation uses ACP first (via `acpx`) with CLI fallback.
+- Review keeps review-native `codex review --base` first, then ACP fallback.
+- CLI fallback chain remains mandatory if ACP is unavailable.
+- Disable ACP-first per run with `CODING_AGENT_ACP_ENABLE=0`.
+- Override ACPX binary path with `CODING_AGENT_ACPX_CMD`.
+- Override ACP agent alias with `CODING_AGENT_ACP_AGENT` (default: `codex`).
+
 ## Verbosity Mode (Progress Updates)
 
 `CODING_AGENT_VERBOSE` controls execution progress verbosity. Default is off.
@@ -48,7 +59,6 @@ When verbose mode is on:
 
 Verbosity must not block execution. After explaining intent, proceed immediately
 unless waiting on a required user decision or an explicit approval gate.
-
 ## Guardrails
 
 - No bypass-by-default. Do not use approval-bypass flags unless the user explicitly requests bypass.

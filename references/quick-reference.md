@@ -62,8 +62,8 @@ Skip only when:
 ## Tool Fallback Chain
 
 ```
-Implementation: Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
-Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
+Implementation: ACPX → Codex CLI (direct) → Codex CLI (tmux) → Claude CLI → BLOCKED
+Reviews:        Codex CLI (direct) → ACPX → Claude CLI → BLOCKED
 
 ⛔ NEVER skip to direct edits — request user override instead
 ```
@@ -71,6 +71,8 @@ Reviews:        Codex CLI (direct) → Claude CLI → BLOCKED
 Implementation mode routing:
 - `CODING_AGENT_IMPL_MODE=direct|tmux|auto` (default: `direct`)
 - `auto` -> tmux-first only in interactive TTY + tmux available; otherwise direct-first
+- ACP-first toggle: `CODING_AGENT_ACP_ENABLE=1|0` (default: `1`)
+- ACPX binary override: `CODING_AGENT_ACPX_CMD=/path/to/acpx`
 
 ## Direct CLI Commands (Primary)
 

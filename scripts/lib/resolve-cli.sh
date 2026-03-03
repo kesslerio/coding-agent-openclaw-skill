@@ -23,3 +23,20 @@ resolve_claude_bin() {
 
   return 1
 }
+
+resolve_acpx_bin() {
+  if [[ -n "${CODING_AGENT_ACPX_CMD:-}" ]]; then
+    if [[ -x "${CODING_AGENT_ACPX_CMD}" ]]; then
+      printf '%s\n' "${CODING_AGENT_ACPX_CMD}"
+      return 0
+    fi
+    return 1
+  fi
+
+  if command -v acpx &>/dev/null; then
+    command -v acpx
+    return 0
+  fi
+
+  return 1
+}

@@ -42,6 +42,14 @@ if [[ "$GEMINI_FALLBACK_ENABLE" != "0" && "$GEMINI_FALLBACK_ENABLE" != "1" ]]; t
   exit 1
 fi
 
+# ACP-first routing is enabled by default.
+CODING_AGENT_ACP_ENABLE=${CODING_AGENT_ACP_ENABLE:-1}
+if [[ "$CODING_AGENT_ACP_ENABLE" != "0" && "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
+  echo "Error: CODING_AGENT_ACP_ENABLE must be 0 or 1" >&2
+  exit 1
+fi
+CODING_AGENT_ACP_AGENT=${CODING_AGENT_ACP_AGENT:-codex}
+
 # Colors
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -73,8 +81,72 @@ resolve_impl_mode() {
   printf 'direct\n'
 }
 
+detect_base_branch() {
+  local base_branch="main"
+  if git rev-parse --git-dir &>/dev/null; then
+    base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+    if [[ -z "$base_branch" ]]; then
+      for candidate in main master trunk; do
+        if git show-ref --verify --quiet "refs/heads/${candidate}" || \
+           git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+          base_branch="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$base_branch" ]]; then
+      base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+    fi
+  fi
+
+  printf '%s\n' "$base_branch"
+}
+
 # Track failures (portable array init)
 FAILURES=()
+
+build_acpx_prompt() {
+  if [[ "$MODE" == "review" ]]; then
+    printf '%s\n' "$PROMPT"
+    return 0
+  fi
+
+  printf '%s\n' "$PROMPT"
+}
+
+try_acpx() {
+  if [[ "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
+    FAILURES+=("ACPX: disabled (set CODING_AGENT_ACP_ENABLE=1 to enable)")
+    return 1
+  fi
+
+  local acpx_bin
+  if ! acpx_bin="$(resolve_acpx_bin)"; then
+    if [[ -n "${CODING_AGENT_ACPX_CMD:-}" ]]; then
+      FAILURES+=("ACPX: CODING_AGENT_ACPX_CMD is set but not executable (${CODING_AGENT_ACPX_CMD})")
+    else
+      FAILURES+=("ACPX: not found (CODING_AGENT_ACPX_CMD, PATH)")
+    fi
+    return 1
+  fi
+
+  if ! command -v timeout &>/dev/null; then
+    FAILURES+=("ACPX: timeout command not available")
+    return 1
+  fi
+
+  local acpx_prompt
+  acpx_prompt="$(build_acpx_prompt)"
+
+  info "Trying ACPX (${CODING_AGENT_ACP_AGENT})..."
+  if timeout "${TIMEOUT}s" "$acpx_bin" "$CODING_AGENT_ACP_AGENT" exec --cwd "$PWD" --format quiet "$acpx_prompt"; then
+    ok "ACPX succeeded"
+    return 0
+  fi
+
+  FAILURES+=("ACPX: exec failed or timeout")
+  return 1
+}
 
 # Try Codex CLI in tmux (implementation only)
 try_codex_tmux() {
@@ -103,22 +175,8 @@ try_codex_cli_direct() {
     fi
 
     if [[ "$MODE" == "review" ]]; then
-      local base_branch="main"
-      if git rev-parse --git-dir &>/dev/null; then
-        base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-        if [[ -z "$base_branch" ]]; then
-          for candidate in main master trunk; do
-            if git show-ref --verify --quiet "refs/heads/${candidate}" || \
-               git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
-              base_branch="$candidate"
-              break
-            fi
-          done
-        fi
-        if [[ -z "$base_branch" ]]; then
-          base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-        fi
-      fi
+      local base_branch
+      base_branch="$(detect_base_branch)"
 
       if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"; then
         ok "Codex CLI review succeeded"
@@ -218,12 +276,19 @@ report_blocker() {
 main() {
   # All status to stderr so stdout only has tool output
   echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
+  echo "ACP routing: $CODING_AGENT_ACP_ENABLE (agent: $CODING_AGENT_ACP_AGENT)" >&2
   echo "Gemini fallback: $GEMINI_FALLBACK_ENABLE" >&2
 
   if [[ "$MODE" == "review" ]]; then
     try_codex_cli_direct && exit 0
-    warn "Codex CLI unavailable for review, trying next..."
+    warn "Codex CLI unavailable for review, trying ACP fallback..."
+
+    try_acpx && exit 0
+    warn "ACPX unavailable for review, trying next..."
   else
+    try_acpx && exit 0
+    warn "ACPX unavailable, trying CLI fallback chain..."
+
     impl_mode="$(resolve_impl_mode)"
     case "$impl_mode" in
       direct|tmux|auto)

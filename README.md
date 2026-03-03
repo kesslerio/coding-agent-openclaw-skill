@@ -15,7 +15,7 @@ This repo now ships two sibling skills:
 
 1. Use `plan-issue` for planning/scoping tasks.
 2. Wait for explicit `APPROVE`.
-3. Use `coding-agent` to execute the approved plan.
+3. Use `coding-agent` to execute the approved plan with ACP-first routing, then CLI fallback.
 
 Guardrail: no bypass flags (`--yolo`, `--dangerously-skip-permissions`) unless explicitly requested.
 
@@ -115,6 +115,17 @@ Example resolve file for non-TTY finalization:
 ./scripts/smoke-wrappers.sh
 ```
 
+## ACP-First Wrapper Routing
+
+Execution routing in `scripts/safe-fallback.sh` is mode-specific:
+
+- `impl`: ACP first (via `acpx`), then CLI fallback chain
+- `review`: `codex review --base` first, then ACP fallback, then remaining CLI fallback chain
+
+- `CODING_AGENT_ACP_ENABLE`: `1` (default) or `0` to skip ACP attempt
+- `CODING_AGENT_ACP_AGENT`: ACP harness alias (default: `codex`)
+- `CODING_AGENT_ACPX_CMD`: executable path override for ACPX binary
+
 ## Verbosity Configuration
 
 The coding-agent skill supports an opt-in execution progress verbosity mode via
@@ -141,7 +152,6 @@ Persistent OpenClaw gateway setup:
 ```bash
 systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.service
 ```
-
 ## CI Workflows
 
 - `wrapper-smoke.yml`: wrapper syntax, drift, and smoke validation.

@@ -76,6 +76,7 @@ These are non-negotiable requirements. Violating any of these means the task has
 - **MUST** use agent CLI (direct or tmux wrappers) — not direct file edits
 - For reviews: use direct `codex review --base <base>` or `claude -p`
 - For implementation: prefer direct CLI (`codex -c 'model_reasoning_effort="high"' exec --full-auto`) or `scripts/code-implement`
+- When using `scripts/safe-fallback.sh`, wrappers attempt ACP first (`acpx`) and then use CLI fallback chain.
 - Default reasoning policy: use `high` for feature implementation and architectural refactors; use `medium`/`low` only for simple fixes/docs or explicit fast/cheap requests
 - **MUST NOT** use direct file edits when agent CLI is specified
 - **MUST** document which tool was used in PR description
@@ -226,9 +227,10 @@ For non-trivial work, generate a plan artifact before implementation:
 
 **Hierarchy:**
 1. **Codex**: Primary reviewer (`codex review --base <base>`).
-2. **Claude**: Default fallback if Codex is unavailable.
-3. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
-4. **Sub-agent**: Last resort for orchestration.
+2. **ACPX**: Review fallback path through harness routing.
+3. **Claude**: Secondary CLI fallback if Codex is unavailable.
+4. **Gemini (optional)**: Only if explicitly enabled (`GEMINI_FALLBACK_ENABLE=1`).
+5. **Sub-agent**: Last resort for orchestration.
 
 **Step 1: Code Review (Logic/Bugs)**
 ```bash

@@ -45,7 +45,21 @@ else
   failures=$((failures + 1))
 fi
 
+if acpx_bin="$(resolve_acpx_bin)"; then
+  printf '[ok] acpx: %s\n' "$acpx_bin"
+else
+  if [[ -n "${CODING_AGENT_ACPX_CMD:-}" ]]; then
+    printf '[warn] acpx: CODING_AGENT_ACPX_CMD is set but not executable: %s\n' "${CODING_AGENT_ACPX_CMD}" >&2
+    printf '       Fallback: wrappers will use direct CLI chain when ACP is unavailable\n' >&2
+  else
+    printf '[warn] acpx: not found (checked CODING_AGENT_ACPX_CMD, then PATH)\n' >&2
+    printf '       Fallback: wrappers will use direct CLI chain when ACP is unavailable\n' >&2
+  fi
+fi
+
 printf '[info] implementation mode default: %s (set CODING_AGENT_IMPL_MODE=direct|tmux|auto to override)\n' "${CODING_AGENT_IMPL_MODE:-direct}"
+printf '[info] ACP-first routing: %s (set CODING_AGENT_ACP_ENABLE=0 to skip ACP attempt)\n' "${CODING_AGENT_ACP_ENABLE:-1}"
+printf '[info] ACP agent alias: %s (set CODING_AGENT_ACP_AGENT to override)\n' "${CODING_AGENT_ACP_AGENT:-codex}"
 
 verbose_mode="off"
 case "${CODING_AGENT_VERBOSE:-}" in
