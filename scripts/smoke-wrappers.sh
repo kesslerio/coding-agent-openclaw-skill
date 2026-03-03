@@ -360,23 +360,25 @@ test_canonical_guard_behavior() {
   local guard="$SCRIPT_DIR/lib/canonical-repo-guard.sh"
   local output_fail="$tmp_dir/canonical-guard-fail.txt"
   local output_pass="$tmp_dir/canonical-guard-pass.txt"
+  local canonical_repo="$tmp_dir/canonical-repo"
 
+  mkdir -p "$canonical_repo"
   mkdir -p "$tmp_dir/noncanonical-repo"
 
-  if CODING_AGENT_ALLOW_NONCANONICAL=0 CI='' GITHUB_ACTIONS='' \
+  if CODING_AGENT_CANONICAL_REPO="$canonical_repo" CODING_AGENT_ALLOW_NONCANONICAL=0 CI='' GITHUB_ACTIONS='' \
     bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_fail" 2>&1; then
     echo "Expected canonical repo guard to reject non-canonical path" >&2
     exit 1
   fi
-  assert_contains "$output_fail" "[fail] canonical-repo:"
+  assert_contains "$output_fail" "[fail] canonical-repo: non-canonical clone detected"
 
-  if ! CODING_AGENT_ALLOW_NONCANONICAL=1 bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_pass" 2>&1; then
+  if ! CODING_AGENT_CANONICAL_REPO="$canonical_repo" CODING_AGENT_ALLOW_NONCANONICAL=1 bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_pass" 2>&1; then
     echo "Expected canonical repo guard override to allow non-canonical path" >&2
     exit 1
   fi
 
   local output_ci="$tmp_dir/canonical-guard-ci.txt"
-  if ! CI=true bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_ci" 2>&1; then
+  if ! CODING_AGENT_CANONICAL_REPO="$canonical_repo" CI=true bash -lc 'source "$1"; ensure_canonical_repo_root "$2"' _ "$guard" "$tmp_dir/noncanonical-repo" >"$output_ci" 2>&1; then
     echo "Expected canonical repo guard to bypass in CI environment" >&2
     exit 1
   fi
