@@ -540,10 +540,17 @@ test_impl_uses_acpx_first_when_available() {
   "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
 
   assert_contains "$acpx_args" "codex"
-  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "sessions"
+  assert_contains "$acpx_args" "ensure"
+  assert_contains "$acpx_args" "--name"
+  assert_contains "$acpx_args" "-s"
   assert_contains "$acpx_args" "--cwd"
   assert_contains "$acpx_args" "--format"
   assert_contains "$acpx_args" "quiet"
+  assert_contains "$acpx_args" "--approve-all"
+  assert_contains "$acpx_args" "--non-interactive-permissions"
+  assert_contains "$acpx_args" "fail"
+  assert_contains "$acpx_args" "$prompt"
   if [[ -f "$codex_args" ]]; then
     assert_not_contains "$codex_args" "---CALL---"
   fi
@@ -590,7 +597,9 @@ test_acp_agent_alias_forwarded() {
   "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
 
   assert_contains "$acpx_args" "gemini"
-  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "sessions"
+  assert_contains "$acpx_args" "ensure"
+  assert_contains "$acpx_args" "-s"
   assert_contains "$acpx_args" "$prompt"
 }
 
