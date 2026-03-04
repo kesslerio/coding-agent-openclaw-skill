@@ -44,8 +44,19 @@ acpx --version
 
 3. Optional ACPX sanity probe (bounded):
 ```bash
-timeout 120s acpx --cwd "$PWD" --format text --timeout 90 codex exec "Reply with READY only."
+timeout 120s acpx --cwd "$PWD" --approve-all --non-interactive-permissions fail --format text --timeout 90 codex exec "Reply with READY only."
 ```
+
+Stable unattended pattern (preferred for automation):
+```bash
+acpx --cwd "$PWD" --approve-all --non-interactive-permissions fail --format quiet codex sessions ensure --name "ca-codex-$(basename "$PWD")"
+acpx --cwd "$PWD" --approve-all --non-interactive-permissions fail --format quiet codex -s "ca-codex-$(basename "$PWD")" "Reply with READY only."
+```
+
+Wrapper note:
+- `scripts/lib/acpx-wrapper.sh` treats ACPX globals as wrapper-owned. Do not
+  forward `--timeout` (or other ACPX globals) through agent subcommand args.
+- Use `ACPX_RUN_TIMEOUT=<seconds>` to bound wrapper calls instead.
 
 4. Repeatable local smoke check from this repo:
 ```bash

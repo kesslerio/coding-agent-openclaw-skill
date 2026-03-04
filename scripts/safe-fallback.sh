@@ -31,6 +31,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resolve-cli.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/acpx-wrapper.sh"
 ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
 # Timeouts
@@ -52,6 +54,9 @@ if [[ "$CODING_AGENT_ACP_ENABLE" != "0" && "$CODING_AGENT_ACP_ENABLE" != "1" ]];
   exit 1
 fi
 CODING_AGENT_ACP_AGENT=${CODING_AGENT_ACP_AGENT:-codex}
+CODING_AGENT_ACP_APPROVE_ALL=${CODING_AGENT_ACP_APPROVE_ALL:-1}
+CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS=${CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS:-fail}
+CODING_AGENT_ACP_SESSION_MODE=${CODING_AGENT_ACP_SESSION_MODE:-}
 
 # Colors
 RED='\033[0;31m'
@@ -117,9 +122,27 @@ build_acpx_prompt() {
   printf '%s\n' "$PROMPT"
 }
 
+derive_acpx_session_name() {
+  if [[ -n "${CODING_AGENT_ACP_SESSION:-}" ]]; then
+    printf '%s\n' "$CODING_AGENT_ACP_SESSION"
+    return 0
+  fi
+  local repo_token
+  repo_token="$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+  if [[ -z "$repo_token" ]]; then
+    repo_token="workspace"
+  fi
+  printf 'ca-%s-%s\n' "$CODING_AGENT_ACP_AGENT" "$repo_token"
+}
+
 try_acpx() {
   if [[ "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
     FAILURES+=("ACPX: disabled (set CODING_AGENT_ACP_ENABLE=1 to enable)")
+    return 1
+  fi
+
+  if ! acpx_validate_policy_env; then
+    FAILURES+=("ACPX: invalid policy env (CODING_AGENT_ACP_APPROVE_ALL/CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS)")
     return 1
   fi
 
@@ -140,14 +163,34 @@ try_acpx() {
 
   local acpx_prompt
   acpx_prompt="$(build_acpx_prompt)"
+  local acpx_session
+  acpx_session="$(derive_acpx_session_name)"
 
-  info "Trying ACPX (${CODING_AGENT_ACP_AGENT})..."
-  if timeout "${TIMEOUT}s" "$acpx_bin" --cwd "$PWD" --format quiet "$CODING_AGENT_ACP_AGENT" exec "$acpx_prompt"; then
+  info "Trying ACPX (${CODING_AGENT_ACP_AGENT}) session=${acpx_session}..."
+  if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session"; then
+    FAILURES+=("ACPX: sessions ensure failed")
+    return 1
+  fi
+
+  if [[ -n "$CODING_AGENT_ACP_SESSION_MODE" ]]; then
+    if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE"; then
+      warn "ACPX set-mode failed; continuing with existing mode"
+    fi
+  fi
+
+  local acpx_log
+  acpx_log="$(mktemp)"
+  if ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" -s "$acpx_session" "$acpx_prompt" >"$acpx_log" 2>&1; then
+    cat "$acpx_log"
+    rm -f "$acpx_log"
     ok "ACPX succeeded"
     return 0
   fi
+  warn "ACPX failed; tail follows:"
+  tail -n 20 "$acpx_log" >&2 || true
+  rm -f "$acpx_log"
 
-  FAILURES+=("ACPX: exec failed or timeout")
+  FAILURES+=("ACPX: session prompt failed or timeout")
   return 1
 }
 
