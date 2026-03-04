@@ -14,7 +14,7 @@ ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  plan-review-live-lobster [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>] [--resolve-file <path>] [--decisions <csv>] [--blocking <csv|none>] [--non-tty <auto|error>] [--resume-token <token>] [--workflow <path>]
+  plan-review-live-lobster [--repo <path>] [--base <branch>] [--plan <path>] [--model <name>] [--output <path>] [--resolve-file <path>] [--decisions <csv>] [--blocking <csv|none>] [--non-tty <auto|error>] [--resume-token <token>] [--resume-missing-state <auto|error>] [--workflow <path>]
 
 Defaults:
   --repo   current working directory
@@ -22,6 +22,7 @@ Defaults:
   --plan   latest generated .ai/plans/*.md (timestamped filename)
   --output .ai/plan-reviews/<timestamp>-<plan-id>.md
   --non-tty auto
+  --resume-missing-state auto
 USAGE
 }
 
@@ -35,9 +36,11 @@ DECISIONS_INPUT=""
 BLOCKING_INPUT=""
 NON_TTY_MODE="auto"
 RESUME_TOKEN=""
+RESUME_MISSING_STATE="${PLAN_REVIEW_LIVE_RESUME_MISSING_STATE:-auto}"
 WORKFLOW_FILE="${PLAN_REVIEW_LOBSTER_FILE:-$DEFAULT_WORKFLOW_FILE}"
 SECTION_TIMEOUT="${PLAN_REVIEW_LIVE_SECTION_TIMEOUT:-600}"
 TOTAL_TIMEOUT="${PLAN_REVIEW_LIVE_TOTAL_TIMEOUT:-2400}"
+DECISION_TIMEOUT="${PLAN_REVIEW_LIVE_DECISION_TIMEOUT:-600}"
 ALLOW_NON_TTY="${PLAN_REVIEW_LIVE_ALLOW_NON_TTY:-0}"
 STATUS_PING_SECONDS="${CODING_AGENT_STATUS_PING_SECONDS:-20}"
 LONG_RUN_THRESHOLD_SECONDS="${CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS:-30}"
@@ -51,6 +54,7 @@ RUN_FINALIZED=0
 LAST_RESUME_TOKEN=""
 LAST_PENDING_SECTION_NAME=""
 LAST_PENDING_RESUME_TOKEN=""
+AUTO_RESTARTED_FROM_MISSING_STATE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -94,6 +98,10 @@ while [[ $# -gt 0 ]]; do
       RESUME_TOKEN="${2:-}"
       shift 2
       ;;
+    --resume-missing-state)
+      RESUME_MISSING_STATE="${2:-}"
+      shift 2
+      ;;
     --workflow)
       WORKFLOW_FILE="${2:-}"
       shift 2
@@ -116,6 +124,14 @@ if [[ ! "$STATUS_PING_SECONDS" =~ ^[0-9]+$ ]] || (( STATUS_PING_SECONDS <= 0 ));
 fi
 if [[ ! "$LONG_RUN_THRESHOLD_SECONDS" =~ ^[0-9]+$ ]] || (( LONG_RUN_THRESHOLD_SECONDS < 0 )); then
   echo "Error: CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS must be a non-negative integer (seconds)" >&2
+  exit 1
+fi
+if [[ ! "$DECISION_TIMEOUT" =~ ^[0-9]+$ ]] || (( DECISION_TIMEOUT <= 0 )); then
+  echo "Error: PLAN_REVIEW_LIVE_DECISION_TIMEOUT must be a positive integer (seconds)" >&2
+  exit 1
+fi
+if [[ "$RESUME_MISSING_STATE" != "auto" && "$RESUME_MISSING_STATE" != "error" ]]; then
+  echo "Error: --resume-missing-state must be auto or error" >&2
   exit 1
 fi
 
@@ -382,6 +398,59 @@ Examples:
   ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
   ./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
 TXT
+}
+
+emit_diagnostic_snapshot() {
+  local reason="$1"
+  local section="${2:-unknown}"
+  echo "DIAGNOSTIC reason=$reason plan_id=$PLAN_ID section=$section output_path=$OUTPUT_PATH session_state_path=$SESSION_STATE_PATH response_file=$RESPONSE_FILE" >&2
+  if [[ -f "$SESSION_STATE_PATH" ]]; then
+    echo "DIAGNOSTIC session_state_exists=true" >&2
+  else
+    echo "DIAGNOSTIC session_state_exists=false" >&2
+  fi
+  if [[ -f "$RESPONSE_FILE" ]]; then
+    echo "DIAGNOSTIC response_file_exists=true" >&2
+  else
+    echo "DIAGNOSTIC response_file_exists=false" >&2
+  fi
+}
+
+read_decision_input() {
+  local section_name="$1"
+  local input_type="$2"
+  local __result_var="$3"
+  local prompt_label="$input_type"
+  local input=""
+  local rc=0
+
+  if [[ "$input_type" == "selected" ]]; then
+    prompt_label="selected decision labels"
+  elif [[ "$input_type" == "blocking" ]]; then
+    prompt_label="unresolved blocking decision IDs/descriptions"
+  fi
+
+  echo "[$section_name] Enter ${prompt_label} (comma-separated, or none):" >&2
+  set +e
+  IFS= read -r -t "$DECISION_TIMEOUT" input
+  rc=$?
+  set -e
+  if (( rc == 0 )); then
+    printf -v "$__result_var" '%s' "$input"
+    return 0
+  fi
+
+  if (( rc == 142 )); then
+    echo "Error: timed out waiting ${DECISION_TIMEOUT}s for [$section_name] $prompt_label input." >&2
+    emit_diagnostic_snapshot "decision_input_timeout" "$section_name"
+    emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID reason=decision_input_timeout section=$section_name wait=${DECISION_TIMEOUT}s repo=$REPO_PATH"
+  else
+    echo "Error: failed to read [$section_name] $prompt_label input (rc=$rc)." >&2
+    emit_diagnostic_snapshot "decision_input_read_error" "$section_name"
+    emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID reason=decision_input_read_error section=$section_name rc=$rc repo=$REPO_PATH"
+  fi
+  RUN_FINALIZED=1
+  exit 1
 }
 
 parse_resolution_file() {
@@ -757,19 +826,29 @@ fi
 
 if [[ -n "$RESUME_TOKEN" ]]; then
   if [[ ! -f "$SESSION_STATE_PATH" ]]; then
-    echo "Error: resume token requires existing session state: $SESSION_STATE_PATH" >&2
-    echo "Restart without --resume-token to begin a new live review session." >&2
-    exit 1
+    if [[ "$RESUME_MISSING_STATE" == "error" ]]; then
+      echo "Error: resume token requires existing session state: $SESSION_STATE_PATH" >&2
+      echo "Restart without --resume-token to begin a new live review session." >&2
+      echo "Recovery command: ./scripts/plan-review-live --repo \"$REPO_PATH\" --plan \"$PLAN_PATH\" --output \"$OUTPUT_PATH\"" >&2
+      exit 1
+    fi
+    echo "Warning: session state missing for resume token; restarting live review without --resume-token." >&2
+    emit_run_event "recovered" "phase=plan-review mode=live plan_id=$PLAN_ID reason=missing_session_state action=restart repo=$REPO_PATH"
+    RESUME_TOKEN=""
+    AUTO_RESTARTED_FROM_MISSING_STATE=1
+    reset_session_state
   fi
-  load_session_state
-  if [[ -n "$LAST_RESUME_TOKEN" && "$LAST_RESUME_TOKEN" != "$RESUME_TOKEN" ]]; then
-    echo "Warning: provided --resume-token does not match session state's last resume token; continuing anyway." >&2
+  if [[ -n "$RESUME_TOKEN" ]]; then
+    load_session_state
+    if [[ -n "$LAST_RESUME_TOKEN" && "$LAST_RESUME_TOKEN" != "$RESUME_TOKEN" ]]; then
+      echo "Warning: provided --resume-token does not match session state's last resume token; continuing anyway." >&2
+    fi
   fi
 else
   reset_session_state
 fi
 
-if [[ -f "$OUTPUT_PATH" ]]; then
+if [[ -f "$OUTPUT_PATH" && "$AUTO_RESTARTED_FROM_MISSING_STATE" != "1" ]]; then
   cp "$OUTPUT_PATH" "$TMP_OUTPUT"
 else
   {
@@ -792,11 +871,9 @@ if [[ -n "$RESUME_TOKEN" ]]; then
       echo "Warning: pending section token in session state differs from --resume-token." >&2
     fi
     echo "[$LAST_PENDING_SECTION_NAME] Resume recovered pending checkpoint." >&2
-    echo "[$LAST_PENDING_SECTION_NAME] Enter selected decision labels (comma-separated, or none):" >&2
-    read -r selected_input
+    read_decision_input "$LAST_PENDING_SECTION_NAME" "selected" selected_input
     append_list_entries "$selected_input" "$RESOLVED_FILE"
-    echo "[$LAST_PENDING_SECTION_NAME] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
-    read -r blocking_input
+    read_decision_input "$LAST_PENDING_SECTION_NAME" "blocking" blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
     save_session_state "$RESUME_TOKEN"
   fi
@@ -834,12 +911,10 @@ while true; do
     echo "[$section_name] Resume token: $token" >&2
     save_session_state "$token" "$section_name" "$token"
 
-    echo "[$section_name] Enter selected decision labels (comma-separated, or none):" >&2
-    read -r selected_input
+    read_decision_input "$section_name" "selected" selected_input
     append_list_entries "$selected_input" "$RESOLVED_FILE"
 
-    echo "[$section_name] Enter unresolved blocking decision IDs/descriptions (comma-separated, or none):" >&2
-    read -r blocking_input
+    read_decision_input "$section_name" "blocking" blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
     save_session_state "$token"
 

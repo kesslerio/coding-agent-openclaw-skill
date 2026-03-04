@@ -25,6 +25,11 @@ PLAN_PATH=""
 FORCE=0
 PROMPT=""
 EXEC_REPO="$(pwd)"
+NON_TTY=0
+
+if [[ ! -t 0 || ! -t 1 ]]; then
+  NON_TTY=1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -285,6 +290,15 @@ if [[ -n "$PLAN_PATH" ]]; then
   fi
 
   if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
+    if (( NON_TTY == 1 )); then
+      echo "Error: plan $plan_id is ${status:-PENDING} and code-implement is running without an interactive terminal." >&2
+      echo "Resolve plan decisions before implementation or use --force explicitly." >&2
+      echo "Examples:" >&2
+      echo "  ./scripts/plan-review-live --plan \"$PLAN_PATH\" --decisions \"1A,2B,3A,4A\" --blocking none" >&2
+      echo "  ./scripts/plan-review-live --plan \"$PLAN_PATH\" --resolve-file /path/to/decisions.json" >&2
+      echo "  ./scripts/code-implement --plan \"$PLAN_PATH\" --force" >&2
+      exit 1
+    fi
     echo "⚠️  Plan $plan_id is currently ${status:-PENDING}."
     read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
     case "${answer,,}" in

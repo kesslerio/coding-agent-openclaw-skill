@@ -31,10 +31,18 @@ This repository contains the `plan-review-live` Lobster workflow used by
 
 # Resume a paused Lobster run
 ./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
+
+# Optional strict mode when resume state is missing
+./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 ```
 
 Resume behavior persists decision state in:
 - `<review-markdown-path>.lobster-session.json`
+
+By default, if `--resume-token` is provided but session state is missing, the
+wrapper auto-recovers by restarting live mode without the resume token.
+Use `--resume-missing-state error` (or env override below) to keep strict fail
+behavior.
 
 That file is removed automatically when the live review completes successfully.
 
@@ -44,4 +52,6 @@ That file is removed automatically when the live review completes successfully.
 - `PLAN_REVIEW_LOBSTER_FILE`: override workflow file path.
 - `PLAN_REVIEW_LIVE_SECTION_TIMEOUT`: per-section timeout seconds.
 - `PLAN_REVIEW_LIVE_TOTAL_TIMEOUT`: total timeout budget seconds.
+- `PLAN_REVIEW_LIVE_DECISION_TIMEOUT`: timeout for each interactive decision prompt (default `600`).
+- `PLAN_REVIEW_LIVE_RESUME_MISSING_STATE`: `auto` (default) or `error`.
 - `PLAN_REVIEW_LIVE_ALLOW_NON_TTY`: allow live mode in non-TTY for scripted runs.

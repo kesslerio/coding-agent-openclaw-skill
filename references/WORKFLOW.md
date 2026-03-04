@@ -241,13 +241,16 @@ For non-trivial work, generate a plan artifact before implementation:
 ./scripts/plan-review-live --repo /path/to/repo --decisions "1A,2B,3A,4A" --blocking none
 # Or:
 ./scripts/plan-review-live --repo /path/to/repo --resolve-file /path/to/decisions.json
+# Optional strict resume behavior:
+./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
 `code-implement --plan` now enforces the latest per-plan review metadata gate. `plan-review-live`
 uses the in-repo Lobster workflow by default and falls back to the legacy live-review engine when
-Lobster is unavailable. Use `plan-review-live` to resolve blocking decisions before execution, or
-`--force` to bypass explicitly.
+Lobster is unavailable. In non-TTY orchestration, `code-implement --plan` fails fast when plan
+status is not `APPROVED` instead of blocking on interactive confirmation. Use `plan-review-live` to
+resolve blocking decisions before execution, or `--force` to bypass explicitly.
 
 ### Code Review Process
 

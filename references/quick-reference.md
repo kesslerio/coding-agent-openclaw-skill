@@ -156,7 +156,10 @@ claude --resume
 # Resume a paused Lobster run
 ./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 
-# Execute approved plan (prompts for approval if still PENDING)
+# Keep strict resume behavior when state is missing (default is auto-restart)
+./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
+
+# Execute approved plan (non-TTY runs fail fast if still PENDING)
 # Requires latest plan-review metadata to be ready unless --force is used.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
