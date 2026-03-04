@@ -688,8 +688,40 @@ test_acpx_wrapper_rejects_forwarded_timeout() {
 test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout() {
   local acpx_args="$tmp_dir/acpx-smoke-local-args.txt"
   local output="$tmp_dir/acp-smoke-local-output.txt"
+  local smoke_bin="$tmp_dir/acp-smoke-bin"
 
-  PATH="$fake_bin:$PATH" \
+  mkdir -p "$smoke_bin"
+  ln -sf "$fake_bin/acpx" "$smoke_bin/acpx"
+  ln -sf "$fake_bin/timeout" "$smoke_bin/timeout"
+
+  cat >"$smoke_bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  exit 2
+fi
+
+mode="$1"
+shift
+pattern="$1"
+shift
+
+case "$mode" in
+  -q)
+    grep -E -q -- "$pattern" "$@"
+    ;;
+  -qi)
+    grep -E -q -i -- "$pattern" "$@"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+EOF
+  chmod +x "$smoke_bin/rg"
+
+  PATH="$smoke_bin:$PATH" \
   SMOKE_ACPX_BEHAVIOR=smoke-local \
   SMOKE_ACPX_ARGS_FILE="$acpx_args" \
   CODING_AGENT_ACP_SMOKE_TIMEOUT=5 \
