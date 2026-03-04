@@ -25,10 +25,10 @@ PLAN_PATH=""
 FORCE=0
 PROMPT=""
 EXEC_REPO="$(pwd)"
-NON_TTY=0
+NON_INTERACTIVE_STDIN=0
 
-if [[ ! -t 0 || ! -t 1 ]]; then
-  NON_TTY=1
+if [[ ! -t 0 ]]; then
+  NON_INTERACTIVE_STDIN=1
 fi
 
 while [[ $# -gt 0 ]]; do
@@ -290,8 +290,8 @@ if [[ -n "$PLAN_PATH" ]]; then
   fi
 
   if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
-    if (( NON_TTY == 1 )); then
-      echo "Error: plan $plan_id is ${status:-PENDING} and code-implement is running without an interactive terminal." >&2
+    if (( NON_INTERACTIVE_STDIN == 1 )); then
+      echo "Error: plan $plan_id is ${status:-PENDING} and code-implement is running without interactive stdin." >&2
       echo "Resolve plan decisions before implementation or use --force explicitly." >&2
       echo "Examples:" >&2
       echo "  ./scripts/plan-review-live --plan \"$PLAN_PATH\" --decisions \"1A,2B,3A,4A\" --blocking none" >&2

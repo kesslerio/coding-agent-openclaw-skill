@@ -877,6 +877,8 @@ if [[ -n "$RESUME_TOKEN" ]]; then
     echo "[$LAST_PENDING_SECTION_NAME] Resume recovered pending checkpoint." >&2
     read_decision_input "$LAST_PENDING_SECTION_NAME" "selected" selected_input
     append_list_entries "$selected_input" "$RESOLVED_FILE"
+    # Persist selected decisions immediately so timeout on blocking input is resumable.
+    save_session_state "$RESUME_TOKEN" "$LAST_PENDING_SECTION_NAME" "$LAST_PENDING_RESUME_TOKEN"
     read_decision_input "$LAST_PENDING_SECTION_NAME" "blocking" blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
     save_session_state "$RESUME_TOKEN"
@@ -917,6 +919,8 @@ while true; do
 
     read_decision_input "$section_name" "selected" selected_input
     append_list_entries "$selected_input" "$RESOLVED_FILE"
+    # Persist selected decisions immediately so timeout on blocking input is resumable.
+    save_session_state "$token" "$section_name" "$token"
 
     read_decision_input "$section_name" "blocking" blocking_input
     append_list_entries "$blocking_input" "$BLOCKING_FILE"
