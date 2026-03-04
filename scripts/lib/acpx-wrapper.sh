@@ -31,7 +31,7 @@ acpx_run_canonical() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      --cwd|--format|--approve-all|--approve-reads|--deny-all|--non-interactive-permissions|--timeout)
+      --cwd|--cwd=*|--format|--format=*|--approve-all|--approve-all=*|--approve-reads|--approve-reads=*|--deny-all|--deny-all=*|--non-interactive-permissions|--non-interactive-permissions=*|--timeout|--timeout=*)
         printf 'Error: non-canonical ACPX invocation: pass global flags via acpx_run_canonical only (got %s)\n' "$arg" >&2
         return 1
         ;;

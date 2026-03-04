@@ -57,9 +57,6 @@ CODING_AGENT_ACP_AGENT=${CODING_AGENT_ACP_AGENT:-codex}
 CODING_AGENT_ACP_APPROVE_ALL=${CODING_AGENT_ACP_APPROVE_ALL:-1}
 CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS=${CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS:-fail}
 CODING_AGENT_ACP_SESSION_MODE=${CODING_AGENT_ACP_SESSION_MODE:-}
-if ! acpx_validate_policy_env; then
-  exit 1
-fi
 
 # Colors
 RED='\033[0;31m'
@@ -141,6 +138,11 @@ derive_acpx_session_name() {
 try_acpx() {
   if [[ "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
     FAILURES+=("ACPX: disabled (set CODING_AGENT_ACP_ENABLE=1 to enable)")
+    return 1
+  fi
+
+  if ! acpx_validate_policy_env; then
+    FAILURES+=("ACPX: invalid policy env (CODING_AGENT_ACP_APPROVE_ALL/CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS)")
     return 1
   fi
 

@@ -673,8 +673,30 @@ test_acp_disable_skips_acpx() {
   assert_contains "$codex_args" "$prompt"
 }
 
+test_acp_disable_ignores_invalid_policy_env() {
+  local prompt="ACP disabled should ignore policy env validation."
+  local acpx_args="$tmp_dir/acpx-disabled-invalid-policy-args.txt"
+  local codex_args="$tmp_dir/codex-disabled-invalid-policy-args.txt"
+  local output="$tmp_dir/acpx-disabled-invalid-policy.txt"
+
+  PATH="$fake_bin:$PATH" \
+  CODING_AGENT_ACP_ENABLE=0 \
+  CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS=ask \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  SMOKE_CODEX_ARGS_FILE="$codex_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
+
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
+  assert_contains "$codex_args" "exec"
+  assert_contains "$codex_args" "$prompt"
+}
+
 test_acpx_wrapper_rejects_forwarded_timeout() {
   local output="$tmp_dir/acpx-wrapper-timeout-reject.txt"
+  local output_equals="$tmp_dir/acpx-wrapper-timeout-equals-reject.txt"
 
   if bash -lc 'source "$1"; acpx_run_canonical /bin/echo "$2" text codex --timeout 90 -s smoke "prompt"' _ "$SCRIPT_DIR/lib/acpx-wrapper.sh" "$PWD" >"$output" 2>&1; then
     echo "Expected acpx_run_canonical to reject forwarded --timeout flag" >&2
@@ -683,6 +705,14 @@ test_acpx_wrapper_rejects_forwarded_timeout() {
 
   assert_contains "$output" "non-canonical ACPX invocation"
   assert_contains "$output" "(got --timeout)"
+
+  if bash -lc 'source "$1"; acpx_run_canonical /bin/echo "$2" text codex --timeout=90 -s smoke "prompt"' _ "$SCRIPT_DIR/lib/acpx-wrapper.sh" "$PWD" >"$output_equals" 2>&1; then
+    echo "Expected acpx_run_canonical to reject forwarded --timeout= flag" >&2
+    exit 1
+  fi
+
+  assert_contains "$output_equals" "non-canonical ACPX invocation"
+  assert_contains "$output_equals" "(got --timeout=90)"
 }
 
 test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout() {
@@ -1604,6 +1634,7 @@ test_review_uses_codex_review_first
 test_acp_agent_alias_forwarded
 test_acpx_cmd_override_is_used
 test_acp_disable_skips_acpx
+test_acp_disable_ignores_invalid_policy_env
 test_acpx_wrapper_rejects_forwarded_timeout
 test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout
 test_code_plan_generates_artifact
