@@ -55,6 +55,8 @@ LAST_RESUME_TOKEN=""
 LAST_PENDING_SECTION_NAME=""
 LAST_PENDING_RESUME_TOKEN=""
 AUTO_RESTARTED_FROM_MISSING_STATE=0
+selected_input=""
+blocking_input=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -441,10 +443,12 @@ read_decision_input() {
   fi
 
   if (( rc == 142 )); then
+    stop_heartbeat
     echo "Error: timed out waiting ${DECISION_TIMEOUT}s for [$section_name] $prompt_label input." >&2
     emit_diagnostic_snapshot "decision_input_timeout" "$section_name"
     emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID reason=decision_input_timeout section=$section_name wait=${DECISION_TIMEOUT}s repo=$REPO_PATH"
   else
+    stop_heartbeat
     echo "Error: failed to read [$section_name] $prompt_label input (rc=$rc)." >&2
     emit_diagnostic_snapshot "decision_input_read_error" "$section_name"
     emit_run_event "failed" "phase=plan-review mode=live plan_id=$PLAN_ID reason=decision_input_read_error section=$section_name rc=$rc repo=$REPO_PATH"
