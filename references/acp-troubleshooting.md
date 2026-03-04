@@ -53,6 +53,11 @@ acpx --cwd "$PWD" --approve-all --non-interactive-permissions fail --format quie
 acpx --cwd "$PWD" --approve-all --non-interactive-permissions fail --format quiet codex -s "ca-codex-$(basename "$PWD")" "Reply with READY only."
 ```
 
+Wrapper note:
+- `scripts/lib/acpx-wrapper.sh` treats ACPX globals as wrapper-owned. Do not
+  forward `--timeout` (or other ACPX globals) through agent subcommand args.
+- Use `ACPX_RUN_TIMEOUT=<seconds>` to bound wrapper calls instead.
+
 4. Repeatable local smoke check from this repo:
 ```bash
 ./scripts/acp-smoke-local.sh

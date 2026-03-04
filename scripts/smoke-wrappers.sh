@@ -166,6 +166,27 @@ case "${SMOKE_ACPX_BEHAVIOR:-fail}" in
     printf 'acpx ok\n'
     exit 0
     ;;
+  smoke-local)
+    args=" $* "
+    if [[ "$args" == *" status "* ]]; then
+      printf '{"ok":true}\n'
+      exit 0
+    fi
+    if [[ "$args" == *" sessions ensure "* ]]; then
+      printf '{"ok":true}\n'
+      exit 0
+    fi
+    if [[ "$args" == *" sessions close "* ]]; then
+      printf '{"ok":true}\n'
+      exit 0
+    fi
+    if [[ "$args" == *" -s "* ]]; then
+      printf 'READY\n'
+      exit 0
+    fi
+    printf 'unexpected smoke-local invocation\n' >&2
+    exit 1
+    ;;
   fail)
     printf 'acpx fail\n' >&2
     exit 1
@@ -650,6 +671,36 @@ test_acp_disable_skips_acpx() {
   fi
   assert_contains "$codex_args" "exec"
   assert_contains "$codex_args" "$prompt"
+}
+
+test_acpx_wrapper_rejects_forwarded_timeout() {
+  local output="$tmp_dir/acpx-wrapper-timeout-reject.txt"
+
+  if bash -lc 'source "$1"; acpx_run_canonical /bin/echo "$2" text codex --timeout 90 -s smoke "prompt"' _ "$SCRIPT_DIR/lib/acpx-wrapper.sh" "$PWD" >"$output" 2>&1; then
+    echo "Expected acpx_run_canonical to reject forwarded --timeout flag" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "non-canonical ACPX invocation"
+  assert_contains "$output" "(got --timeout)"
+}
+
+test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout() {
+  local acpx_args="$tmp_dir/acpx-smoke-local-args.txt"
+  local output="$tmp_dir/acp-smoke-local-output.txt"
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_ACPX_BEHAVIOR=smoke-local \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  CODING_AGENT_ACP_SMOKE_TIMEOUT=5 \
+  "$SCRIPT_DIR/acp-smoke-local.sh" >"$output" 2>&1
+
+  assert_contains "$output" "Smoke passed."
+  assert_contains "$acpx_args" "sessions"
+  assert_contains "$acpx_args" "ensure"
+  assert_contains "$acpx_args" "-s"
+  assert_contains "$acpx_args" "Reply with READY only."
+  assert_not_contains "$acpx_args" "--timeout"
 }
 
 test_code_plan_generates_artifact() {
@@ -1521,6 +1572,8 @@ test_review_uses_codex_review_first
 test_acp_agent_alias_forwarded
 test_acpx_cmd_override_is_used
 test_acp_disable_skips_acpx
+test_acpx_wrapper_rejects_forwarded_timeout
+test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout
 test_code_plan_generates_artifact
 test_safe_impl_claude_plan_mode_no_dangerous_skip
 test_plan_review_generates_artifact

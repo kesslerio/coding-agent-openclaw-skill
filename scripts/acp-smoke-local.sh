@@ -74,7 +74,7 @@ printf '[ok] session ready\n'
 
 exec_log="$tmp_dir/exec.log"
 printf '\n[step] session prompt (-s)\n'
-if ! ACPX_RUN_TIMEOUT="$RUN_TIMEOUT" acpx_run_canonical acpx "$PWD" text "$AGENT" --timeout 90 -s "$SMOKE_SESSION" "$PROMPT" >"$exec_log" 2>&1; then
+if ! ACPX_RUN_TIMEOUT="$RUN_TIMEOUT" acpx_run_canonical acpx "$PWD" text "$AGENT" -s "$SMOKE_SESSION" "$PROMPT" >"$exec_log" 2>&1; then
   fail_with_log 'session prompt command failed' "$exec_log"
 fi
 assert_no_runtime_loader_errors "$exec_log"
