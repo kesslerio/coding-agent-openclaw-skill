@@ -1098,6 +1098,55 @@ EOF
   assert_contains "$output" "reason=decision_input_timeout"
 }
 
+test_plan_review_live_lobster_timeout_on_blocking_keeps_selected_decisions() {
+  local repo="$tmp_dir/repo-plan-review-live-lobster-timeout-blocking"
+  local output_file="$repo/.ai/plan-reviews/live-output.md"
+  local lobster_state="$tmp_dir/lobster-state-timeout-blocking.txt"
+  local output="$tmp_dir/plan-review-live-lobster-timeout-blocking.out"
+  local session_state="${output_file}.lobster-session.json"
+  local fifo="$tmp_dir/plan-review-live-timeout-blocking.fifo"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000004e-live.md" <<'EOF'
+---
+id: 2026-02-19-000004e-live
+status: APPROVED
+---
+
+# Plan: Live Lobster Blocking Timeout Persistence
+EOF
+
+  mkfifo "$fifo"
+  exec 9<>"$fifo"
+  # Feed selected decisions once; keep fd open so blocking prompt times out.
+  printf '1A\n' >&9
+  set +e
+  PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    PLAN_REVIEW_LIVE_DECISION_TIMEOUT=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004e-live.md" --output "$output_file" > "$output" 2>&1 <&9
+  rc=$?
+  set -e
+  exec 9>&-
+  rm -f "$fifo"
+
+  if [[ "$rc" -eq 0 ]]; then
+    echo "Expected lobster live review to fail on blocking input timeout" >&2
+    exit 1
+  fi
+  [[ -f "$session_state" ]] || { echo "Expected session state to persist after blocking timeout" >&2; exit 1; }
+  assert_contains "$session_state" "\"resolved_decisions\": [\"1A\"]"
+  assert_contains "$session_state" "\"pending_section_name\": \"Architecture\""
+  assert_contains "$output" "reason=decision_input_timeout"
+}
+
 test_plan_review_live_generates_ready_metadata() {
   local repo="$tmp_dir/repo-plan-review-live"
   local codex_args="$tmp_dir/codex-plan-review-live-args.txt"
@@ -1529,7 +1578,7 @@ EOF
     exit 1
   fi
 
-  assert_contains "$output" "running without an interactive terminal"
+  assert_contains "$output" "running without interactive stdin"
   assert_contains "$output" "Resolve plan decisions before implementation or use --force explicitly."
   assert_not_contains "$output" "Do you approve this plan for execution?"
   assert_not_contains "$output" "Execution cancelled."
@@ -1779,6 +1828,7 @@ test_plan_review_live_lobster_default_engine
 test_plan_review_live_lobster_resume_preserves_decisions
 test_plan_review_live_lobster_resume_missing_state_auto_restarts
 test_plan_review_live_lobster_decision_timeout_fails_fast
+test_plan_review_live_lobster_timeout_on_blocking_keeps_selected_decisions
 test_plan_review_live_generates_ready_metadata
 test_plan_review_live_non_tty_auto_apply_with_flags
 test_plan_review_live_resolution_inputs_override_allow_non_tty
