@@ -997,6 +997,107 @@ EOF
   [[ ! -f "$session_state" ]] || { echo "Expected session state file to be cleared after completion" >&2; exit 1; }
 }
 
+test_plan_review_live_lobster_resume_missing_state_auto_restarts() {
+  local repo="$tmp_dir/repo-plan-review-live-lobster-resume-missing-state"
+  local output_file="$repo/.ai/plan-reviews/live-output.md"
+  local lobster_state="$tmp_dir/lobster-state-resume-missing.txt"
+  local session_state
+  local step2_out="$tmp_dir/plan-review-live-lobster-resume-missing-step2.out"
+  session_state="${output_file}.lobster-session.json"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000004c-live.md" <<'EOF'
+---
+id: 2026-02-19-000004c-live
+status: APPROVED
+---
+
+# Plan: Live Lobster Resume Missing State
+EOF
+
+  # First run intentionally leaves a session state artifact.
+  set +e
+  printf '1A\nnone\n' | \
+    PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004c-live.md" --output "$output_file" > "$tmp_dir/plan-review-live-lobster-resume-missing-step1.out" 2>&1
+  step1_rc=$?
+  set -e
+  if [[ "$step1_rc" -eq 0 ]]; then
+    echo "Expected first lobster run to stop early due missing stdin decisions" >&2
+    exit 1
+  fi
+  [[ -f "$session_state" ]] || { echo "Expected lobster session state file before deletion" >&2; exit 1; }
+  rm -f "$session_state"
+
+  printf '1A\nnone\n2A\nnone\n3A\nnone\n4A\nnone\n' | \
+    PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004c-live.md" --output "$output_file" --resume-token "token-2" > "$step2_out" 2>&1
+
+  assert_contains "$step2_out" "session state missing for resume token; restarting live review without --resume-token"
+  assert_contains "$step2_out" "RUN_EVENT recovered"
+
+  local latest_metadata="$repo/.ai/plan-reviews/latest-2026-02-19-000004c-live.json"
+  [[ -f "$latest_metadata" ]] || { echo "Expected lobster resume latest metadata file for missing-state recovery" >&2; exit 1; }
+  assert_contains "$latest_metadata" "\"ready_for_implementation\": true"
+  assert_contains "$latest_metadata" "\"resolved_decisions\": [\"1A\", \"2A\", \"3A\", \"4A\"]"
+}
+
+test_plan_review_live_lobster_decision_timeout_fails_fast() {
+  local repo="$tmp_dir/repo-plan-review-live-lobster-timeout"
+  local output_file="$repo/.ai/plan-reviews/live-output.md"
+  local lobster_state="$tmp_dir/lobster-state-timeout.txt"
+  local output="$tmp_dir/plan-review-live-lobster-timeout.out"
+  local fifo="$tmp_dir/plan-review-live-timeout.fifo"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$repo/.ai/plans/2026-02-19-000004d-live.md" <<'EOF'
+---
+id: 2026-02-19-000004d-live
+status: APPROVED
+---
+
+# Plan: Live Lobster Decision Timeout
+EOF
+
+  mkfifo "$fifo"
+  exec 9<>"$fifo"
+  set +e
+  PATH="$fake_bin:$PATH" \
+    PLAN_REVIEW_LIVE_ALLOW_NON_TTY=1 \
+    PLAN_REVIEW_LIVE_DECISION_TIMEOUT=1 \
+    SMOKE_LOBSTER_STATE_FILE="$lobster_state" \
+    "$SCRIPT_DIR/plan-review-live" --repo "$repo" --plan "$repo/.ai/plans/2026-02-19-000004d-live.md" --output "$output_file" > "$output" 2>&1 <&9
+  rc=$?
+  set -e
+  exec 9>&-
+  rm -f "$fifo"
+
+  if [[ "$rc" -eq 0 ]]; then
+    echo "Expected lobster live review to fail on decision input timeout" >&2
+    exit 1
+  fi
+  assert_contains "$output" "timed out waiting 1s"
+  assert_contains "$output" "DIAGNOSTIC reason=decision_input_timeout"
+  assert_contains "$output" "RUN_EVENT failed"
+  assert_contains "$output" "reason=decision_input_timeout"
+}
+
 test_plan_review_live_generates_ready_metadata() {
   local repo="$tmp_dir/repo-plan-review-live"
   local codex_args="$tmp_dir/codex-plan-review-live-args.txt"
@@ -1401,6 +1502,39 @@ test_code_implement_blocks_when_unresolved_blockers_exist() {
   assert_contains "$output" "ready_for_implementation=false"
 }
 
+test_code_implement_non_tty_pending_plan_fails_fast() {
+  local repo="$tmp_dir/repo-code-implement-non-tty-pending"
+  local plan_path="$repo/.ai/plans/2026-02-19-000012b-pending.md"
+  local output="$tmp_dir/code-implement-non-tty-pending.out"
+  mkdir -p "$repo/.ai/plans"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  cat > "$plan_path" <<EOF
+---
+id: 2026-02-19-000012b-pending
+status: PENDING
+repo_path: $repo
+---
+
+# Plan: Pending for Non-TTY Guard
+EOF
+
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" > "$output" 2>&1); then
+    echo "Expected code-implement to fail fast for non-tty pending plan" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "running without an interactive terminal"
+  assert_contains "$output" "Resolve plan decisions before implementation or use --force explicitly."
+  assert_not_contains "$output" "Do you approve this plan for execution?"
+  assert_not_contains "$output" "Execution cancelled."
+}
+
 test_code_implement_allows_ready_metadata() {
   local repo="$tmp_dir/repo-code-implement-ready"
   mkdir -p "$repo/.ai/plan-reviews"
@@ -1643,6 +1777,8 @@ test_plan_review_generates_artifact
 test_plan_review_output_parent_dirs_created
 test_plan_review_live_lobster_default_engine
 test_plan_review_live_lobster_resume_preserves_decisions
+test_plan_review_live_lobster_resume_missing_state_auto_restarts
+test_plan_review_live_lobster_decision_timeout_fails_fast
 test_plan_review_live_generates_ready_metadata
 test_plan_review_live_non_tty_auto_apply_with_flags
 test_plan_review_live_resolution_inputs_override_allow_non_tty
@@ -1653,6 +1789,7 @@ test_plan_review_live_rejects_mixed_resolution_inputs
 test_code_implement_blocks_when_metadata_missing
 test_code_implement_blocks_when_metadata_invalid
 test_code_implement_blocks_when_unresolved_blockers_exist
+test_code_implement_non_tty_pending_plan_fails_fast
 test_code_implement_allows_ready_metadata
 test_code_implement_force_bypasses_review_gate
 test_code_implement_accepts_metadata_from_non_tty_apply_flow

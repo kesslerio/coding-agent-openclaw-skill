@@ -67,9 +67,12 @@ CLI wrappers:
 
 # Resume a paused Lobster approval run
 ./scripts/plan-review-live --resume-token <token> --output /path/to/repo/.ai/plan-reviews/<same-file>.md
+# Optional: fail instead of auto-restarting when session state is missing
+./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 
 # Execute an approved plan artifact
 # Requires latest plan-review metadata to be ready unless --force is used.
+# In non-TTY orchestration, this fails fast if plan status is not APPROVED.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
