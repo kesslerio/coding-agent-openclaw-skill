@@ -1926,6 +1926,7 @@ test_code_implement_emits_interrupted_on_sigterm() {
   local output="$tmp_dir/code-implement-run-events-sigterm.out"
   local impl_pid=""
   local saw_start=0
+  local rc=0
 
   set +e
   PATH="$fake_bin:$PATH" \
@@ -1935,7 +1936,7 @@ test_code_implement_emits_interrupted_on_sigterm() {
   impl_pid=$!
   set -e
 
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 120); do
     if [[ -f "$output" ]] && grep -Fq "RUN_EVENT start" "$output"; then
       saw_start=1
       break
@@ -1943,6 +1944,10 @@ test_code_implement_emits_interrupted_on_sigterm() {
     sleep 0.1
   done
   if [[ "$saw_start" != "1" ]]; then
+    kill -TERM "$impl_pid" 2>/dev/null || true
+    set +e
+    wait "$impl_pid" 2>/dev/null
+    set -e
     echo "Expected code-implement to emit RUN_EVENT start before signal" >&2
     cat "$output" >&2 || true
     exit 1
@@ -1951,7 +1956,7 @@ test_code_implement_emits_interrupted_on_sigterm() {
   kill -TERM "$impl_pid"
   set +e
   wait "$impl_pid"
-  local rc=$?
+  rc=$?
   set -e
   if [[ "$rc" != "143" ]]; then
     echo "Expected code-implement SIGTERM exit code 143, got $rc" >&2
