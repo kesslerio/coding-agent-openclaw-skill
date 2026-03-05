@@ -2083,6 +2083,54 @@ test_review_loop_supervisor_detects_stuck_loop() {
   assert_contains "$output" "reason=no_changes_after_fix"
 }
 
+test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree() {
+  local repo="$tmp_dir/repo-review-loop-stuck-dirty"
+  local output="$tmp_dir/review-loop-stuck-dirty.out"
+  local codex_args="$tmp_dir/review-loop-stuck-dirty-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-stuck-dirty-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  echo "preexisting-dirty-change" >> "$repo/README.md"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=stuck \
+    SMOKE_REVIEW_LOOP_FIX_BEHAVIOR=no-change \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1; then
+    echo "Expected dirty-worktree no-op fix detection to fail" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "reason=no_changes_after_fix"
+}
+
+test_review_loop_supervisor_without_open_pr_does_not_require_gh() {
+  local repo="$tmp_dir/repo-review-loop-no-gh-required"
+  local output="$tmp_dir/review-loop-no-gh-required.out"
+  local codex_args="$tmp_dir/review-loop-no-gh-required-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-no-gh-required-state.txt"
+  local no_gh_bin="$tmp_dir/no-gh-bin"
+
+  mkdir -p "$repo" "$no_gh_bin"
+  create_supervisor_repo "$repo"
+
+  ln -sf "$fake_bin/codex" "$no_gh_bin/codex"
+  ln -sf "$fake_bin/timeout" "$no_gh_bin/timeout"
+
+  PATH="$no_gh_bin:/usr/bin:/bin:/run/current-system/sw/bin" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
+
+  assert_contains "$output" "\"type\":\"done\""
+  assert_not_contains "$output" "missing required tools: gh"
+}
+
 test_review_loop_supervisor_open_pr_creates_pr() {
   local repo="$tmp_dir/repo-review-loop-open-pr"
   local remote="$tmp_dir/repo-review-loop-open-pr-remote.git"
@@ -2185,6 +2233,8 @@ test_review_loop_supervisor_parse_retry_success
 test_review_loop_supervisor_parse_retry_fails_closed
 test_review_loop_supervisor_emits_state_change_event
 test_review_loop_supervisor_detects_stuck_loop
+test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree
+test_review_loop_supervisor_without_open_pr_does_not_require_gh
 test_review_loop_supervisor_open_pr_creates_pr
 test_review_loop_supervisor_open_pr_requires_clean_tree
 

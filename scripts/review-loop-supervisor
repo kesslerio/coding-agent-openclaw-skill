@@ -94,7 +94,12 @@ derive_base_branch() {
 
 ensure_tooling() {
   local missing=()
-  for bin in codex timeout git gh python3 rg; do
+  local required=(codex timeout git python3 rg)
+  if (( OPEN_PR == 1 )); then
+    required+=(gh)
+  fi
+  local bin
+  for bin in "${required[@]}"; do
     if ! command -v "$bin" >/dev/null 2>&1; then
       missing+=("$bin")
     fi
@@ -243,7 +248,7 @@ parse_top_line() {
   local line="$2"
   local payload location issue patch
 
-  payload="${line#SUPERVISOR_TOP ${level}|}"
+  payload="${line#SUPERVISOR_TOP "${level}"|}"
   location="${payload%%|*}"
   payload="${payload#*|}"
   issue="${payload%%|*}"
@@ -374,8 +379,8 @@ run_review_with_parse_retry() {
 }
 
 run_fix() {
-  local fix_prompt dirty_before dirty_after
-  dirty_before="$(repo_status_filtered)"
+  local fix_prompt fingerprint_before fingerprint_after
+  fingerprint_before="$(repo_content_fingerprint)"
 
   fix_prompt="Fix the open blockers in this repository until P0/P1/P2 are reduced.\n"
   fix_prompt+="Current counts: P0=${COUNT_P0}, P1=${COUNT_P1}, P2=${COUNT_P2}, P3=${COUNT_P3}.\n"
@@ -396,11 +401,11 @@ run_fix() {
     emit_run_event "failed" "phase=review-loop-supervisor reason=fix_command_failed iteration=${ITERATION}"
     exit 1
   fi
-  dirty_after="$(repo_status_filtered)"
+  fingerprint_after="$(repo_content_fingerprint)"
 
   emit_supervisor_event "fix_completed" "{\"iteration\":${ITERATION}}"
 
-  if [[ -z "$dirty_after" && -z "$dirty_before" ]]; then
+  if [[ "$fingerprint_after" == "$fingerprint_before" ]]; then
     emit_supervisor_event "terminal" "{\"state\":\"stuck\",\"reason\":\"no_changes_after_fix\",\"iteration\":${ITERATION}}"
     write_state "stuck" "no_changes_after_fix"
     emit_run_event "failed" "phase=review-loop-supervisor reason=no_changes_after_fix iteration=${ITERATION}"
@@ -433,7 +438,7 @@ build_default_pr_title() {
 
 build_default_pr_body() {
   local tests_block issue_block
-  tests_block="- `./scripts/review-loop-supervisor --repo \"$REPO_PATH\" --base \"$BASE_BRANCH\"`"
+  tests_block="- ./scripts/review-loop-supervisor --repo \"$REPO_PATH\" --base \"$BASE_BRANCH\""
   if (( ${#TEST_COMMANDS[@]} > 0 )); then
     local cmd
     for cmd in "${TEST_COMMANDS[@]}"; do
@@ -467,6 +472,27 @@ $tests_block
 
 $issue_block
 EOFPR
+}
+
+repo_content_fingerprint() {
+  (
+    cd "$REPO_PATH"
+    {
+      printf '%s\n' "===staged-diff==="
+      git diff --cached --binary -- . ':(exclude).ai/review-loops/**' || true
+      printf '%s\n' "===unstaged-diff==="
+      git diff --binary -- . ':(exclude).ai/review-loops/**' || true
+      printf '%s\n' "===untracked==="
+      git ls-files --others --exclude-standard -- . ':(exclude).ai/review-loops/**' | LC_ALL=C sort | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if [[ -f "$path" ]]; then
+          printf '%s  %s\n' "$(sha256sum "$path" | awk '{print $1}')" "$path"
+        else
+          printf 'NONREGULAR  %s\n' "$path"
+        fi
+      done
+    } | sha256sum | awk '{print $1}'
+  )
 }
 
 open_or_update_pr() {
