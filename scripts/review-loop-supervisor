@@ -1,0 +1,816 @@
+#!/usr/bin/env bash
+# review-loop-supervisor - supervise codex review/fix iterations until P0-P2 clear
+set -euo pipefail
+
+export PATH="$PATH:/run/current-system/sw/bin"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  review-loop-supervisor [options]
+
+Options:
+  --repo <path>                     Repository path (default: current directory)
+  --base <branch>                   Base branch for codex review (default: auto-detect)
+  --test-cmd <command>              Test command to run (repeatable)
+  --review-timeout <seconds>        Timeout for codex review (default: 900, min: 600)
+  --fix-timeout <seconds>           Timeout for codex fix exec (default: 900)
+  --max-runtime-seconds <seconds>   Total runtime budget (default: 5400)
+  --status-interval-seconds <sec>   Heartbeat interval (default: 120)
+  --open-pr                         Commit/push and create-or-update PR when ready
+  --issue <number>                  Issue number to reference in PR body
+  --commit-msg <text>               Commit message override when creating commit
+  --pr-title <text>                 PR title override
+  --pr-body <text>                  PR body override
+  --pr-body-file <path>             PR body file override
+  -h, --help                        Show help
+USAGE
+}
+
+emit_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  if [[ -n "$details" ]]; then
+    echo "RUN_EVENT $event ts=$(date -Iseconds) $details" >&2
+  else
+    echo "RUN_EVENT $event ts=$(date -Iseconds)" >&2
+  fi
+}
+
+json_escape() {
+  python3 - <<'PY' "$1"
+import json
+import sys
+print(json.dumps(sys.argv[1]))
+PY
+}
+
+emit_supervisor_event() {
+  local type="$1"
+  local payload="${2:-{}}"
+  printf 'SUPERVISOR_EVENT {"ts":%s,"type":%s,"payload":%s}\n' \
+    "$(json_escape "$(date -Iseconds)")" \
+    "$(json_escape "$type")" \
+    "$payload" >&2
+}
+
+ensure_number() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "Error: $name must be a non-negative integer (got '$value')." >&2
+    exit 1
+  fi
+}
+
+derive_base_branch() {
+  if [[ -n "${BASE_BRANCH:-}" ]]; then
+    printf '%s\n' "$BASE_BRANCH"
+    return 0
+  fi
+
+  local detected=""
+  detected="$(git -C "$REPO_PATH" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+  if [[ -n "$detected" ]]; then
+    printf '%s\n' "$detected"
+    return 0
+  fi
+
+  for candidate in main master trunk; do
+    if git -C "$REPO_PATH" show-ref --verify --quiet "refs/remotes/origin/${candidate}" || \
+       git -C "$REPO_PATH" show-ref --verify --quiet "refs/heads/${candidate}"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  printf 'main\n'
+}
+
+ensure_tooling() {
+  local missing=()
+  local required=(codex timeout git python3)
+  if (( OPEN_PR == 1 )); then
+    required+=(gh)
+  fi
+  local bin
+  for bin in "${required[@]}"; do
+    if ! command -v "$bin" >/dev/null 2>&1; then
+      missing+=("$bin")
+    fi
+  done
+  if (( ${#missing[@]} > 0 )); then
+    echo "Error: missing required tools: ${missing[*]}" >&2
+    exit 1
+  fi
+}
+
+match_last_line() {
+  local pattern="$1"
+  local file="$2"
+  if command -v rg >/dev/null 2>&1; then
+    rg "$pattern" "$file" | tail -n 1 || true
+  else
+    grep -E -- "$pattern" "$file" | tail -n 1 || true
+  fi
+}
+
+check_runtime_budget() {
+  local now elapsed
+  now="$(date +%s)"
+  elapsed=$(( now - START_TS ))
+  if (( elapsed >= MAX_RUNTIME_SECONDS )); then
+    write_state "timed_out" "runtime_budget_exceeded"
+    emit_supervisor_event "terminal" "{\"state\":\"timed_out\",\"reason\":\"runtime_budget_exceeded\",\"elapsed_seconds\":${elapsed}}"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=runtime_budget_exceeded elapsed=${elapsed}s"
+    exit 1
+  fi
+}
+
+maybe_heartbeat() {
+  local phase="$1"
+  local now elapsed since
+  now="$(date +%s)"
+  elapsed=$(( now - START_TS ))
+  since=$(( now - LAST_STATUS_TS ))
+  if (( since >= STATUS_INTERVAL_SECONDS )); then
+    emit_run_event "heartbeat" "phase=review-loop-supervisor state=${CURRENT_STATE} iteration=${ITERATION} elapsed=${elapsed}s current_phase=${phase}"
+    LAST_STATUS_TS="$now"
+  fi
+}
+
+state_dir_path() {
+  printf '%s/.ai/review-loops\n' "$REPO_PATH"
+}
+
+repo_status_filtered() {
+  git -C "$REPO_PATH" status --porcelain --untracked-files=all -- . ':(exclude).ai/review-loops/**'
+}
+
+write_state() {
+  local state="$1"
+  local reason="$2"
+
+  local now_iso elapsed dirty pr_url_json
+  now_iso="$(date -Iseconds)"
+  elapsed=$(( $(date +%s) - START_TS ))
+  dirty="false"
+  if [[ -n "$(repo_status_filtered)" ]]; then
+    dirty="true"
+  fi
+
+  if [[ -n "$PR_URL" ]]; then
+    pr_url_json="$(json_escape "$PR_URL")"
+  else
+    pr_url_json="null"
+  fi
+
+  cat > "$STATE_HISTORY_FILE" <<EOFSTATE
+{
+  "schema_version": 1,
+  "state": "${state}",
+  "reason": "${reason}",
+  "repo_path": "${REPO_PATH}",
+  "base_branch": "${BASE_BRANCH}",
+  "head_branch": "${HEAD_BRANCH}",
+  "open_pr": ${OPEN_PR},
+  "issue": ${ISSUE_NUMBER_JSON},
+  "current_iteration": ${ITERATION},
+  "elapsed_seconds": ${elapsed},
+  "counts": {
+    "P0": ${COUNT_P0},
+    "P1": ${COUNT_P1},
+    "P2": ${COUNT_P2},
+    "P3": ${COUNT_P3}
+  },
+  "deltas": {
+    "P0": ${DELTA_P0},
+    "P1": ${DELTA_P1},
+    "P2": ${DELTA_P2},
+    "P3": ${DELTA_P3}
+  },
+  "top_findings": {
+    "P0": {"location": $(json_escape "$TOP_P0_LOCATION"), "issue": $(json_escape "$TOP_P0_ISSUE"), "planned_patch": $(json_escape "$TOP_P0_PATCH")},
+    "P1": {"location": $(json_escape "$TOP_P1_LOCATION"), "issue": $(json_escape "$TOP_P1_ISSUE"), "planned_patch": $(json_escape "$TOP_P1_PATCH")},
+    "P2": {"location": $(json_escape "$TOP_P2_LOCATION"), "issue": $(json_escape "$TOP_P2_ISSUE"), "planned_patch": $(json_escape "$TOP_P2_PATCH")},
+    "P3": {"location": $(json_escape "$TOP_P3_LOCATION"), "issue": $(json_escape "$TOP_P3_ISSUE"), "planned_patch": $(json_escape "$TOP_P3_PATCH")}
+  },
+  "pr_url": ${pr_url_json},
+  "worktree_dirty": ${dirty},
+  "last_review_output": $(json_escape "$LAST_REVIEW_OUTPUT"),
+  "last_fix_output": $(json_escape "$LAST_FIX_OUTPUT"),
+  "updated_at": "${now_iso}"
+}
+EOFSTATE
+
+  cp "$STATE_HISTORY_FILE" "$STATE_LATEST_FILE"
+}
+
+review_prompt_base() {
+  cat <<'PROMPT'
+Run a strict findings-first review with severity buckets P0-P3 for this repository against the base branch.
+Keep core findings concise, include file:line references, and include realistic planned patch guidance for top findings.
+
+At the very end of your response, output ONLY these exact machine lines (one per line):
+SUPERVISOR_COUNTS P0=<n> P1=<n> P2=<n> P3=<n>
+SUPERVISOR_TOP P0|<file:line or none>|<issue summary or none>|<planned patch summary or none>
+SUPERVISOR_TOP P1|<file:line or none>|<issue summary or none>|<planned patch summary or none>
+SUPERVISOR_TOP P2|<file:line or none>|<issue summary or none>|<planned patch summary or none>
+SUPERVISOR_TOP P3|<file:line or none>|<issue summary or none>|<planned patch summary or none>
+PROMPT
+}
+
+parse_review_footer() {
+  local file="$1"
+  local counts_line
+  local top_p0 top_p1 top_p2 top_p3
+
+  counts_line="$(match_last_line '^SUPERVISOR_COUNTS P0=[0-9]+ P1=[0-9]+ P2=[0-9]+ P3=[0-9]+$' "$file")"
+  top_p0="$(match_last_line '^SUPERVISOR_TOP P0\|[^|]+\|[^|]+\|.+$' "$file")"
+  top_p1="$(match_last_line '^SUPERVISOR_TOP P1\|[^|]+\|[^|]+\|.+$' "$file")"
+  top_p2="$(match_last_line '^SUPERVISOR_TOP P2\|[^|]+\|[^|]+\|.+$' "$file")"
+  top_p3="$(match_last_line '^SUPERVISOR_TOP P3\|[^|]+\|[^|]+\|.+$' "$file")"
+
+  if [[ -z "$counts_line" || -z "$top_p0" || -z "$top_p1" || -z "$top_p2" || -z "$top_p3" ]]; then
+    return 1
+  fi
+
+  COUNT_P0="$(sed -nE 's/^SUPERVISOR_COUNTS P0=([0-9]+) P1=([0-9]+) P2=([0-9]+) P3=([0-9]+)$/\1/p' <<<"$counts_line")"
+  COUNT_P1="$(sed -nE 's/^SUPERVISOR_COUNTS P0=([0-9]+) P1=([0-9]+) P2=([0-9]+) P3=([0-9]+)$/\2/p' <<<"$counts_line")"
+  COUNT_P2="$(sed -nE 's/^SUPERVISOR_COUNTS P0=([0-9]+) P1=([0-9]+) P2=([0-9]+) P3=([0-9]+)$/\3/p' <<<"$counts_line")"
+  COUNT_P3="$(sed -nE 's/^SUPERVISOR_COUNTS P0=([0-9]+) P1=([0-9]+) P2=([0-9]+) P3=([0-9]+)$/\4/p' <<<"$counts_line")"
+
+  parse_top_line "P0" "$top_p0"
+  parse_top_line "P1" "$top_p1"
+  parse_top_line "P2" "$top_p2"
+  parse_top_line "P3" "$top_p3"
+
+  return 0
+}
+
+parse_top_line() {
+  local level="$1"
+  local line="$2"
+  local payload location issue patch
+
+  payload="${line#SUPERVISOR_TOP "${level}"|}"
+  location="${payload%%|*}"
+  payload="${payload#*|}"
+  issue="${payload%%|*}"
+  patch="${payload#*|}"
+
+  case "$level" in
+    P0)
+      TOP_P0_LOCATION="$location"
+      TOP_P0_ISSUE="$issue"
+      TOP_P0_PATCH="$patch"
+      ;;
+    P1)
+      TOP_P1_LOCATION="$location"
+      TOP_P1_ISSUE="$issue"
+      TOP_P1_PATCH="$patch"
+      ;;
+    P2)
+      TOP_P2_LOCATION="$location"
+      TOP_P2_ISSUE="$issue"
+      TOP_P2_PATCH="$patch"
+      ;;
+    P3)
+      TOP_P3_LOCATION="$location"
+      TOP_P3_ISSUE="$issue"
+      TOP_P3_PATCH="$patch"
+      ;;
+  esac
+}
+
+emit_delta_and_state_change_events() {
+  DELTA_P0=$(( COUNT_P0 - PREV_P0 ))
+  DELTA_P1=$(( COUNT_P1 - PREV_P1 ))
+  DELTA_P2=$(( COUNT_P2 - PREV_P2 ))
+  DELTA_P3=$(( COUNT_P3 - PREV_P3 ))
+
+  emit_supervisor_event "counts" "{\"iteration\":${ITERATION},\"counts\":{\"P0\":${COUNT_P0},\"P1\":${COUNT_P1},\"P2\":${COUNT_P2},\"P3\":${COUNT_P3}},\"deltas\":{\"P0\":${DELTA_P0},\"P1\":${DELTA_P1},\"P2\":${DELTA_P2},\"P3\":${DELTA_P3}}}"
+
+  if (( DELTA_P0 > 0 )); then
+    emit_supervisor_event "state_change" "{\"iteration\":${ITERATION},\"severity\":\"P0\",\"delta\":${DELTA_P0},\"location\":$(json_escape "$TOP_P0_LOCATION"),\"planned_patch\":$(json_escape "$TOP_P0_PATCH")}"
+  fi
+  if (( DELTA_P1 > 0 )); then
+    emit_supervisor_event "state_change" "{\"iteration\":${ITERATION},\"severity\":\"P1\",\"delta\":${DELTA_P1},\"location\":$(json_escape "$TOP_P1_LOCATION"),\"planned_patch\":$(json_escape "$TOP_P1_PATCH")}"
+  fi
+  if (( DELTA_P2 > 0 )); then
+    emit_supervisor_event "state_change" "{\"iteration\":${ITERATION},\"severity\":\"P2\",\"delta\":${DELTA_P2},\"location\":$(json_escape "$TOP_P2_LOCATION"),\"planned_patch\":$(json_escape "$TOP_P2_PATCH")}"
+  fi
+  if (( DELTA_P3 > 0 )); then
+    emit_supervisor_event "state_change" "{\"iteration\":${ITERATION},\"severity\":\"P3\",\"delta\":${DELTA_P3},\"location\":$(json_escape "$TOP_P3_LOCATION"),\"planned_patch\":$(json_escape "$TOP_P3_PATCH")}"
+  fi
+
+  PREV_P0="$COUNT_P0"
+  PREV_P1="$COUNT_P1"
+  PREV_P2="$COUNT_P2"
+  PREV_P3="$COUNT_P3"
+}
+
+run_tests() {
+  local phase="$1"
+  if (( ${#TEST_COMMANDS[@]} == 0 )); then
+    emit_supervisor_event "tests_skipped" "{\"phase\":$(json_escape "$phase"),\"reason\":\"no_test_commands\"}"
+    return 0
+  fi
+
+  emit_supervisor_event "tests_started" "{\"phase\":$(json_escape "$phase"),\"count\":${#TEST_COMMANDS[@]}}"
+  local cmd
+  for cmd in "${TEST_COMMANDS[@]}"; do
+    maybe_heartbeat "tests"
+    if ! timeout "${REVIEW_TIMEOUT}s" bash -lc "cd \"$REPO_PATH\" && $cmd"; then
+      emit_supervisor_event "tests_failed" "{\"phase\":$(json_escape "$phase"),\"command\":$(json_escape "$cmd") }"
+      write_state "failed" "test_command_failed"
+      emit_run_event "failed" "phase=review-loop-supervisor reason=test_command_failed iteration=${ITERATION}"
+      exit 1
+    fi
+  done
+  emit_supervisor_event "tests_completed" "{\"phase\":$(json_escape "$phase"),\"count\":${#TEST_COMMANDS[@]}}"
+}
+
+run_review_with_parse_retry() {
+  local review_prompt correction_prompt
+
+  review_prompt="$(review_prompt_base)"
+  if [[ -n "$ISSUE_NUMBER" ]]; then
+    review_prompt+=$'\n'
+    review_prompt+="Context issue: #$ISSUE_NUMBER"
+  fi
+
+  LAST_REVIEW_OUTPUT="$RUN_TMP_DIR/review-iter-${ITERATION}-attempt-1.txt"
+  emit_supervisor_event "review_started" "{\"iteration\":${ITERATION},\"attempt\":1}"
+  if ! (
+    cd "$REPO_PATH"
+    timeout "${REVIEW_TIMEOUT}s" codex review --base "$BASE_BRANCH" "$review_prompt"
+  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
+    emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":1,\"reason\":\"codex_review_nonzero\"}"
+    write_state "failed" "review_command_failed"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=review_command_failed iteration=${ITERATION}"
+    exit 1
+  fi
+
+  if parse_review_footer "$LAST_REVIEW_OUTPUT"; then
+    emit_supervisor_event "review_completed" "{\"iteration\":${ITERATION},\"attempt\":1,\"parse\":\"ok\"}"
+    return 0
+  fi
+
+  correction_prompt="$review_prompt"$'\n\n'
+  correction_prompt+="Your prior response was missing strict SUPERVISOR_* footer lines. Re-run review and output valid machine footer exactly."
+
+  LAST_REVIEW_OUTPUT="$RUN_TMP_DIR/review-iter-${ITERATION}-attempt-2.txt"
+  emit_supervisor_event "review_started" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"parse_retry\"}"
+  if ! (
+    cd "$REPO_PATH"
+    timeout "${REVIEW_TIMEOUT}s" codex review --base "$BASE_BRANCH" "$correction_prompt"
+  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
+    emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"codex_review_nonzero\"}"
+    write_state "failed" "review_command_failed"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=review_command_failed iteration=${ITERATION}"
+    exit 1
+  fi
+
+  if parse_review_footer "$LAST_REVIEW_OUTPUT"; then
+    emit_supervisor_event "review_completed" "{\"iteration\":${ITERATION},\"attempt\":2,\"parse\":\"ok\"}"
+    return 0
+  fi
+
+  emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"parse_failed\",\"output\":$(json_escape "$LAST_REVIEW_OUTPUT") }"
+  write_state "failed" "parse_failed"
+  emit_run_event "failed" "phase=review-loop-supervisor reason=parse_failed iteration=${ITERATION}"
+  exit 1
+}
+
+run_fix() {
+  local fix_prompt fingerprint_before fingerprint_after
+  fingerprint_before="$(repo_content_fingerprint)"
+
+  fix_prompt="Fix the open blockers in this repository until P0/P1/P2 are reduced.\n"
+  fix_prompt+="Current counts: P0=${COUNT_P0}, P1=${COUNT_P1}, P2=${COUNT_P2}, P3=${COUNT_P3}.\n"
+  fix_prompt+="Top blockers:\n"
+  fix_prompt+="- P0: ${TOP_P0_LOCATION} :: ${TOP_P0_ISSUE} :: ${TOP_P0_PATCH}\n"
+  fix_prompt+="- P1: ${TOP_P1_LOCATION} :: ${TOP_P1_ISSUE} :: ${TOP_P1_PATCH}\n"
+  fix_prompt+="- P2: ${TOP_P2_LOCATION} :: ${TOP_P2_ISSUE} :: ${TOP_P2_PATCH}\n"
+  fix_prompt+="Make only necessary changes and keep implementation maintainable."
+
+  LAST_FIX_OUTPUT="$RUN_TMP_DIR/fix-iter-${ITERATION}.txt"
+  emit_supervisor_event "fix_started" "{\"iteration\":${ITERATION}}"
+  if ! (
+    cd "$REPO_PATH"
+    timeout "${FIX_TIMEOUT}s" codex -c 'model_reasoning_effort="high"' exec --full-auto "$fix_prompt"
+  ) > "$LAST_FIX_OUTPUT" 2>&1; then
+    emit_supervisor_event "fix_failed" "{\"iteration\":${ITERATION},\"reason\":\"codex_exec_nonzero\"}"
+    write_state "failed" "fix_command_failed"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=fix_command_failed iteration=${ITERATION}"
+    exit 1
+  fi
+  fingerprint_after="$(repo_content_fingerprint)"
+
+  emit_supervisor_event "fix_completed" "{\"iteration\":${ITERATION}}"
+
+  if [[ "$fingerprint_after" == "$fingerprint_before" ]]; then
+    emit_supervisor_event "terminal" "{\"state\":\"stuck\",\"reason\":\"no_changes_after_fix\",\"iteration\":${ITERATION}}"
+    write_state "stuck" "no_changes_after_fix"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=no_changes_after_fix iteration=${ITERATION}"
+    exit 1
+  fi
+}
+
+ensure_mutation_preconditions() {
+  HEAD_BRANCH="$(git -C "$REPO_PATH" branch --show-current)"
+  if [[ -z "$HEAD_BRANCH" ]]; then
+    echo "Error: unable to determine current branch in $REPO_PATH" >&2
+    exit 1
+  fi
+
+  case "$HEAD_BRANCH" in
+    main|master)
+      echo "Error: refusing mutating PR operations on protected branch '$HEAD_BRANCH'." >&2
+      exit 1
+      ;;
+  esac
+}
+
+build_default_pr_title() {
+  if [[ -n "$ISSUE_NUMBER" ]]; then
+    printf 'fix(review-loop): clear P0-P2 blockers for #%s\n' "$ISSUE_NUMBER"
+  else
+    printf 'fix(review-loop): clear P0-P2 blockers\n'
+  fi
+}
+
+build_default_pr_body() {
+  local tests_block issue_block
+  tests_block="- ./scripts/review-loop-supervisor --repo \"$REPO_PATH\" --base \"$BASE_BRANCH\""
+  if (( ${#TEST_COMMANDS[@]} > 0 )); then
+    local cmd
+    for cmd in "${TEST_COMMANDS[@]}"; do
+      tests_block+=$'\n'
+      tests_block+="- \`$cmd\`"
+    done
+  fi
+
+  issue_block=""
+  if [[ -n "$ISSUE_NUMBER" ]]; then
+    issue_block="Relates to #$ISSUE_NUMBER"
+  fi
+
+  cat <<EOFPR
+## What
+- Run supervised review/fix loop until P0/P1/P2 blockers clear.
+- Persist loop state artifacts under \.ai/review-loops\/. 
+- Emit machine-checkable supervisor milestone and delta events.
+
+## Why
+- Reduce manual status polling and make long-running review loops observable.
+
+## Tests
+$tests_block
+
+## AI Assistance
+- AI-assisted: yes
+- Tools/agents/models used: Codex CLI (review + exec)
+- Testing level: lightly tested
+- Human understanding confirmation: yes
+
+$issue_block
+EOFPR
+}
+
+repo_content_fingerprint() {
+  (
+    cd "$REPO_PATH"
+    {
+      printf '%s\n' "===staged-diff==="
+      git diff --cached --binary -- . ':(exclude).ai/review-loops/**' || true
+      printf '%s\n' "===unstaged-diff==="
+      git diff --binary -- . ':(exclude).ai/review-loops/**' || true
+      printf '%s\n' "===untracked==="
+      git ls-files --others --exclude-standard -- . ':(exclude).ai/review-loops/**' | LC_ALL=C sort | while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if [[ -f "$path" ]]; then
+          printf '%s  %s\n' "$(sha256sum "$path" | awk '{print $1}')" "$path"
+        else
+          printf 'NONREGULAR  %s\n' "$path"
+        fi
+      done
+    } | sha256sum | awk '{print $1}'
+  )
+}
+
+open_or_update_pr() {
+  ensure_mutation_preconditions
+
+  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number repo_slug
+
+  if [[ -n "$PR_TITLE" ]]; then
+    title="$PR_TITLE"
+  else
+    title="$(build_default_pr_title)"
+  fi
+
+  if [[ -n "$PR_BODY_FILE" ]]; then
+    body="$(cat "$PR_BODY_FILE")"
+  elif [[ -n "$PR_BODY" ]]; then
+    body="$PR_BODY"
+  else
+    body="$(build_default_pr_body)"
+  fi
+
+  if [[ -n "$(repo_status_filtered)" ]]; then
+    local commit_subject
+    if [[ -n "$COMMIT_MSG" ]]; then
+      commit_subject="$COMMIT_MSG"
+    else
+      commit_subject="fix(review-loop): address supervisor findings"
+    fi
+    git -C "$REPO_PATH" add -A
+    git -C "$REPO_PATH" reset -q -- .ai/review-loops || true
+    if ! git -C "$REPO_PATH" diff --cached --quiet; then
+      git -C "$REPO_PATH" commit -m "$commit_subject"
+    fi
+  fi
+
+  if git -C "$REPO_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    git -C "$REPO_PATH" push
+  else
+    git -C "$REPO_PATH" push -u origin "$HEAD_BRANCH"
+  fi
+
+  repo_slug="$(git -C "$REPO_PATH" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+/[^/.]+)(\.git)?#\1#')"
+  existing_pr_json="$(gh pr list --repo "$repo_slug" --head "$HEAD_BRANCH" --json number,url --limit 1 2>/dev/null || true)"
+
+  if [[ -n "$existing_pr_json" ]]; then
+    existing_pr_number="$(python3 - <<'PY' "$existing_pr_json"
+import json
+import sys
+raw = sys.argv[1]
+try:
+    payload = json.loads(raw)
+except Exception:
+    print("")
+    raise SystemExit(0)
+if isinstance(payload, list) and payload:
+    print(payload[0].get("number", ""))
+else:
+    print("")
+PY
+)"
+    existing_pr_url="$(python3 - <<'PY' "$existing_pr_json"
+import json
+import sys
+raw = sys.argv[1]
+try:
+    payload = json.loads(raw)
+except Exception:
+    print("")
+    raise SystemExit(0)
+if isinstance(payload, list) and payload:
+    print(payload[0].get("url", ""))
+else:
+    print("")
+PY
+)"
+    if [[ -n "$existing_pr_number" ]]; then
+      body_tmp="$RUN_TMP_DIR/pr-body.md"
+      printf '%s\n' "$body" > "$body_tmp"
+      gh pr edit "$existing_pr_number" --title "$title" --body-file "$body_tmp"
+      PR_URL="$existing_pr_url"
+      emit_supervisor_event "pr_updated" "{\"number\":${existing_pr_number},\"url\":$(json_escape "$PR_URL") }"
+      return 0
+    fi
+  fi
+
+  body_tmp="$RUN_TMP_DIR/pr-body.md"
+  printf '%s\n' "$body" > "$body_tmp"
+  PR_URL="$(gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$title" --body-file "$body_tmp" | tail -n 1)"
+  emit_supervisor_event "pr_created" "{\"url\":$(json_escape "$PR_URL") }"
+}
+
+REPO_PATH="$(pwd)"
+BASE_BRANCH=""
+REVIEW_TIMEOUT=900
+FIX_TIMEOUT=900
+MAX_RUNTIME_SECONDS=5400
+STATUS_INTERVAL_SECONDS=120
+OPEN_PR=0
+ISSUE_NUMBER=""
+ISSUE_NUMBER_JSON="null"
+COMMIT_MSG=""
+PR_TITLE=""
+PR_BODY=""
+PR_BODY_FILE=""
+TEST_COMMANDS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)
+      REPO_PATH="${2:-}"
+      shift 2
+      ;;
+    --base)
+      BASE_BRANCH="${2:-}"
+      shift 2
+      ;;
+    --test-cmd)
+      TEST_COMMANDS+=("${2:-}")
+      shift 2
+      ;;
+    --review-timeout)
+      REVIEW_TIMEOUT="${2:-}"
+      shift 2
+      ;;
+    --fix-timeout)
+      FIX_TIMEOUT="${2:-}"
+      shift 2
+      ;;
+    --max-runtime-seconds)
+      MAX_RUNTIME_SECONDS="${2:-}"
+      shift 2
+      ;;
+    --status-interval-seconds)
+      STATUS_INTERVAL_SECONDS="${2:-}"
+      shift 2
+      ;;
+    --open-pr)
+      OPEN_PR=1
+      shift
+      ;;
+    --issue)
+      ISSUE_NUMBER="${2:-}"
+      shift 2
+      ;;
+    --commit-msg)
+      COMMIT_MSG="${2:-}"
+      shift 2
+      ;;
+    --pr-title)
+      PR_TITLE="${2:-}"
+      shift 2
+      ;;
+    --pr-body)
+      PR_BODY="${2:-}"
+      shift 2
+      ;;
+    --pr-body-file)
+      PR_BODY_FILE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+ensure_number "review-timeout" "$REVIEW_TIMEOUT"
+ensure_number "fix-timeout" "$FIX_TIMEOUT"
+ensure_number "max-runtime-seconds" "$MAX_RUNTIME_SECONDS"
+ensure_number "status-interval-seconds" "$STATUS_INTERVAL_SECONDS"
+
+if (( REVIEW_TIMEOUT < 600 )); then
+  echo "Error: --review-timeout must be at least 600 seconds." >&2
+  exit 1
+fi
+
+if [[ -n "$PR_BODY" && -n "$PR_BODY_FILE" ]]; then
+  echo "Error: --pr-body and --pr-body-file are mutually exclusive." >&2
+  exit 1
+fi
+
+if [[ -n "$PR_BODY_FILE" && ! -f "$PR_BODY_FILE" ]]; then
+  echo "Error: --pr-body-file does not exist: $PR_BODY_FILE" >&2
+  exit 1
+fi
+
+if [[ -n "$ISSUE_NUMBER" ]]; then
+  if [[ ! "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Error: --issue must be numeric." >&2
+    exit 1
+  fi
+  ISSUE_NUMBER_JSON="$ISSUE_NUMBER"
+fi
+
+if [[ ! -d "$REPO_PATH" ]]; then
+  echo "Error: --repo path does not exist: $REPO_PATH" >&2
+  exit 1
+fi
+
+ensure_tooling
+if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "Error: --repo is not a git repository: $REPO_PATH" >&2
+  exit 1
+fi
+
+BASE_BRANCH="$(derive_base_branch)"
+HEAD_BRANCH="$(git -C "$REPO_PATH" branch --show-current)"
+if [[ -z "$HEAD_BRANCH" ]]; then
+  echo "Error: unable to determine current branch in $REPO_PATH" >&2
+  exit 1
+fi
+
+mkdir -p "$(state_dir_path)"
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+STATE_HISTORY_FILE="$(state_dir_path)/${RUN_TS}-${HEAD_BRANCH//\//-}.json"
+STATE_LATEST_FILE="$(state_dir_path)/latest.json"
+RUN_TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$RUN_TMP_DIR"' EXIT
+
+COUNT_P0=0
+COUNT_P1=0
+COUNT_P2=0
+COUNT_P3=0
+DELTA_P0=0
+DELTA_P1=0
+DELTA_P2=0
+DELTA_P3=0
+PREV_P0=0
+PREV_P1=0
+PREV_P2=0
+PREV_P3=0
+TOP_P0_LOCATION="none"
+TOP_P0_ISSUE="none"
+TOP_P0_PATCH="none"
+TOP_P1_LOCATION="none"
+TOP_P1_ISSUE="none"
+TOP_P1_PATCH="none"
+TOP_P2_LOCATION="none"
+TOP_P2_ISSUE="none"
+TOP_P2_PATCH="none"
+TOP_P3_LOCATION="none"
+TOP_P3_ISSUE="none"
+TOP_P3_PATCH="none"
+LAST_REVIEW_OUTPUT=""
+LAST_FIX_OUTPUT=""
+PR_URL=""
+ITERATION=0
+CURRENT_STATE="preflight"
+START_TS="$(date +%s)"
+LAST_STATUS_TS="$START_TS"
+
+emit_run_event "start" "phase=review-loop-supervisor repo=$REPO_PATH base=$BASE_BRANCH branch=$HEAD_BRANCH"
+emit_supervisor_event "start" "{\"repo\":$(json_escape "$REPO_PATH"),\"base\":$(json_escape "$BASE_BRANCH"),\"branch\":$(json_escape "$HEAD_BRANCH"),\"open_pr\":${OPEN_PR}}"
+write_state "running" "started"
+
+if (( OPEN_PR == 1 )) && [[ -n "$(repo_status_filtered)" ]]; then
+  echo "Error: --open-pr requires a clean working tree at start to avoid committing unrelated changes." >&2
+  write_state "failed" "open_pr_requires_clean_tree"
+  emit_run_event "failed" "phase=review-loop-supervisor reason=open_pr_requires_clean_tree"
+  exit 1
+fi
+
+run_tests "initial"
+
+while true; do
+  ITERATION=$(( ITERATION + 1 ))
+  CURRENT_STATE="review"
+  check_runtime_budget
+  maybe_heartbeat "review"
+
+  run_review_with_parse_retry
+  emit_delta_and_state_change_events
+
+  write_state "running" "iteration_${ITERATION}_reviewed"
+
+  if (( COUNT_P0 + COUNT_P1 + COUNT_P2 == 0 )); then
+    CURRENT_STATE="ready"
+    run_tests "pre_ready"
+    write_state "ready" "p0_p2_cleared"
+    emit_supervisor_event "ready" "{\"iteration\":${ITERATION},\"counts\":{\"P0\":${COUNT_P0},\"P1\":${COUNT_P1},\"P2\":${COUNT_P2},\"P3\":${COUNT_P3}}}"
+    break
+  fi
+
+  CURRENT_STATE="fix"
+  check_runtime_budget
+  maybe_heartbeat "fix"
+  run_fix
+  write_state "running" "iteration_${ITERATION}_fixed"
+done
+
+if (( OPEN_PR == 1 )); then
+  CURRENT_STATE="open_pr"
+  emit_supervisor_event "pr_started" "{\"branch\":$(json_escape "$HEAD_BRANCH") }"
+  open_or_update_pr
+fi
+
+write_state "done" "completed"
+emit_run_event "done" "phase=review-loop-supervisor iteration=${ITERATION} state=done"
+emit_supervisor_event "done" "{\"iteration\":${ITERATION},\"pr_url\":$( [[ -n "$PR_URL" ]] && json_escape "$PR_URL" || echo null ) }"
+
+echo "Supervisor completed."
+echo "State latest: $STATE_LATEST_FILE"
+if [[ -n "$PR_URL" ]]; then
+  echo "PR: $PR_URL"
+fi
