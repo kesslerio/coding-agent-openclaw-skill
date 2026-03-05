@@ -162,10 +162,18 @@ Execution routing in `scripts/safe-fallback.sh` is mode-specific:
 
 - `impl`: ACP first (via `acpx`), then CLI fallback chain
 - `review`: `codex review --base` first, then ACP fallback, then remaining CLI fallback chain
+- direct ACPX path: `scripts/acpx-direct` only (raw `acpx ...` invocations are not allowed in coding-agent orchestration)
 
 - `CODING_AGENT_ACP_ENABLE`: `1` (default) or `0` to skip ACP attempt
 - `CODING_AGENT_ACP_AGENT`: ACP harness alias (default: `codex`)
 - `CODING_AGENT_ACPX_CMD`: executable path override for ACPX binary
+
+Direct ACPX examples (sanctioned wrapper):
+
+```bash
+./scripts/acpx-direct --cwd /path/to/repo --format quiet codex sessions ensure --name "ca-codex-$(basename /path/to/repo)"
+./scripts/acpx-direct --cwd /path/to/repo --format quiet codex -s "ca-codex-$(basename /path/to/repo)" "Reply with READY only."
+```
 
 Known runtime limitation:
 - Issue #43 tracks upstream ACP observability and relay profile alias behavior.

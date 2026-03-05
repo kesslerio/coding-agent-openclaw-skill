@@ -44,6 +44,8 @@ For harness-style implementation/review requests, ACP routing is mode-specific:
 - Implementation uses ACP first (via `acpx`) with CLI fallback.
 - Review keeps review-native `codex review --base` first, then ACP fallback.
 - CLI fallback chain remains mandatory if ACP is unavailable.
+- Direct ACPX calls in coding-agent orchestration must use `scripts/acpx-direct`.
+- Do not emit raw `acpx ...` commands from prompts or wrappers.
 - Disable ACP-first per run with `CODING_AGENT_ACP_ENABLE=0`.
 - Override ACPX binary path with `CODING_AGENT_ACPX_CMD`.
 - Override ACP agent alias with `CODING_AGENT_ACP_AGENT` (default: `codex`).

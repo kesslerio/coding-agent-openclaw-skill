@@ -93,6 +93,7 @@ Implementation mode routing:
 - `auto` -> tmux-first only in interactive TTY + tmux available; otherwise direct-first
 - ACP-first toggle: `CODING_AGENT_ACP_ENABLE=1|0` (default: `1`)
 - ACPX binary override: `CODING_AGENT_ACPX_CMD=/path/to/acpx`
+- direct ACPX wrapper: `./scripts/acpx-direct ...` (raw `acpx ...` commands are out of policy for coding-agent orchestration)
 
 ## Direct CLI Commands (Primary)
 
@@ -178,6 +179,7 @@ claude --resume
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
+ACPX_RUN_TIMEOUT=120 ./scripts/acpx-direct --cwd /path/to/repo --format quiet codex -s session-name "Implement approved plan"
 
 # Review-loop supervisor (machine-checkable milestones + state artifacts)
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main --status-interval-seconds 120
@@ -346,6 +348,7 @@ For each flagged config change, include:
 | Preflight wrappers | `./scripts/doctor` |
 | Codex doc drift check | `./scripts/doc-drift-check` |
 | Wrapper smoke tests | `./scripts/smoke-wrappers.sh` |
+| Direct ACPX wrapper | `./scripts/acpx-direct --cwd <repo> --format quiet <agent> ...` |
 | Check CI | `gh pr checks <PR> --repo owner/repo` |
 | Merge PR | `gh pr merge <PR> --repo owner/repo --admin --merge` |
 | Resume Codex | `codex exec resume --last` |
