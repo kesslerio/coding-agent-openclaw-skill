@@ -97,6 +97,11 @@ if ! run_cwd="$(cd "$run_cwd" && pwd)"; then
 fi
 
 agent="$1"
+if [[ "$agent" == -* ]]; then
+  printf 'Error: agent must be a non-flag token (got %s)\n' "$agent" >&2
+  usage
+  exit 1
+fi
 shift
 
 if ! acpx_validate_policy_env; then

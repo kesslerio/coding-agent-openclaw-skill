@@ -990,6 +990,38 @@ test_acpx_direct_requires_format_value() {
   assert_contains "$output" "Usage:"
 }
 
+test_acpx_direct_rejects_flag_like_agent_token() {
+  local output="$tmp_dir/acpx-direct-agent-flag-reject.txt"
+  local acpx_args="$tmp_dir/acpx-direct-agent-flag-reject-args.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_ACPX_BEHAVIOR=success \
+    SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+    "$SCRIPT_DIR/acpx-direct" -- --cwd /tmp codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to reject flag-like agent token" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: agent must be a non-flag token"
+  assert_contains "$output" "(got --cwd)"
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
+}
+
+scan_pattern() {
+  local pattern="$1"
+  local output_file="$2"
+  shift 2
+  local -a files=("$@")
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" "${files[@]}" >"$output_file"
+  else
+    grep -E -n "$pattern" "${files[@]}" >"$output_file"
+  fi
+}
+
 test_docs_block_invalid_acpx_shape() {
   local output="$tmp_dir/acpx-doc-shape-check.txt"
   local output_cmd="$tmp_dir/acpx-doc-raw-cmd-check.txt"
@@ -1003,19 +1035,19 @@ test_docs_block_invalid_acpx_shape() {
     "$root_dir/references/acp-troubleshooting.md"
   )
 
-  if rg -n "acpx[[:space:]]+codex[[:space:]]+exec[[:space:]]+--cwd" "${files[@]}" >"$output"; then
+  if scan_pattern "acpx[[:space:]]+codex[[:space:]]+exec[[:space:]]+--cwd" "$output" "${files[@]}"; then
     echo "Found invalid ACPX command shape in docs" >&2
     cat "$output" >&2
     exit 1
   fi
 
-  if rg -n "^[[:space:]]*(timeout[[:space:]]+[0-9]+s[[:space:]]+)?acpx[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "${files[@]}" >"$output_cmd"; then
+  if scan_pattern "^[[:space:]]*(timeout[[:space:]]+[0-9]+s[[:space:]]+)?acpx[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "$output_cmd" "${files[@]}"; then
     echo "Found raw acpx orchestration command in docs; use ./scripts/acpx-direct instead" >&2
     cat "$output_cmd" >&2
     exit 1
   fi
 
-  if rg -n "^[[:space:]]*\\\"?\\$\\{?ACPX_CMD\\}?\\\"?[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "${files[@]}" >"$output_var"; then
+  if scan_pattern "^[[:space:]]*\\\"?\\$\\{?ACPX_CMD\\}?\\\"?[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "$output_var" "${files[@]}"; then
     echo "Found raw ACPX_CMD orchestration command in docs; use ./scripts/acpx-direct instead" >&2
     cat "$output_var" >&2
     exit 1
@@ -2363,6 +2395,7 @@ run_test test_acpx_direct_rejects_forwarded_cwd
 run_test test_acpx_direct_rejects_forwarded_format
 run_test test_acpx_direct_requires_cwd_value
 run_test test_acpx_direct_requires_format_value
+run_test test_acpx_direct_rejects_flag_like_agent_token
 run_test test_docs_block_invalid_acpx_shape
 run_test test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout
 run_test test_code_plan_generates_artifact
