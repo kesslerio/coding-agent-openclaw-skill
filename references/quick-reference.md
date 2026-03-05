@@ -162,6 +162,11 @@ claude --resume
 # Execute approved plan (non-TTY runs fail fast if still PENDING)
 # Requires latest plan-review metadata to be ready unless --force is used.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+
+# Supervise review/fix loop until P0-P2 blockers clear
+./scripts/review-loop-supervisor --repo /path/to/repo --base main
+./scripts/review-loop-supervisor --repo /path/to/repo --base main \
+  --test-cmd "npm run lint" --test-cmd "npm test" --open-pr --issue 50
 ```
 
 ## Wrapper Scripts (Secondary)
@@ -173,6 +178,9 @@ claude --resume
 # Enforcement wrappers
 TIMEOUT=600 ./scripts/safe-review.sh codex review --base <base> --title "PR Review"
 TIMEOUT=180 ./scripts/safe-impl.sh codex -c 'model_reasoning_effort="high"' exec --full-auto "Implement feature X"
+
+# Review-loop supervisor (machine-checkable milestones + state artifacts)
+./scripts/review-loop-supervisor --repo /path/to/repo --base main --status-interval-seconds 120
 ```
 
 ## Preflight Checks
@@ -213,6 +221,7 @@ Before marking ANY task complete:
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
 For plan-first flow, use `/plan <task>` (maps to `scripts/plan`), `/plan-review` (batch), and `/plan-review-live` (Lobster workflow by default with legacy fallback; pass `--decisions/--blocking` or `--resolve-file` in non-TTY chat flows).
+`review-loop-supervisor` is CLI-only and writes run state to `.ai/review-loops/latest.json`.
 
 ### Agent CLI Commands
 

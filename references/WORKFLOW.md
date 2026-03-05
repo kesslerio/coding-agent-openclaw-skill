@@ -37,6 +37,7 @@ These aliases do not change core policy:
 
 - Plan artifact reviews must use wrappers first: `scripts/plan-review` or `scripts/plan-review-live`.
 - PR/code reviews must use `codex review --base ...` (or `safe-review.sh` wrapper).
+- For long review/fix gate cycles, use `scripts/review-loop-supervisor` for milestone + blocker-delta state events.
 - Do not send manual review findings before the matching review command executes.
 - For runs >30 seconds, emit wrapper status updates every 20 seconds.
 - On interruption/timeout/signal, emit immediate interruption status with exit code and remediation command.
@@ -244,6 +245,9 @@ For non-trivial work, generate a plan artifact before implementation:
 # Optional strict resume behavior:
 ./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+# Supervise review/fix loop until P0-P2 clear; optional PR open/update.
+./scripts/review-loop-supervisor --repo /path/to/repo --base main
+./scripts/review-loop-supervisor --repo /path/to/repo --base main --test-cmd "npm test" --open-pr --issue 50
 ```
 
 `code-implement --plan` now enforces the latest per-plan review metadata gate. `plan-review-live`
@@ -251,6 +255,8 @@ uses the in-repo Lobster workflow by default and falls back to the legacy live-r
 Lobster is unavailable. In non-TTY orchestration, `code-implement --plan` fails fast when plan
 status is not `APPROVED` instead of blocking on interactive confirmation. Use `plan-review-live` to
 resolve blocking decisions before execution, or `--force` to bypass explicitly.
+`review-loop-supervisor` uses a strict parse contract (`SUPERVISOR_COUNTS`/`SUPERVISOR_TOP`) and
+persists machine-readable state to `.ai/review-loops/latest.json` plus per-run history JSON files.
 
 ### Code Review Process
 

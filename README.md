@@ -74,6 +74,13 @@ CLI wrappers:
 # Requires latest plan-review metadata to be ready unless --force is used.
 # In non-TTY orchestration, this fails fast if plan status is not APPROVED.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+
+# Supervise review/fix loop until P0/P1/P2 clear (optional PR open/update)
+./scripts/review-loop-supervisor --repo /path/to/repo --base main
+./scripts/review-loop-supervisor --repo /path/to/repo --base main \
+  --test-cmd "npm run lint" \
+  --test-cmd "npm test" \
+  --open-pr --issue 50
 ```
 
 ## Command Map (Telegram/OpenClaw)
@@ -85,6 +92,9 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 - `/plan-review [--plan <path>]` → batch plan review (single-pass full report, marks unresolved blocking decisions)
 - `/plan-review-live [--plan <path>]` → Lobster workflow checkpoints by default (in-repo `workflows/plan-review-live.lobster`), legacy fallback if Lobster is unavailable; in non-TTY/chat use `--decisions/--blocking` or `--resolve-file` to finalize readiness metadata
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
+
+Supervisor wrapper (CLI-only, no slash alias):
+- `./scripts/review-loop-supervisor` → finite-state review/fix supervisor with machine-checkable milestone events and `.ai/review-loops/latest.json` state output.
 
 ### Approval Semantics
 
@@ -175,6 +185,9 @@ Truthy values (case-insensitive): `1`, `true`, `on`, `yes`, `verbose`
 Planning/review wrapper heartbeat settings:
 - `CODING_AGENT_STATUS_PING_SECONDS` (default `20`)
 - `CODING_AGENT_LONG_RUN_THRESHOLD_SECONDS` (default `30`)
+
+Review-loop supervisor heartbeat setting:
+- `--status-interval-seconds` (default `120`)
 
 One-shot example:
 

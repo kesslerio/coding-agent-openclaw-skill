@@ -51,10 +51,53 @@ EOF
 cat >"$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [[ -n "${SMOKE_GH_ARGS_FILE:-}" ]]; then
+  {
+    printf -- '---CALL---\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+  } >>"$SMOKE_GH_ARGS_FILE"
+fi
+
 if [[ "${1:-}" == "--version" ]]; then
   echo "gh version smoke"
   exit 0
 fi
+
+if [[ "${1:-}" == "pr" ]]; then
+  sub="${2:-}"
+  case "$sub" in
+    list)
+      if [[ "${SMOKE_GH_PR_EXISTS:-0}" == "1" ]]; then
+        printf '[{"number":99,"url":"https://example.test/pr/99"}]\n'
+      else
+        printf '[]\n'
+      fi
+      exit 0
+      ;;
+    view)
+      if [[ -n "${SMOKE_GH_PR_VIEW_JSON:-}" ]]; then
+        printf '%s\n' "$SMOKE_GH_PR_VIEW_JSON"
+        exit 0
+      fi
+      if [[ "${SMOKE_GH_PR_EXISTS:-0}" == "1" ]]; then
+        printf '{"number":99,"url":"https://example.test/pr/99"}\n'
+        exit 0
+      fi
+      exit 1
+      ;;
+    create)
+      printf '%s\n' "${SMOKE_GH_PR_CREATE_URL:-https://example.test/pr/123}"
+      exit 0
+      ;;
+    edit|checks)
+      exit 0
+      ;;
+  esac
+fi
+
 exit 0
 EOF
 
@@ -70,6 +113,122 @@ set -euo pipefail
 } >>"$SMOKE_CODEX_ARGS_FILE"
 
 all_args="$*"
+
+if [[ "${SMOKE_CODEX_MODE:-}" == "review-loop" ]]; then
+  state_file="${SMOKE_REVIEW_LOOP_STATE_FILE:-}"
+  if [[ -z "$state_file" ]]; then
+    state_file="$(mktemp)"
+  fi
+  if [[ ! -f "$state_file" ]]; then
+    printf '0' >"$state_file"
+  fi
+
+  if [[ "${1:-}" == "review" ]]; then
+    review_count="$(cat "$state_file")"
+    review_count=$((review_count + 1))
+    printf '%s' "$review_count" >"$state_file"
+
+    scenario="${SMOKE_REVIEW_LOOP_SCENARIO:-converge}"
+    case "$scenario" in
+      converge)
+        if (( review_count == 1 )); then
+          cat <<'OUT'
+Review findings.
+SUPERVISOR_COUNTS P0=0 P1=1 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|src/app.ts:42|Null guard missing|Add null guard for payload lookup
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        else
+          cat <<'OUT'
+Review findings.
+SUPERVISOR_COUNTS P0=0 P1=0 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|none|none|none
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        fi
+        exit 0
+        ;;
+      parse-retry-success)
+        if (( review_count == 1 )); then
+          echo "Missing strict footer intentionally."
+        else
+          cat <<'OUT'
+Retry review.
+SUPERVISOR_COUNTS P0=0 P1=0 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|none|none|none
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        fi
+        exit 0
+        ;;
+      parse-retry-fail)
+        echo "Still malformed footer."
+        exit 0
+        ;;
+      state-change)
+        if (( review_count == 1 )); then
+          cat <<'OUT'
+Iteration 1 findings.
+SUPERVISOR_COUNTS P0=0 P1=0 P2=1 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|none|none|none
+SUPERVISOR_TOP P2|src/a.ts:9|Slow path|Index query path
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        elif (( review_count == 2 )); then
+          cat <<'OUT'
+Iteration 2 findings.
+SUPERVISOR_COUNTS P0=0 P1=1 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|src/b.ts:15|Regression introduced|Restore previous guard behavior
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        else
+          cat <<'OUT'
+Iteration 3 findings.
+SUPERVISOR_COUNTS P0=0 P1=0 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|none|none|none
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        fi
+        exit 0
+        ;;
+      stuck)
+        cat <<'OUT'
+Stuck findings.
+SUPERVISOR_COUNTS P0=0 P1=1 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|src/stuck.ts:2|Issue remains|Need patch
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
+        exit 0
+        ;;
+      *)
+        echo "Unknown SMOKE_REVIEW_LOOP_SCENARIO" >&2
+        exit 2
+        ;;
+    esac
+  fi
+
+  if [[ " $all_args " == *" exec "* ]]; then
+    if [[ "${SMOKE_REVIEW_LOOP_FIX_BEHAVIOR:-change}" == "change" ]]; then
+      target_file="${SMOKE_REVIEW_LOOP_FIX_FILE:-$PWD/review-loop-fix.txt}"
+      printf 'fix-%s\n' "$(date +%s)" >>"$target_file"
+    fi
+    echo "fix ok"
+    exit 0
+  fi
+fi
 
 if [[ "$all_args" == *"LIVE REVIEW SECTION:"* ]]; then
   section="$(printf '%s\n' "$all_args" | sed -nE 's/.*LIVE REVIEW SECTION: ([A-Za-z ]+).*/\1/p' | head -n 1)"
@@ -1804,6 +1963,178 @@ test_code_implement_emits_interrupted_on_sigterm() {
   assert_count_regex "$output" "^RUN_EVENT (done|failed) " "0"
 }
 
+create_supervisor_repo() {
+  local repo="$1"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "smoke" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+  git -C "$repo" checkout -q -b kesslerio/fix/smoke-supervisor
+}
+
+test_review_loop_supervisor_converges() {
+  local repo="$tmp_dir/repo-review-loop-converge"
+  local output="$tmp_dir/review-loop-converge.out"
+  local codex_args="$tmp_dir/review-loop-converge-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-converge-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
+
+  assert_contains "$output" "\"type\":\"ready\""
+  assert_contains "$output" "\"type\":\"done\""
+  local latest_state="$repo/.ai/review-loops/latest.json"
+  [[ -f "$latest_state" ]] || { echo "Expected review-loop latest state file" >&2; exit 1; }
+  assert_contains "$latest_state" "\"state\": \"done\""
+  assert_contains "$latest_state" "\"P1\": 0"
+}
+
+test_review_loop_supervisor_parse_retry_success() {
+  local repo="$tmp_dir/repo-review-loop-parse-retry-success"
+  local output="$tmp_dir/review-loop-parse-retry-success.out"
+  local codex_args="$tmp_dir/review-loop-parse-retry-success-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-parse-retry-success-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=parse-retry-success \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
+
+  assert_contains "$output" "\"attempt\":2"
+  assert_contains "$output" "\"parse\":\"ok\""
+}
+
+test_review_loop_supervisor_parse_retry_fails_closed() {
+  local repo="$tmp_dir/repo-review-loop-parse-retry-fail"
+  local output="$tmp_dir/review-loop-parse-retry-fail.out"
+  local codex_args="$tmp_dir/review-loop-parse-retry-fail-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-parse-retry-fail-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=parse-retry-fail \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1; then
+    echo "Expected parse retry failure to fail closed" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "reason=parse_failed"
+}
+
+test_review_loop_supervisor_emits_state_change_event() {
+  local repo="$tmp_dir/repo-review-loop-state-change"
+  local output="$tmp_dir/review-loop-state-change.out"
+  local codex_args="$tmp_dir/review-loop-state-change-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-state-change-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=state-change \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
+
+  assert_contains "$output" "\"type\":\"state_change\""
+  assert_contains "$output" "\"severity\":\"P1\""
+}
+
+test_review_loop_supervisor_detects_stuck_loop() {
+  local repo="$tmp_dir/repo-review-loop-stuck"
+  local output="$tmp_dir/review-loop-stuck.out"
+  local codex_args="$tmp_dir/review-loop-stuck-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-stuck-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=stuck \
+    SMOKE_REVIEW_LOOP_FIX_BEHAVIOR=no-change \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1; then
+    echo "Expected stuck-loop detection to fail" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "reason=no_changes_after_fix"
+}
+
+test_review_loop_supervisor_open_pr_creates_pr() {
+  local repo="$tmp_dir/repo-review-loop-open-pr"
+  local remote="$tmp_dir/repo-review-loop-open-pr-remote.git"
+  local output="$tmp_dir/review-loop-open-pr.out"
+  local codex_args="$tmp_dir/review-loop-open-pr-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-open-pr-gh-args.txt"
+  local state_file="$tmp_dir/review-loop-open-pr-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git init --bare -q "$remote"
+  git -C "$repo" remote add origin "$remote"
+  git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
+
+  PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_PR_EXISTS=0 \
+    SMOKE_GH_PR_CREATE_URL="https://example.test/pr/321" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1
+
+  assert_contains "$output" "PR: https://example.test/pr/321"
+  assert_contains "$gh_args" "pr"
+  assert_contains "$gh_args" "create"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/321\""
+}
+
+test_review_loop_supervisor_open_pr_requires_clean_tree() {
+  local repo="$tmp_dir/repo-review-loop-open-pr-dirty"
+  local output="$tmp_dir/review-loop-open-pr-dirty.out"
+  local codex_args="$tmp_dir/review-loop-open-pr-dirty-codex-args.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  echo "dirty" >> "$repo/README.md"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr >"$output" 2>&1; then
+    echo "Expected --open-pr clean-tree precheck to fail" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "requires a clean working tree at start"
+  assert_contains "$output" "open_pr_requires_clean_tree"
+}
+
 test_invalid_mode_rejected
 test_invalid_cli_rejected
 test_doctor_known_issue_guidance
@@ -1849,5 +2180,12 @@ test_code_implement_emits_run_events_interrupted
 test_code_implement_fallback_terminal_event_without_tmux_terminal_line
 test_code_implement_ignores_spoofed_terminal_event_without_token
 test_code_implement_emits_interrupted_on_sigterm
+test_review_loop_supervisor_converges
+test_review_loop_supervisor_parse_retry_success
+test_review_loop_supervisor_parse_retry_fails_closed
+test_review_loop_supervisor_emits_state_change_event
+test_review_loop_supervisor_detects_stuck_loop
+test_review_loop_supervisor_open_pr_creates_pr
+test_review_loop_supervisor_open_pr_requires_clean_tree
 
 printf 'Wrapper smoke tests passed.\n'
