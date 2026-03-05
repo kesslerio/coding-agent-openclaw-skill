@@ -36,10 +36,20 @@ out_format="quiet"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cwd)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == -* ]]; then
+        printf 'Error: --cwd requires a non-empty value\n' >&2
+        usage
+        exit 1
+      fi
       run_cwd="${2:-}"
       shift 2
       ;;
     --format)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == -* ]]; then
+        printf 'Error: --format requires a non-empty value\n' >&2
+        usage
+        exit 1
+      fi
       out_format="${2:-}"
       shift 2
       ;;

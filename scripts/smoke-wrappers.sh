@@ -964,8 +964,36 @@ test_acpx_direct_rejects_forwarded_format() {
   fi
 }
 
+test_acpx_direct_requires_cwd_value() {
+  local output="$tmp_dir/acpx-direct-cwd-missing.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/acpx-direct" --cwd --format quiet codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to fail when --cwd value is missing" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: --cwd requires a non-empty value"
+  assert_contains "$output" "Usage:"
+}
+
+test_acpx_direct_requires_format_value() {
+  local output="$tmp_dir/acpx-direct-format-missing.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/acpx-direct" --format --cwd "$PWD" codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to fail when --format value is missing" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: --format requires a non-empty value"
+  assert_contains "$output" "Usage:"
+}
+
 test_docs_block_invalid_acpx_shape() {
   local output="$tmp_dir/acpx-doc-shape-check.txt"
+  local output_cmd="$tmp_dir/acpx-doc-raw-cmd-check.txt"
+  local output_var="$tmp_dir/acpx-doc-raw-var-check.txt"
   local root_dir="$SCRIPT_DIR/.."
   local -a files=(
     "$root_dir/README.md"
@@ -978,6 +1006,18 @@ test_docs_block_invalid_acpx_shape() {
   if rg -n "acpx[[:space:]]+codex[[:space:]]+exec[[:space:]]+--cwd" "${files[@]}" >"$output"; then
     echo "Found invalid ACPX command shape in docs" >&2
     cat "$output" >&2
+    exit 1
+  fi
+
+  if rg -n "^[[:space:]]*(timeout[[:space:]]+[0-9]+s[[:space:]]+)?acpx[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "${files[@]}" >"$output_cmd"; then
+    echo "Found raw acpx orchestration command in docs; use ./scripts/acpx-direct instead" >&2
+    cat "$output_cmd" >&2
+    exit 1
+  fi
+
+  if rg -n "^[[:space:]]*\\\"?\\$\\{?ACPX_CMD\\}?\\\"?[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "${files[@]}" >"$output_var"; then
+    echo "Found raw ACPX_CMD orchestration command in docs; use ./scripts/acpx-direct instead" >&2
+    cat "$output_var" >&2
     exit 1
   fi
 }
@@ -2321,6 +2361,8 @@ run_test test_acpx_wrapper_rejects_forwarded_timeout
 run_test test_acpx_direct_emits_canonical_shape
 run_test test_acpx_direct_rejects_forwarded_cwd
 run_test test_acpx_direct_rejects_forwarded_format
+run_test test_acpx_direct_requires_cwd_value
+run_test test_acpx_direct_requires_format_value
 run_test test_docs_block_invalid_acpx_shape
 run_test test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout
 run_test test_code_plan_generates_artifact
