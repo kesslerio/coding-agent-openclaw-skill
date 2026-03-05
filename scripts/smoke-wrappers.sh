@@ -568,6 +568,30 @@ assert_not_contains() {
   fi
 }
 
+assert_line_order() {
+  local file="$1"
+  local first="$2"
+  local second="$3"
+  local first_line
+  local second_line
+
+  first_line="$(grep -nFx -- "$first" "$file" | head -n 1 | cut -d: -f1 || true)"
+  second_line="$(grep -nFx -- "$second" "$file" | head -n 1 | cut -d: -f1 || true)"
+
+  if [[ -z "$first_line" || -z "$second_line" ]]; then
+    printf 'Assertion failed: expected both "%s" and "%s" in %s\n' "$first" "$second" "$file" >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$file" >&2
+    exit 1
+  fi
+  if (( first_line >= second_line )); then
+    printf 'Assertion failed: expected "%s" before "%s" in %s\n' "$first" "$second" "$file" >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
 assert_count() {
   local file="$1"
   local pattern="$2"
@@ -872,6 +896,162 @@ test_acpx_wrapper_rejects_forwarded_timeout() {
 
   assert_contains "$output_equals" "non-canonical ACPX invocation"
   assert_contains "$output_equals" "(got --timeout=90)"
+}
+
+test_acpx_direct_emits_canonical_shape() {
+  local acpx_args="$tmp_dir/acpx-direct-args.txt"
+  local output="$tmp_dir/acpx-direct-output.txt"
+  local prompt="Reply with READY only."
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  "$SCRIPT_DIR/acpx-direct" --cwd "$PWD" --format quiet codex exec "$prompt" >"$output" 2>&1
+
+  assert_contains "$acpx_args" "---CALL---"
+  assert_contains "$acpx_args" "--cwd"
+  assert_contains "$acpx_args" "$PWD"
+  assert_contains "$acpx_args" "--format"
+  assert_contains "$acpx_args" "quiet"
+  assert_contains "$acpx_args" "--approve-all"
+  assert_contains "$acpx_args" "--non-interactive-permissions"
+  assert_contains "$acpx_args" "fail"
+  assert_contains "$acpx_args" "codex"
+  assert_contains "$acpx_args" "exec"
+  assert_contains "$acpx_args" "$prompt"
+
+  assert_line_order "$acpx_args" "--cwd" "codex"
+  assert_line_order "$acpx_args" "--format" "codex"
+  assert_line_order "$acpx_args" "--approve-all" "codex"
+  assert_line_order "$acpx_args" "--non-interactive-permissions" "codex"
+}
+
+test_acpx_direct_rejects_forwarded_cwd() {
+  local output="$tmp_dir/acpx-direct-cwd-reject.txt"
+  local acpx_args="$tmp_dir/acpx-direct-cwd-reject-args.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_ACPX_BEHAVIOR=success \
+    SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+    "$SCRIPT_DIR/acpx-direct" codex exec --cwd "$PWD" "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to reject forwarded --cwd" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "non-canonical ACPX invocation"
+  assert_contains "$output" "(got --cwd)"
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
+}
+
+test_acpx_direct_rejects_forwarded_format() {
+  local output="$tmp_dir/acpx-direct-format-reject.txt"
+  local acpx_args="$tmp_dir/acpx-direct-format-reject-args.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_ACPX_BEHAVIOR=success \
+    SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+    "$SCRIPT_DIR/acpx-direct" codex exec --format quiet "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to reject forwarded --format" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "non-canonical ACPX invocation"
+  assert_contains "$output" "(got --format)"
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
+}
+
+test_acpx_direct_requires_cwd_value() {
+  local output="$tmp_dir/acpx-direct-cwd-missing.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/acpx-direct" --cwd --format quiet codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to fail when --cwd value is missing" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: --cwd requires a non-empty value"
+  assert_contains "$output" "Usage:"
+}
+
+test_acpx_direct_requires_format_value() {
+  local output="$tmp_dir/acpx-direct-format-missing.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    "$SCRIPT_DIR/acpx-direct" --format --cwd "$PWD" codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to fail when --format value is missing" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: --format requires a non-empty value"
+  assert_contains "$output" "Usage:"
+}
+
+test_acpx_direct_rejects_flag_like_agent_token() {
+  local output="$tmp_dir/acpx-direct-agent-flag-reject.txt"
+  local acpx_args="$tmp_dir/acpx-direct-agent-flag-reject-args.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_ACPX_BEHAVIOR=success \
+    SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+    "$SCRIPT_DIR/acpx-direct" -- --cwd /tmp codex exec "prompt" >"$output" 2>&1; then
+    echo "Expected acpx-direct to reject flag-like agent token" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error: agent must be a non-flag token"
+  assert_contains "$output" "(got --cwd)"
+  if [[ -f "$acpx_args" ]]; then
+    assert_not_contains "$acpx_args" "---CALL---"
+  fi
+}
+
+scan_pattern() {
+  local pattern="$1"
+  local output_file="$2"
+  shift 2
+  local -a files=("$@")
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" "${files[@]}" >"$output_file"
+  else
+    grep -E -n "$pattern" "${files[@]}" >"$output_file"
+  fi
+}
+
+test_docs_block_invalid_acpx_shape() {
+  local output="$tmp_dir/acpx-doc-shape-check.txt"
+  local output_cmd="$tmp_dir/acpx-doc-raw-cmd-check.txt"
+  local output_var="$tmp_dir/acpx-doc-raw-var-check.txt"
+  local root_dir="$SCRIPT_DIR/.."
+  local -a files=(
+    "$root_dir/README.md"
+    "$root_dir/skills/coding-agent/SKILL.md"
+    "$root_dir/references/tooling.md"
+    "$root_dir/references/quick-reference.md"
+    "$root_dir/references/acp-troubleshooting.md"
+  )
+
+  if scan_pattern "acpx[[:space:]]+codex[[:space:]]+exec[[:space:]]+--cwd" "$output" "${files[@]}"; then
+    echo "Found invalid ACPX command shape in docs" >&2
+    cat "$output" >&2
+    exit 1
+  fi
+
+  if scan_pattern "^[[:space:]]*(timeout[[:space:]]+[0-9]+s[[:space:]]+)?acpx[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "$output_cmd" "${files[@]}"; then
+    echo "Found raw acpx orchestration command in docs; use ./scripts/acpx-direct instead" >&2
+    cat "$output_cmd" >&2
+    exit 1
+  fi
+
+  if scan_pattern "^[[:space:]]*\\\"?\\$\\{?ACPX_CMD\\}?\\\"?[[:space:]].*(codex[[:space:]]+(exec|sessions|set-mode|cancel)|[[:space:]]-s[[:space:]])" "$output_var" "${files[@]}"; then
+    echo "Found raw ACPX_CMD orchestration command in docs; use ./scripts/acpx-direct instead" >&2
+    cat "$output_var" >&2
+    exit 1
+  fi
 }
 
 test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout() {
@@ -2210,6 +2390,13 @@ run_test test_acpx_cmd_override_is_used
 run_test test_acp_disable_skips_acpx
 run_test test_acp_disable_ignores_invalid_policy_env
 run_test test_acpx_wrapper_rejects_forwarded_timeout
+run_test test_acpx_direct_emits_canonical_shape
+run_test test_acpx_direct_rejects_forwarded_cwd
+run_test test_acpx_direct_rejects_forwarded_format
+run_test test_acpx_direct_requires_cwd_value
+run_test test_acpx_direct_requires_format_value
+run_test test_acpx_direct_rejects_flag_like_agent_token
+run_test test_docs_block_invalid_acpx_shape
 run_test test_acp_smoke_local_uses_session_prompt_without_forwarded_timeout
 run_test test_code_plan_generates_artifact
 run_test test_safe_impl_claude_plan_mode_no_dangerous_skip

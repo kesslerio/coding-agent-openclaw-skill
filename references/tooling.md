@@ -11,7 +11,7 @@ For non-trivial changes:
 
 | Method | Reliability | Output | Best For |
 |--------|-------------|--------|----------|
-| ACPX (`acpx <agent> exec`) | ⚠️ Medium | Quiet assistant text | ACP harness-first execution and relay flows |
+| ACPX (`scripts/acpx-direct`) | ⚠️ Medium | Quiet assistant text | ACP harness-first execution and relay flows |
 | Direct Codex CLI (`exec` + `resume`) | ✅ High | Text/JSON stream | Most implementation loops and iterative follow-ups |
 | tmux transport + Codex CLI | ✅ High | Full TTY + logs | Long-running tasks requiring reattach and terminal durability |
 | Claude CLI fallback | ⚠️ Medium | Text stream | When Codex is unavailable |
@@ -140,6 +140,13 @@ Validate wrappers locally:
 ./scripts/smoke-wrappers.sh
 ```
 
+Canonical direct ACPX wrapper (for explicit direct-path runs):
+
+```bash
+./scripts/acpx-direct --cwd /path/to/repo --format quiet codex sessions ensure --name "ca-codex-$(basename /path/to/repo)"
+./scripts/acpx-direct --cwd /path/to/repo --format quiet codex -s "ca-codex-$(basename /path/to/repo)" "Reply with READY only."
+```
+
 ## Advanced: tmux Wrapper (Optional)
 
 For durable TTY sessions with logging. Use when you need to monitor long-running tasks or preserve terminal output.
@@ -216,6 +223,7 @@ Cleanup:
 | `CODING_AGENT_ACP_ENABLE` | Enable ACP-first attempt in `safe-fallback.sh` (`0|1`) | `1` |
 | `CODING_AGENT_ACP_AGENT` | ACP harness alias for ACPX execution | `codex` |
 | `CODING_AGENT_ACPX_CMD` | Explicit ACPX binary path override | unset |
+| `ACPX_RUN_TIMEOUT` | Optional timeout in seconds for wrapper-managed ACPX calls | unset |
 | `CODING_AGENT_ALLOW_NONCANONICAL` | Temporary bypass for canonical-clone guard (`0|1`) | `0` |
 | `CI` / `GITHUB_ACTIONS` | Automatic canonical-clone guard bypass in CI runners | unset |
 | `CODING_AGENT_VERBOSE` | Execution progress verbosity (`off` by default; truthy: `1|true|on|yes|verbose`) | `off` |

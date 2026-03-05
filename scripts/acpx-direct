@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# acpx-direct - canonical direct ACPX execution for coding-agent orchestration
+set -euo pipefail
+
+# Ensure standard tools are available on NixOS
+export PATH="$PATH:/run/current-system/sw/bin"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resolve-cli.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/acpx-wrapper.sh"
+ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  acpx-direct [--cwd <path>] [--format <quiet|text|json>] <agent> <agent-args...>
+
+Examples:
+  ./scripts/acpx-direct --cwd /path/to/repo --format quiet codex sessions ensure --name session-name
+  ACPX_RUN_TIMEOUT=120 ./scripts/acpx-direct --cwd /path/to/repo --format quiet codex -s session-name "Reply READY only."
+
+Notes:
+  - ACPX global flags are wrapper-owned and enforced by scripts/lib/acpx-wrapper.sh.
+  - Do not pass ACPX globals such as --cwd, --format, --timeout, --approve-all, or
+    --non-interactive-permissions in <agent-args...>.
+USAGE
+}
+
+run_cwd="$PWD"
+out_format="quiet"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cwd)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == -* ]]; then
+        printf 'Error: --cwd requires a non-empty value\n' >&2
+        usage
+        exit 1
+      fi
+      run_cwd="${2:-}"
+      shift 2
+      ;;
+    --format)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == -* ]]; then
+        printf 'Error: --format requires a non-empty value\n' >&2
+        usage
+        exit 1
+      fi
+      out_format="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ -z "$run_cwd" ]]; then
+  printf 'Error: --cwd cannot be empty\n' >&2
+  exit 1
+fi
+
+case "$out_format" in
+  quiet|text|json)
+    ;;
+  *)
+    printf 'Error: --format must be one of: quiet, text, json\n' >&2
+    exit 1
+    ;;
+esac
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 1
+fi
+
+if ! run_cwd="$(cd "$run_cwd" && pwd)"; then
+  printf 'Error: unable to resolve --cwd: %s\n' "$run_cwd" >&2
+  exit 1
+fi
+
+agent="$1"
+if [[ "$agent" == -* ]]; then
+  printf 'Error: agent must be a non-flag token (got %s)\n' "$agent" >&2
+  usage
+  exit 1
+fi
+shift
+
+if ! acpx_validate_policy_env; then
+  exit 1
+fi
+
+if ! acpx_bin="$(resolve_acpx_bin)"; then
+  if [[ -n "${CODING_AGENT_ACPX_CMD:-}" ]]; then
+    printf 'Error: CODING_AGENT_ACPX_CMD is set but not executable: %s\n' "${CODING_AGENT_ACPX_CMD}" >&2
+  else
+    printf 'Error: acpx not found (checked CODING_AGENT_ACPX_CMD, then PATH)\n' >&2
+  fi
+  exit 1
+fi
+
+acpx_run_canonical "$acpx_bin" "$run_cwd" "$out_format" "$agent" "$@"
