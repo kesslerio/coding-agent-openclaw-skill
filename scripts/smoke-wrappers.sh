@@ -2459,6 +2459,20 @@ test_emit_error_text_mode_does_not_require_jq() {
   assert_not_contains "$output" "jq: command not found"
 }
 
+test_safe_fallback_text_blocker_does_not_require_jq() {
+  local output="$tmp_dir/safe-fallback-no-jq.txt"
+
+  if PATH="/usr/bin:/bin" CODING_AGENT_ACP_ENABLE=0 GEMINI_FALLBACK_ENABLE=0 \
+    "$SCRIPT_DIR/safe-fallback.sh" review "prompt without jq" >"$output" 2>&1; then
+    echo "Expected safe-fallback review to fail when no backends are available" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error [ALL_BACKENDS_UNAVAILABLE]"
+  assert_contains "$output" "All execution backends failed for mode 'review'."
+  assert_not_contains "$output" "jq: command not found"
+}
+
 test_code_implement_launches_with_unverified_state() {
   local repo="$tmp_dir/repo-code-implement-launch"
   init_repo "$repo"
@@ -2947,6 +2961,7 @@ run_test test_code_implement_approve_rejects_missing_frontmatter
 run_test test_safe_fallback_json_contract
 run_test test_safe_fallback_json_failure_redacts_backend_output
 run_test test_emit_error_text_mode_does_not_require_jq
+run_test test_safe_fallback_text_blocker_does_not_require_jq
 run_test test_code_implement_launches_with_unverified_state
 run_test test_code_implement_accepts_metadata_from_non_tty_apply_flow
 run_test test_code_implement_accepts_metadata_from_apply_mode

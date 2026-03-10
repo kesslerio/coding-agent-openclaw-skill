@@ -188,15 +188,19 @@ record_failure() {
 }
 
 emit_blocker() {
+  local context_json
+  local data_json='null'
   local failures_json='null'
+  context_json="$(printf '{"mode":"%s"}' "$MODE")"
   if command -v jq >/dev/null 2>&1; then
     failures_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s .)"
+    data_json="$(jq -n --argjson failures "$failures_json" '{failures: $failures}')"
   fi
 
   emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "ALL_BACKENDS_UNAVAILABLE" \
     "All execution backends failed for mode '$MODE'." \
-    "$(jq -n --arg mode "$MODE" '{mode: $mode}')" \
-    "$(jq -n --argjson failures "$failures_json" '{failures: $failures}')" \
+    "$context_json" \
+    "$data_json" \
     "Wait for tool availability or install the required CLI tools." \
     "Inspect the recorded failures and retry with a healthier backend."
   exit 1
