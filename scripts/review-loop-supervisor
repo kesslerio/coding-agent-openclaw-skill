@@ -484,7 +484,22 @@ $issue_block
 EOFPR
 }
 
+sha256_cmd() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf 'sha256sum\n'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    printf 'shasum -a 256\n'
+    return 0
+  fi
+  echo "Error: missing required checksum tool: sha256sum or shasum" >&2
+  exit 1
+}
+
 repo_content_fingerprint() {
+  local checksum_cmd
+  checksum_cmd="$(sha256_cmd)"
   (
     cd "$REPO_PATH"
     {
@@ -496,12 +511,12 @@ repo_content_fingerprint() {
       git ls-files --others --exclude-standard -- . ':(exclude).ai/review-loops/**' | LC_ALL=C sort | while IFS= read -r path; do
         [[ -n "$path" ]] || continue
         if [[ -f "$path" ]]; then
-          printf '%s  %s\n' "$(sha256sum "$path" | awk '{print $1}')" "$path"
+          printf '%s  %s\n' "$($checksum_cmd "$path" | awk '{print $1}')" "$path"
         else
           printf 'NONREGULAR  %s\n' "$path"
         fi
       done
-    } | sha256sum | awk '{print $1}'
+    } | $checksum_cmd | awk '{print $1}'
   )
 }
 

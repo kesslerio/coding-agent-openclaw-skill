@@ -1,30 +1,8 @@
 #!/usr/bin/env bash
 # safe-fallback.sh - Try tools in order, report blocker if all fail
-# NEVER falls back to direct edits - that's a Rule 1 violation
 set -euo pipefail
 
-# Ensure standard tools are available on NixOS
 export PATH="$PATH:/run/current-system/sw/bin"
-
-# Configuration
-MODE="${1:-impl}"  # impl or review
-shift || true
-
-if [[ "$MODE" != "impl" && "$MODE" != "review" ]]; then
-  echo "Error: invalid mode '$MODE' (expected: impl|review)" >&2
-  echo "Usage: safe-fallback.sh <impl|review> \"prompt...\"" >&2
-  exit 1
-fi
-
-PROMPT="${*:-}"
-if [[ -z "$PROMPT" ]]; then
-  echo "Usage: safe-fallback.sh <impl|review> \"prompt...\""
-  echo ""
-  echo "Examples:"
-  echo "  safe-fallback.sh impl \"Implement feature X\""
-  echo "  safe-fallback.sh review \"Review this PR for bugs and security issues\""
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -33,32 +11,83 @@ source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
 source "$SCRIPT_DIR/lib/resolve-cli.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/acpx-wrapper.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/wrapper-io.sh"
 ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
 
-# Timeouts
+COMMAND_NAME="safe-fallback"
+MODE="${1:-impl}"
+shift || true
+OUTPUT_MODE="text"
+RUN_ID="$(generate_run_id)"
+
+if [[ "$MODE" != "impl" && "$MODE" != "review" ]]; then
+  echo "Error: invalid mode '$MODE' (expected: impl|review)" >&2
+  echo "Usage: safe-fallback.sh <impl|review> [--output text|json] \"prompt...\"" >&2
+  exit 1
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      OUTPUT_MODE="${2:-}"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if ! ensure_output_mode "$OUTPUT_MODE"; then
+  exit 1
+fi
+
+if [[ "$OUTPUT_MODE" == "json" ]]; then
+  require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "jq" \
+    "Install jq before using --output json with safe-fallback.sh."
+fi
+
+PROMPT="${*:-}"
+if [[ -z "$PROMPT" ]]; then
+  echo "Usage: safe-fallback.sh <impl|review> [--output text|json] \"prompt...\"" >&2
+  exit 1
+fi
+
+if ! reject_control_chars "prompt" "$PROMPT"; then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INPUT_CONTROL_CHARS" \
+    "Prompt contains control characters." \
+    "{}" \
+    "null" \
+    "Remove control characters from the prompt and retry."
+  exit 1
+fi
+
 IMPL_TIMEOUT=${IMPL_TIMEOUT:-180}
 REVIEW_TIMEOUT=${REVIEW_TIMEOUT:-1200}
 TIMEOUT=$([[ "$MODE" == "review" ]] && echo "$REVIEW_TIMEOUT" || echo "$IMPL_TIMEOUT")
-
-# Gemini fallback is opt-in only.
 GEMINI_FALLBACK_ENABLE=${GEMINI_FALLBACK_ENABLE:-0}
+CODING_AGENT_ACP_ENABLE=${CODING_AGENT_ACP_ENABLE:-1}
+CODING_AGENT_ACP_AGENT=${CODING_AGENT_ACP_AGENT:-codex}
+CODING_AGENT_ACP_APPROVE_ALL=${CODING_AGENT_ACP_APPROVE_ALL:-1}
+CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS=${CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS:-fail}
+CODING_AGENT_ACP_SESSION_MODE=${CODING_AGENT_ACP_SESSION_MODE:-}
+FAILURES=()
+
 if [[ "$GEMINI_FALLBACK_ENABLE" != "0" && "$GEMINI_FALLBACK_ENABLE" != "1" ]]; then
   echo "Error: GEMINI_FALLBACK_ENABLE must be 0 or 1" >&2
   exit 1
 fi
 
-# ACP-first routing is enabled by default.
-CODING_AGENT_ACP_ENABLE=${CODING_AGENT_ACP_ENABLE:-1}
 if [[ "$CODING_AGENT_ACP_ENABLE" != "0" && "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
   echo "Error: CODING_AGENT_ACP_ENABLE must be 0 or 1" >&2
   exit 1
 fi
-CODING_AGENT_ACP_AGENT=${CODING_AGENT_ACP_AGENT:-codex}
-CODING_AGENT_ACP_APPROVE_ALL=${CODING_AGENT_ACP_APPROVE_ALL:-1}
-CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS=${CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS:-fail}
-CODING_AGENT_ACP_SESSION_MODE=${CODING_AGENT_ACP_SESSION_MODE:-}
 
-# Colors
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
@@ -76,7 +105,6 @@ resolve_impl_mode() {
     return 0
   fi
 
-  # Legacy compatibility knobs.
   if [[ "${CODEX_TMUX_DISABLE:-0}" == "1" ]]; then
     printf 'direct\n'
     return 0
@@ -90,35 +118,143 @@ resolve_impl_mode() {
 }
 
 detect_base_branch() {
-  local base_branch="main"
-  if git rev-parse --git-dir &>/dev/null; then
-    base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-    if [[ -z "$base_branch" ]]; then
-      for candidate in main master trunk; do
-        if git show-ref --verify --quiet "refs/heads/${candidate}" || \
-           git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
-          base_branch="$candidate"
-          break
-        fi
-      done
-    fi
-    if [[ -z "$base_branch" ]]; then
-      base_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-    fi
-  fi
+  local base_branch=""
+  local current_branch=""
+  local candidate=""
 
-  printf '%s\n' "$base_branch"
-}
-
-# Track failures (portable array init)
-FAILURES=()
-
-build_acpx_prompt() {
-  if [[ "$MODE" == "review" ]]; then
-    printf '%s\n' "$PROMPT"
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'main\n'
     return 0
   fi
 
+  current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+  if [[ -n "$base_branch" && "$base_branch" != "$current_branch" ]]; then
+    printf '%s\n' "$base_branch"
+    return 0
+  fi
+
+  for candidate in main master trunk; do
+    if git show-ref --verify --quiet "refs/heads/${candidate}" || \
+       git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+      if [[ "$candidate" == "$current_branch" ]]; then
+        printf '%s\n' "$current_branch"
+        return 0
+      fi
+    fi
+  done
+
+  for candidate in main master trunk; do
+    if [[ "$candidate" == "$current_branch" ]]; then
+      continue
+    fi
+    if git show-ref --verify --quiet "refs/heads/${candidate}" || \
+       git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  candidate="$({
+    git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null || true
+  } | sed 's@^origin/@@' | grep -v '^HEAD$' | grep -v '^$' | grep -vx -- "$current_branch" | head -n 1)"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
+    printf '%s\n' "$current_branch"
+    return 0
+  fi
+
+  printf 'main\n'
+}
+
+json_success_payload() {
+  local backend="$1"
+  local state="$2"
+  local backend_response_json="${3:-null}"
+  jq -n \
+    --arg mode "$MODE" \
+    --arg backend "$backend" \
+    --arg state "$state" \
+    --argjson backend_response "$backend_response_json" \
+    '{
+      mode: $mode,
+      backend: $backend,
+      state: $state,
+      backend_response: $backend_response
+    }'
+}
+
+record_failure() {
+  FAILURES+=("$1")
+}
+
+emit_blocker() {
+  local context_json
+  local data_json='null'
+  local failures_json='null'
+  context_json="$(printf '{"mode":"%s"}' "$MODE")"
+  if command -v jq >/dev/null 2>&1; then
+    failures_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s .)"
+    data_json="$(jq -n --argjson failures "$failures_json" '{failures: $failures}')"
+  fi
+
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "ALL_BACKENDS_UNAVAILABLE" \
+    "All execution backends failed for mode '$MODE'." \
+    "$context_json" \
+    "$data_json" \
+    "Wait for tool availability or install the required CLI tools." \
+    "Inspect the recorded failures and retry with a healthier backend."
+  exit 1
+}
+
+run_backend() {
+  local backend="$1"
+  shift
+  local output=""
+  local backend_response='null'
+  local backend_state="completed"
+  local output_file=""
+  local stdout_file=""
+  local stderr_file=""
+  local failure_summary="${backend}: command failed"
+
+  if [[ "$OUTPUT_MODE" != "json" ]]; then
+    output_file="$(mktemp)"
+    if "$@" 2>&1 | tee "$output_file"; then
+      rm -f "$output_file"
+      return 0
+    fi
+
+    output="$(cat "$output_file" 2>/dev/null || true)"
+    rm -f "$output_file"
+    record_failure "$failure_summary"
+    return 1
+  fi
+
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+  if ! "$@" >"$stdout_file" 2>"$stderr_file"; then
+    rm -f "$stdout_file" "$stderr_file"
+    record_failure "$failure_summary"
+    return 1
+  fi
+  output="$(cat "$stdout_file" 2>/dev/null || true)"
+  rm -f "$stdout_file" "$stderr_file"
+
+  if printf '%s' "$output" | jq -e '.ok' >/dev/null 2>&1; then
+    backend_response="$(printf '%s' "$output" | jq -c '.')"
+    backend_state="$(printf '%s' "$output" | jq -r '.data.state // "completed"')"
+  fi
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
+    "$(json_success_payload "$backend" "$backend_state" "$backend_response")"
+  return 0
+}
+
+build_acpx_prompt() {
   printf '%s\n' "$PROMPT"
 }
 
@@ -137,51 +273,65 @@ derive_acpx_session_name() {
 
 try_acpx() {
   if [[ "$CODING_AGENT_ACP_ENABLE" != "1" ]]; then
-    FAILURES+=("ACPX: disabled (set CODING_AGENT_ACP_ENABLE=1 to enable)")
+    record_failure "ACPX: disabled (set CODING_AGENT_ACP_ENABLE=1 to enable)"
     return 1
   fi
 
   if ! acpx_validate_policy_env; then
-    FAILURES+=("ACPX: invalid policy env (CODING_AGENT_ACP_APPROVE_ALL/CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS)")
+    record_failure "ACPX: invalid policy env (CODING_AGENT_ACP_APPROVE_ALL/CODING_AGENT_ACP_NON_INTERACTIVE_PERMISSIONS)"
     return 1
   fi
 
-  local acpx_bin
+  local acpx_bin=""
   if ! acpx_bin="$(resolve_acpx_bin)"; then
     if [[ -n "${CODING_AGENT_ACPX_CMD:-}" ]]; then
-      FAILURES+=("ACPX: CODING_AGENT_ACPX_CMD is set but not executable (${CODING_AGENT_ACPX_CMD})")
+      record_failure "ACPX: CODING_AGENT_ACPX_CMD is set but not executable (${CODING_AGENT_ACPX_CMD})"
     else
-      FAILURES+=("ACPX: not found (CODING_AGENT_ACPX_CMD, PATH)")
+      record_failure "ACPX: not found (CODING_AGENT_ACPX_CMD, PATH)"
     fi
     return 1
   fi
 
-  if ! command -v timeout &>/dev/null; then
-    FAILURES+=("ACPX: timeout command not available")
+  if ! command -v timeout >/dev/null 2>&1; then
+    record_failure "ACPX: timeout command not available"
     return 1
   fi
 
-  local acpx_prompt
+  local acpx_prompt=""
+  local acpx_session=""
+  local acpx_log=""
   acpx_prompt="$(build_acpx_prompt)"
-  local acpx_session
   acpx_session="$(derive_acpx_session_name)"
 
   info "Trying ACPX (${CODING_AGENT_ACP_AGENT}) session=${acpx_session}..."
-  if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session"; then
-    FAILURES+=("ACPX: sessions ensure failed")
+  if [[ "$OUTPUT_MODE" == "json" ]]; then
+    if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session" >/dev/null 2>&1; then
+      record_failure "ACPX: sessions ensure failed"
+      return 1
+    fi
+  elif ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session"; then
+    record_failure "ACPX: sessions ensure failed"
     return 1
   fi
 
   if [[ -n "$CODING_AGENT_ACP_SESSION_MODE" ]]; then
-    if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE"; then
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+      if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE" >/dev/null 2>&1; then
+        warn "ACPX set-mode failed; continuing with existing mode"
+      fi
+    elif ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE"; then
       warn "ACPX set-mode failed; continuing with existing mode"
     fi
   fi
 
-  local acpx_log
   acpx_log="$(mktemp)"
   if ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" -s "$acpx_session" "$acpx_prompt" >"$acpx_log" 2>&1; then
-    cat "$acpx_log"
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+      emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
+        "$(json_success_payload "acpx" "completed")"
+    else
+      cat "$acpx_log"
+    fi
     rm -f "$acpx_log"
     ok "ACPX succeeded"
     return 0
@@ -190,116 +340,84 @@ try_acpx() {
   tail -n 20 "$acpx_log" >&2 || true
   rm -f "$acpx_log"
 
-  FAILURES+=("ACPX: session prompt failed or timeout")
+  record_failure "ACPX: session prompt failed or timeout"
   return 1
 }
 
-# Try Codex CLI in tmux (implementation only)
 try_codex_tmux() {
   if [[ "$MODE" != "impl" ]]; then
-    FAILURES+=("Codex tmux: unsupported in review mode")
+    record_failure "Codex tmux: unsupported in review mode"
     return 1
   fi
 
   info "Trying Codex CLI in tmux..."
-  if "$SCRIPT_DIR/code-implement" "$PROMPT"; then
-    ok "Codex tmux session started"
-    return 0
+  local -a cmd=("$SCRIPT_DIR/code-implement")
+  if [[ "$OUTPUT_MODE" == "json" ]]; then
+    cmd+=(--output json)
   fi
-
-  FAILURES+=("Codex tmux: failed to start")
-  return 1
+  cmd+=("$PROMPT")
+  run_backend "codex_tmux" "${cmd[@]}"
 }
 
-# Try Codex CLI (direct, no tmux)
 try_codex_cli_direct() {
   info "Trying Codex CLI (direct)..."
-  if command -v codex &>/dev/null; then
-    if ! command -v timeout &>/dev/null; then
-      FAILURES+=("Codex CLI: timeout not installed")
-      return 1
-    fi
-
-    if [[ "$MODE" == "review" ]]; then
-      local base_branch
-      base_branch="$(detect_base_branch)"
-
-      if timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"; then
-        ok "Codex CLI review succeeded"
-        return 0
-      fi
-
-      FAILURES+=("Codex CLI: review failed or timeout")
-      return 1
-    fi
-
-    if timeout "${TIMEOUT}s" codex --yolo exec "$PROMPT"; then
-      ok "Codex CLI implementation succeeded"
-      return 0
-    fi
-
-    FAILURES+=("Codex CLI: exec failed or timeout")
+  if ! command -v codex >/dev/null 2>&1; then
+    record_failure "Codex CLI: codex not installed"
+    return 1
+  fi
+  if ! command -v timeout >/dev/null 2>&1; then
+    record_failure "Codex CLI: timeout not installed"
     return 1
   fi
 
-  FAILURES+=("Codex CLI: codex not installed")
-  return 1
-}
-
-# Try Claude CLI
-try_claude_cli() {
-  info "Trying Claude CLI (timeout: ${TIMEOUT}s, skip-permissions)..."
-  local claude_bin
-  if claude_bin="$(resolve_claude_bin)"; then
-    if command -v timeout &>/dev/null; then
-      # Use --dangerously-skip-permissions to avoid hanging on permission prompts
-      if timeout "${TIMEOUT}s" "$claude_bin" -p --dangerously-skip-permissions "$PROMPT"; then
-        ok "Claude CLI succeeded"
-        return 0
-      fi
-
-      FAILURES+=("Claude CLI: timeout or error (${TIMEOUT}s)")
-    else
-      FAILURES+=("Claude CLI: timeout command not available")
-    fi
-  else
-    if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
-      FAILURES+=("Claude CLI: CODING_AGENT_CLAUDE_BIN is set but not executable (${CODING_AGENT_CLAUDE_BIN})")
-    else
-      FAILURES+=("Claude CLI: not found (CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, PATH)")
-    fi
+  if [[ "$MODE" == "review" ]]; then
+    local base_branch=""
+    base_branch="$(detect_base_branch)"
+    run_backend "codex_review" timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"
+    return $?
   fi
 
-  return 1
+  run_backend "codex_direct" timeout "${TIMEOUT}s" codex exec --full-auto "$PROMPT"
 }
 
-# Try Gemini CLI (opt-in only)
+try_claude_cli() {
+  info "Trying Claude CLI (timeout: ${TIMEOUT}s, acceptEdits)..."
+  local claude_bin=""
+  if ! claude_bin="$(resolve_claude_bin)"; then
+    if [[ -n "${CODING_AGENT_CLAUDE_BIN:-}" ]]; then
+      record_failure "Claude CLI: CODING_AGENT_CLAUDE_BIN is set but not executable (${CODING_AGENT_CLAUDE_BIN})"
+    else
+      record_failure "Claude CLI: not found (CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, PATH)"
+    fi
+    return 1
+  fi
+  if ! command -v timeout >/dev/null 2>&1; then
+    record_failure "Claude CLI: timeout command not available"
+    return 1
+  fi
+
+  run_backend "claude_cli" timeout "${TIMEOUT}s" "$claude_bin" -p --permission-mode acceptEdits "$PROMPT"
+}
+
 try_gemini_cli() {
   if [[ "$GEMINI_FALLBACK_ENABLE" != "1" ]]; then
-    FAILURES+=("Gemini CLI: disabled (set GEMINI_FALLBACK_ENABLE=1 to enable)")
+    record_failure "Gemini CLI: disabled (set GEMINI_FALLBACK_ENABLE=1 to enable)"
     return 1
   fi
 
   info "Trying Gemini CLI (timeout: ${TIMEOUT}s)..."
-  if command -v gemini &>/dev/null; then
-    if command -v timeout &>/dev/null; then
-      if timeout "${TIMEOUT}s" gemini -y "$PROMPT"; then
-        ok "Gemini CLI succeeded"
-        return 0
-      fi
-
-      FAILURES+=("Gemini CLI: timeout or error (${TIMEOUT}s)")
-    else
-      FAILURES+=("Gemini CLI: timeout command not available")
-    fi
-  else
-    FAILURES+=("Gemini CLI: gemini not installed")
+  if ! command -v gemini >/dev/null 2>&1; then
+    record_failure "Gemini CLI: gemini not installed"
+    return 1
+  fi
+  if ! command -v timeout >/dev/null 2>&1; then
+    record_failure "Gemini CLI: timeout command not available"
+    return 1
   fi
 
-  return 1
+  run_backend "gemini_cli" timeout "${TIMEOUT}s" gemini -y "$PROMPT"
 }
 
-# Report blocker (all to stderr)
 report_blocker() {
   echo "" >&2
   error "BLOCKED: All tools unavailable for mode '$MODE'"
@@ -310,17 +428,12 @@ report_blocker() {
   done
   echo "" >&2
   echo "Options:" >&2
-  echo "  a) Wait for tool availability (e.g., Codex usage limit reset)" >&2
-  echo "  b) User manually runs: codex --yolo exec \"$PROMPT\"" >&2
-  echo "  c) User explicitly authorizes override: 'Override Rule 1 for this task'" >&2
-  echo "" >&2
-  echo "⛔ DO NOT use direct file edits - this is a Rule 1 violation" >&2
-  exit 1
+  echo "  a) Wait for tool availability (for example a Codex quota reset)" >&2
+  echo "  b) Install or repair the preferred CLI backend" >&2
+  echo "  c) Retry with an explicit routing override after the backend recovers" >&2
 }
 
-# Main execution
 main() {
-  # All status to stderr so stdout only has tool output
   echo "Mode: $MODE | Timeout: ${TIMEOUT}s" >&2
   echo "ACP routing: $CODING_AGENT_ACP_ENABLE (agent: $CODING_AGENT_ACP_AGENT)" >&2
   echo "Gemini fallback: $GEMINI_FALLBACK_ENABLE" >&2
@@ -335,6 +448,7 @@ main() {
     try_acpx && exit 0
     warn "ACPX unavailable, trying CLI fallback chain..."
 
+    local impl_mode
     impl_mode="$(resolve_impl_mode)"
     case "$impl_mode" in
       direct|tmux|auto)
@@ -346,7 +460,7 @@ main() {
     esac
 
     if [[ "$impl_mode" == "auto" ]]; then
-      if command -v tmux &>/dev/null && [[ -t 1 ]]; then
+      if command -v tmux >/dev/null 2>&1 && [[ -t 1 ]]; then
         impl_mode="tmux"
       else
         impl_mode="direct"
@@ -374,8 +488,8 @@ main() {
   try_gemini_cli && exit 0
   warn "Gemini CLI unavailable..."
 
-  # All tools failed
   report_blocker
+  emit_blocker
 }
 
 main

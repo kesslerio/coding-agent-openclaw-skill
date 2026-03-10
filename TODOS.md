@@ -23,3 +23,17 @@
 - Why: Track LLM formatting drift and identify when retry/fail-closed behavior needs prompt or parser updates.
 - Context: Current implementation uses strict parse + single retry, then hard fail.
 - Depends on/blocked by: Sufficient production run volume with archived `.ai/review-loops/*.json` history.
+
+## TODO: evaluate JSON default-output switch after wrapper hardening
+
+- What: Reassess whether non-TTY wrapper output should default to JSON instead of text.
+- Why: Phase 1 adds explicit `--output json` but intentionally avoids a silent compatibility break for existing redirects and shell consumers.
+- Context: Revisit this only after the Phase 1 machine-readable contract is stable in real usage, the error-code envelope has settled, and smoke coverage proves the JSON mode is reliable. The goal is to decide whether a default flip is worth the migration cost.
+- Depends on / blocked by: completion of Phase 1 wrapper hardening, stable JSON contract docs, and passing smoke coverage for explicit JSON mode.
+
+## TODO: extend structured output to remaining wrappers
+
+- What: Roll out the structured JSON/text contract beyond the execution path to `code-plan`, `plan-review`, and, only if still justified, `tmux-run`.
+- Why: The risky execution path needed hardening first. Broader wrapper consistency is still useful, but it should follow once the launch path and error contract are proven.
+- Context: Reuse the small shared helper and the top-level envelope established in Phase 1. Keep `tmux-run` transport-only unless a later requirement clearly demands a broader surface.
+- Depends on / blocked by: Phase 1 landing cleanly, finalization of the shared helper shape, and agreement that the top-level wrapper contract is stable enough to spread.
