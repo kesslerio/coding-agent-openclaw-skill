@@ -655,7 +655,10 @@ PY
 )" || {
     exit 1
   }
-  mapfile -t session_lines <<< "$session_fields"
+  session_lines=()
+  while IFS= read -r line; do
+    session_lines+=("$line")
+  done <<< "$session_fields"
   LAST_RESUME_TOKEN="${session_lines[0]:-}"
   LAST_PENDING_SECTION_NAME="${session_lines[1]:-}"
   LAST_PENDING_RESUME_TOKEN="${session_lines[2]:-}"

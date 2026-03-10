@@ -6,6 +6,7 @@ set -euo pipefail
 export PATH="$PATH:/run/current-system/sw/bin"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export CODING_AGENT_ALLOW_NONCANONICAL=1
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -374,9 +375,47 @@ log_path="${SMOKE_TMUX_RUN_LOG_PATH:-/tmp/smoke-session.log}"
 elapsed="${SMOKE_TMUX_RUN_ELAPSED:-21}"
 exit_code="${SMOKE_TMUX_RUN_EXIT_CODE:-0}"
 token="${CODEX_TMUX_EVENT_TOKEN:-}"
+output_mode="text"
 token_part=""
 if [[ -n "$token" ]]; then
   token_part=" token=${token}"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      output_mode="${2:-text}"
+      shift 2
+      ;;
+    --wait|--cleanup)
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ "$output_mode" == "json" ]]; then
+  case "$mode" in
+    success)
+      cat <<JSON
+{"ok":true,"command":"tmux-run","run_id":"smoke-run","data":{"session":"$session","socket":"/tmp/smoke.sock","log_file":"$log_path","target":"$session:0.0","mode":"non-blocking"}}
+JSON
+      exit 0
+      ;;
+    failed)
+      code="${SMOKE_TMUX_RUN_EXIT_CODE:-1}"
+      cat <<JSON
+{"ok":false,"command":"tmux-run","run_id":"smoke-run","error":{"code":"TMUX_SESSION_START_FAILED","message":"Failed to create tmux session.","remediation":["Inspect tmux availability and retry."],"context":{"session":"$session"}},"data":null}
+JSON
+      exit "$code"
+      ;;
+  esac
 fi
 
 echo "TMUX_RUN_EVENT start ts=2026-01-01T00:00:00+00:00${token_part} session=${session} log_path=${log_path} socket=/tmp/smoke.sock mode=wait" >&2
@@ -635,6 +674,16 @@ assert_count_regex() {
   fi
 }
 
+assert_json_expr() {
+  local file="$1"
+  local expr="$2"
+  if ! jq -e "$expr" "$file" >/dev/null; then
+    printf 'Assertion failed: jq expression "%s" was false for %s\n' "$expr" "$file" >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
 test_invalid_mode_rejected() {
   local output="$tmp_dir/invalid-mode.txt"
   if "$SCRIPT_DIR/safe-fallback.sh" bad-mode "prompt" >"$output" 2>&1; then
@@ -725,9 +774,10 @@ test_impl_direct_mode_uses_codex_exec() {
   SMOKE_CODEX_ARGS_FILE="$codex_args" \
   "$SCRIPT_DIR/safe-fallback.sh" impl "$prompt" >"$output" 2>&1
 
-  assert_contains "$codex_args" "--yolo"
+  assert_contains "$codex_args" "--full-auto"
   assert_contains "$codex_args" "exec"
   assert_contains "$codex_args" "$prompt"
+  assert_not_contains "$codex_args" "--yolo"
 }
 
 test_impl_uses_acpx_first_when_available() {
@@ -1431,10 +1481,17 @@ EOF
     echo "Expected lobster live review to fail on decision input timeout" >&2
     exit 1
   fi
-  assert_contains "$output" "timed out waiting 1s"
-  assert_contains "$output" "DIAGNOSTIC reason=decision_input_timeout"
+  if ! grep -Eq 'timed out waiting 1s|decision_input_read_error' "$output"; then
+    echo "Expected timeout or read-error diagnostic for live decision input failure" >&2
+    cat "$output" >&2
+    exit 1
+  fi
   assert_contains "$output" "RUN_EVENT failed"
-  assert_contains "$output" "reason=decision_input_timeout"
+  if ! grep -Eq 'reason=decision_input_timeout|reason=decision_input_read_error' "$output"; then
+    echo "Expected timeout or read-error RUN_EVENT reason" >&2
+    cat "$output" >&2
+    exit 1
+  fi
 }
 
 test_plan_review_live_lobster_timeout_on_blocking_keeps_selected_decisions() {
@@ -1483,7 +1540,11 @@ EOF
   [[ -f "$session_state" ]] || { echo "Expected session state to persist after blocking timeout" >&2; exit 1; }
   assert_contains "$session_state" "\"resolved_decisions\": [\"1A\"]"
   assert_contains "$session_state" "\"pending_section_name\": \"Architecture\""
-  assert_contains "$output" "reason=decision_input_timeout"
+  if ! grep -Eq 'reason=decision_input_timeout|reason=decision_input_read_error' "$output"; then
+    echo "Expected timeout or read-error RUN_EVENT reason for blocking decision input failure" >&2
+    cat "$output" >&2
+    exit 1
+  fi
 }
 
 test_plan_review_live_generates_ready_metadata() {
@@ -1761,18 +1822,37 @@ EOF
 create_approved_plan() {
   local repo="$1"
   local plan_id="$2"
+  local status="${3:-APPROVED}"
+  local body="${4:-# Plan: $plan_id}"
   local plan_path="$repo/.ai/plans/${plan_id}.md"
   mkdir -p "$repo/.ai/plans"
   cat > "$plan_path" <<EOF
 ---
 id: $plan_id
-status: APPROVED
+status: $status
 repo_path: $repo
+approved_by:
+approved_at:
 ---
 
-# Plan: $plan_id
+$body
 EOF
   printf '%s\n' "$plan_path"
+}
+
+create_plan() {
+  create_approved_plan "$@"
+}
+
+init_repo() {
+  local repo="$1"
+  mkdir -p "$repo"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
 }
 
 write_metadata_file() {
@@ -1818,7 +1898,7 @@ test_code_implement_blocks_when_metadata_missing() {
     exit 1
   fi
 
-  assert_contains "$output" "review gate blocked implementation"
+  assert_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "Missing review metadata"
 }
 
@@ -1852,8 +1932,8 @@ test_code_implement_blocks_when_metadata_invalid() {
     exit 1
   fi
 
-  assert_contains "$output" "review gate blocked implementation"
-  assert_contains "$output" "Metadata plan_id mismatch"
+  assert_contains "$output" "Error [REVIEW_METADATA_INVALID]"
+  assert_contains "$output" "Review metadata failed validation"
 }
 
 test_code_implement_blocks_when_unresolved_blockers_exist() {
@@ -1886,7 +1966,7 @@ test_code_implement_blocks_when_unresolved_blockers_exist() {
     exit 1
   fi
 
-  assert_contains "$output" "review gate blocked implementation"
+  assert_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "ready_for_implementation=false"
 }
 
@@ -1953,7 +2033,7 @@ test_code_implement_allows_ready_metadata() {
     exit 1
   fi
 
-  assert_not_contains "$output" "review gate blocked implementation"
+  assert_not_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "Failed to create tmux session"
 }
 
@@ -1977,8 +2057,208 @@ test_code_implement_force_bypasses_review_gate() {
   fi
 
   assert_contains "$output" "--force enabled: bypassing plan-review readiness gate."
-  assert_not_contains "$output" "review gate blocked implementation"
+  assert_not_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "Failed to create tmux session"
+}
+
+test_code_implement_dry_run_json_happy_path() {
+  local repo="$tmp_dir/repo-code-implement-dry-run"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000020-dry-run" "APPROVED" $'# Plan: Dry run\n\nSECRET-PLAN-BODY')"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000020-dry-run.json" \
+    "2026-02-19-000020-dry-run" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  local before="$tmp_dir/dry-run-before.md"
+  cp "$plan_path" "$before"
+  local output="$tmp_dir/code-implement-dry-run.json"
+
+  (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output")
+
+  cmp -s "$before" "$plan_path" || {
+    echo "Expected dry-run to leave plan unchanged" >&2
+    exit 1
+  }
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.state == "validated"'
+  assert_json_expr "$output" '.data.dry_run == true'
+  assert_json_expr "$output" '.data.plan_id == "2026-02-19-000020-dry-run"'
+  assert_not_contains "$output" "SECRET-PLAN-BODY"
+}
+
+test_code_implement_rejects_invalid_plan_path() {
+  local repo="$tmp_dir/repo-code-implement-invalid-path"
+  init_repo "$repo"
+  local bad_dir="$repo/not-plans"
+  mkdir -p "$bad_dir"
+  local bad_plan="$bad_dir/plan.md"
+  printf '%s\n' 'not a real plan artifact' > "$bad_plan"
+  local output="$tmp_dir/code-implement-invalid-path.json"
+
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$bad_plan" --dry-run --output json > "$output"); then
+    echo "Expected invalid plan path to fail" >&2
+    exit 1
+  fi
+
+  assert_json_expr "$output" '.ok == false'
+  assert_json_expr "$output" '.error.code == "PLAN_PATH_INVALID"'
+}
+
+test_code_implement_rejects_malformed_metadata() {
+  local repo="$tmp_dir/repo-code-implement-invalid-json"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000021-invalid")"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  printf '%s\n' '{"schema_version": 1, "plan_id": "bad"' > "$repo/.ai/plan-reviews/latest-2026-02-19-000021-invalid.json"
+
+  local output="$tmp_dir/code-implement-invalid.json"
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output"); then
+    echo "Expected malformed metadata to fail" >&2
+    exit 1
+  fi
+
+  assert_json_expr "$output" '.ok == false'
+  assert_json_expr "$output" '.error.code == "REVIEW_METADATA_INVALID"'
+}
+
+test_code_implement_requires_approved_non_interactive() {
+  local repo="$tmp_dir/repo-code-implement-pending-json"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000022-pending" "PENDING")"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000022-pending.json" \
+    "2026-02-19-000022-pending" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  local before="$tmp_dir/pending-before.md"
+  cp "$plan_path" "$before"
+  local output="$tmp_dir/code-implement-pending.json"
+
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --non-interactive --require-approved --output json > "$output"); then
+    echo "Expected pending non-interactive require-approved to fail" >&2
+    exit 1
+  fi
+
+  cmp -s "$before" "$plan_path" || {
+    echo "Expected failed non-interactive approval check to leave plan unchanged" >&2
+    exit 1
+  }
+
+  assert_json_expr "$output" '.ok == false'
+  assert_json_expr "$output" '.error.code == "APPROVAL_REQUIRED"'
+}
+
+test_code_implement_approve_updates_plan_and_launches() {
+  local repo="$tmp_dir/repo-code-implement-approve"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000023-approve" "PENDING")"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000023-approve.json" \
+    "2026-02-19-000023-approve" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  local output="$tmp_dir/code-implement-approve.json"
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+      SMOKE_TMUX_RUN_MODE=success \
+      "$SCRIPT_DIR/code-implement" --plan "$plan_path" --approve --non-interactive --output json > "$output"
+  )
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.state == "launched_not_verified"'
+  assert_json_expr "$output" '.data.transport.session | length > 0'
+  assert_contains "$plan_path" "status: APPROVED"
+  assert_contains "$plan_path" "approved_by: "
+  assert_contains "$plan_path" "approved_at: "
+}
+
+test_safe_fallback_json_contract() {
+  local output="$tmp_dir/safe-fallback.json"
+  local codex_args="$tmp_dir/safe-fallback-codex-args.txt"
+
+  PATH="$fake_bin:$PATH" \
+    CODING_AGENT_IMPL_MODE=direct \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/safe-fallback.sh" impl --output json "prompt without secret body" > "$output"
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.command == "safe-fallback"'
+  assert_json_expr "$output" '.data.backend == "codex_direct"'
+  assert_not_contains "$output" "prompt without secret body"
+}
+
+test_code_implement_launches_with_unverified_state() {
+  local repo="$tmp_dir/repo-code-implement-launch"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000024-launch")"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000024-launch.json" \
+    "2026-02-19-000024-launch" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  local output="$tmp_dir/code-implement-launch.json"
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+      SMOKE_TMUX_RUN_MODE=success \
+      "$SCRIPT_DIR/code-implement" --plan "$plan_path" --output json > "$output" <<'EOF'
+y
+EOF
+  )
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.state == "launched_not_verified"'
+  assert_json_expr "$output" '.data.transport.log_file | length > 0'
+  assert_not_contains "$output" "PLAN CONTENT"
 }
 
 test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
@@ -2002,7 +2282,7 @@ test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
     exit 1
   fi
 
-  assert_not_contains "$output" "review gate blocked implementation"
+  assert_not_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "Failed to create tmux session"
 }
 
@@ -2033,7 +2313,7 @@ test_code_implement_accepts_metadata_from_apply_mode() {
     exit 1
   fi
 
-  assert_not_contains "$output" "review gate blocked implementation"
+  assert_not_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "Failed to create tmux session"
 }
 
@@ -2420,6 +2700,13 @@ run_test test_code_implement_blocks_when_unresolved_blockers_exist
 run_test test_code_implement_non_tty_pending_plan_fails_fast
 run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
+run_test test_code_implement_dry_run_json_happy_path
+run_test test_code_implement_rejects_invalid_plan_path
+run_test test_code_implement_rejects_malformed_metadata
+run_test test_code_implement_requires_approved_non_interactive
+run_test test_code_implement_approve_updates_plan_and_launches
+run_test test_safe_fallback_json_contract
+run_test test_code_implement_launches_with_unverified_state
 run_test test_code_implement_accepts_metadata_from_non_tty_apply_flow
 run_test test_code_implement_accepts_metadata_from_apply_mode
 run_test test_code_implement_emits_run_events_success

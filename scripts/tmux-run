@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
 # tmux-run - Run a command inside tmux with logging and monitoring hints
-# Usage: tmux-run [--wait] [--cleanup] <command...>
+# Usage: tmux-run [--wait] [--cleanup] [--output text|json] <command...>
 set -euo pipefail
 
-# Ensure standard tools are available on NixOS
 export PATH="$PATH:/run/current-system/sw/bin"
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/wrapper-io.sh"
+
+COMMAND_NAME="tmux-run"
+
 usage() {
-  cat >&2 <<EOF
-Usage: tmux-run [--wait] [--cleanup] <command...>
+  cat >&2 <<EOF2
+Usage: tmux-run [--wait] [--cleanup] [--output text|json] <command...>
 
 Options:
   --wait        Block until the command finishes (signals via tmux wait-for)
   --cleanup     Kill the tmux session after completion (implies --wait)
+  --output      Response format for transport metadata (default: text)
 
 Environment:
   CODEX_TMUX_WAIT=1         Same as --wait
   CODEX_TMUX_CLEANUP=1      Same as --cleanup
   CODEX_TMUX_WAIT_TIMEOUT=  Optional seconds to bound --wait
-EOF
+EOF2
 }
 
 WAIT="${CODEX_TMUX_WAIT:-0}"
@@ -27,20 +33,48 @@ HEARTBEAT_SECONDS="${CODEX_TMUX_HEARTBEAT_SECONDS:-20}"
 HEARTBEAT_MIN_ELAPSED_SECONDS="${CODEX_TMUX_HEARTBEAT_MIN_ELAPSED_SECONDS:-30}"
 CAPTURE_LINES="${CODEX_TMUX_CAPTURE_LINES:-400}"
 EVENT_TOKEN="${CODEX_TMUX_EVENT_TOKEN:-}"
+OUTPUT_MODE="text"
+RUN_ID="$(generate_run_id)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wait) WAIT=1; shift ;;
-    --cleanup) CLEANUP=1; shift ;;
-    -h|--help) usage; exit 0 ;;
-    --) shift; break ;;
-    *) break ;;
+    --wait)
+      WAIT=1
+      shift
+      ;;
+    --cleanup)
+      CLEANUP=1
+      shift
+      ;;
+    --output)
+      OUTPUT_MODE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
   esac
 done
 
 if [[ "$CLEANUP" == "1" && "$WAIT" != "1" ]]; then
   WAIT=1
 fi
+
+if ! ensure_output_mode "$OUTPUT_MODE"; then
+  usage
+  exit 1
+fi
+
+require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "jq" \
+  "Install jq before using tmux-run."
 
 if [[ $# -lt 1 ]]; then
   usage
@@ -84,8 +118,12 @@ emit_tmux_run_event() {
   fi
 }
 
-if ! command -v tmux &>/dev/null; then
-  echo "Error: tmux not found in PATH" >&2
+if ! command -v tmux >/dev/null 2>&1; then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_MISSING" \
+    "tmux not found in PATH." \
+    "{}" \
+    "null" \
+    "Install tmux before using tmux-run."
   exit 1
 fi
 
@@ -109,24 +147,34 @@ EXIT_FILE="$LOG_DIR/${SESSION}.exit"
 rm -f "$EXIT_FILE"
 
 if ! tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell; then
-  echo "Error: Failed to create tmux session on socket: $SOCKET" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_SESSION_START_FAILED" \
+    "Failed to create tmux session." \
+    "$(jq -n --arg socket "$SOCKET" '{socket: $socket}')" \
+    "null" \
+    "Verify tmux is installed and the socket path is writable."
   exit 1
 fi
 tmux -S "$SOCKET" set-option -t "$SESSION" remain-on-exit on
 
-# Resolve the actual first pane target. Do not assume :0.0 because tmux
-# base-index and pane-base-index can be non-zero (for example 1.1).
 FIRST_WINDOW="$(tmux -S "$SOCKET" list-windows -t "$SESSION" -F '#{window_index}' 2>/dev/null | head -n 1 || true)"
 if [[ -z "$FIRST_WINDOW" ]]; then
   tmux -S "$SOCKET" kill-session -t "$SESSION" || true
-  echo "Error: Failed to resolve tmux window index for session: $SESSION" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_WINDOW_RESOLUTION_FAILED" \
+    "Failed to resolve tmux window index for the new session." \
+    "$(jq -n --arg session "$SESSION" '{session: $session}')" \
+    "null" \
+    "Retry the launch after confirming tmux can create windows normally."
   exit 1
 fi
 
 FIRST_PANE="$(tmux -S "$SOCKET" list-panes -t "${SESSION}:${FIRST_WINDOW}" -F '#{pane_index}' 2>/dev/null | head -n 1 || true)"
 if [[ -z "$FIRST_PANE" ]]; then
   tmux -S "$SOCKET" kill-session -t "$SESSION" || true
-  echo "Error: Failed to resolve tmux pane index for session: $SESSION" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_PANE_RESOLUTION_FAILED" \
+    "Failed to resolve tmux pane index for the new session." \
+    "$(jq -n --arg session "$SESSION" '{session: $session}')" \
+    "null" \
+    "Retry the launch after confirming tmux can create panes normally."
   exit 1
 fi
 
@@ -134,7 +182,11 @@ TARGET="${SESSION}:${FIRST_WINDOW}.${FIRST_PANE}"
 
 if ! tmux -S "$SOCKET" pipe-pane -t "$TARGET" -o "cat >> \"$LOG_FILE\""; then
   tmux -S "$SOCKET" kill-session -t "$SESSION" || true
-  echo "Error: Failed to attach pipe-pane for logging" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_PIPE_ATTACH_FAILED" \
+    "Failed to attach tmux pipe-pane logging." \
+    "$(jq -n --arg target "$TARGET" --arg log_file "$LOG_FILE" '{target: $target, log_file: $log_file}')" \
+    "null" \
+    "Retry the launch after confirming the log directory is writable."
   exit 1
 fi
 
@@ -144,15 +196,38 @@ if [[ "$WAIT" == "1" ]]; then
   cmd_str="$cmd_str; __tmux_run_rc=\$?; printf '%s\n' \"\${__tmux_run_rc}\" > \"$EXIT_FILE\"; tmux -S \"$SOCKET\" wait-for -S \"$SESSION.done\""
 fi
 if ! tmux -S "$SOCKET" send-keys -t "$TARGET" -l -- "$cmd_str"; then
-  echo "Error: Failed to send command text to tmux session" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_LAUNCH_DISPATCH_FAILED" \
+    "Failed to send command text to the tmux session." \
+    "$(jq -n --arg target "$TARGET" '{target: $target}')" \
+    "null" \
+    "Retry the launch after confirming the tmux session is still running."
   exit 1
 fi
 if ! tmux -S "$SOCKET" send-keys -t "$TARGET" Enter; then
-  echo "Error: Failed to send Enter key to tmux session" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_LAUNCH_DISPATCH_FAILED" \
+    "Failed to send Enter to the tmux session." \
+    "$(jq -n --arg target "$TARGET" '{target: $target}')" \
+    "null" \
+    "Retry the launch after confirming the tmux session is still running."
   exit 1
 fi
 
-cat >&2 <<EOF
+metadata_json="$(jq -n \
+  --arg session "$SESSION" \
+  --arg socket "$SOCKET" \
+  --arg log_file "$LOG_FILE" \
+  --arg target "$TARGET" \
+  --arg mode "$([[ "$WAIT" == "1" ]] && printf 'blocking' || printf 'non-blocking')" \
+  '{
+    session: $session,
+    socket: $socket,
+    log_file: $log_file,
+    target: $target,
+    mode: $mode
+  }')"
+
+if [[ "$OUTPUT_MODE" == "text" ]]; then
+  cat >&2 <<EOF2
 tmux session started.
 Socket: $SOCKET
 Session: $SESSION
@@ -162,7 +237,8 @@ To monitor:
   tmux -S "$SOCKET" attach -t "$SESSION"
   tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -200
   tail -f "$LOG_FILE"
-EOF
+EOF2
+fi
 
 mode_label="nowait"
 if [[ "$WAIT" == "1" ]]; then
@@ -177,6 +253,7 @@ if [[ "$WAIT" == "1" ]]; then
   lost_session=0
   exit_ready=0
   rc=1
+
   while true; do
     if [[ -f "$EXIT_FILE" ]]; then
       rc_candidate="$(cat "$EXIT_FILE" 2>/dev/null || true)"
@@ -186,6 +263,7 @@ if [[ "$WAIT" == "1" ]]; then
         break
       fi
     fi
+
     if ! tmux -S "$SOCKET" has-session -t "$SESSION" >/dev/null 2>&1; then
       echo "Warning: tmux session disappeared before exit status was recorded" >&2
       lost_session=1
@@ -216,9 +294,6 @@ if [[ "$WAIT" == "1" ]]; then
     rc=1
   fi
 
-  # Dump the most recent pane content to stdout; full output remains in LOG_FILE.
-  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S "-${CAPTURE_LINES}" 2>/dev/null || true
-
   elapsed_total=$(( $(date +%s) - start_ts ))
   if [[ "$rc" == "0" ]]; then
     emit_tmux_run_event "done" "session=$SESSION exit_code=$rc elapsed_s=${elapsed_total}"
@@ -232,5 +307,33 @@ if [[ "$WAIT" == "1" ]]; then
     tmux -S "$SOCKET" kill-session -t "$SESSION" || true
   fi
 
+  if (( timed_out == 1 )) && [[ "$OUTPUT_MODE" == "json" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_WAIT_TIMEOUT" \
+      "Timed out while waiting for the tmux session to signal completion." \
+      "$(jq -n --arg session "$SESSION" '{session: $session}')" \
+      "null" \
+      "Inspect the tmux session and logs, then retry."
+    exit "$rc"
+  fi
+
+  if [[ "$OUTPUT_MODE" == "json" ]]; then
+    emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
+      "$(jq -n \
+        --argjson metadata "$metadata_json" \
+        --arg exit_code "$rc" \
+        '{
+          session: $metadata.session,
+          socket: $metadata.socket,
+          log_file: $metadata.log_file,
+          target: $metadata.target,
+          mode: $metadata.mode,
+          exit_code: ($exit_code | tonumber)
+        }')"
+    exit "$rc"
+  fi
+
+  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S "-${CAPTURE_LINES}" 2>/dev/null || true
   exit "$rc"
 fi
+
+emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$metadata_json"

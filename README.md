@@ -81,6 +81,9 @@ CLI wrappers:
   --test-cmd "npm run lint" \
   --test-cmd "npm test" \
   --open-pr --issue 50
+
+# Validate an approved plan without mutating or launching
+./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md --dry-run --output json
 ```
 
 ## Command Map (Telegram/OpenClaw)
@@ -137,6 +140,7 @@ Example resolve file for non-TTY finalization:
 ## Requirements
 
 - GitHub CLI (`gh`)
+- `jq`
 - One of: Codex CLI (`codex`) or Claude Code CLI (`claude` / `~/.claude/local/claude`)
 - GNU `timeout` command (coreutils on macOS)
 - Optional: tmux (wrapper workflows)

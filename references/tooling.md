@@ -109,6 +109,7 @@ Run CLI drift checks before changing command docs:
 `scripts/doctor` checks:
 - `codex`
 - `gh`
+- `jq`
 - `timeout`
 - Claude binary resolution in this order: `CODING_AGENT_CLAUDE_BIN` -> `~/.claude/local/claude` -> `claude` in `PATH`
 - ACPX discovery in this order: `CODING_AGENT_ACPX_CMD` -> `acpx` in `PATH` (warning-only; CLI fallback remains available)
@@ -127,7 +128,27 @@ Run CLI drift checks before changing command docs:
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
-For review-first behavior, use direct CLI:
+### code-implement Phase 1 contract
+
+- New flags:
+  - `--output text|json`
+  - `--dry-run`
+  - `--approve`
+  - `--require-approved`
+  - `--non-interactive`
+- Flag precedence:
+  - `--dry-run` validates only. It never mutates plan state and never launches Codex/tmux.
+  - `--approve` and `--require-approved` are mutually exclusive.
+  - `--force` bypasses review readiness only. It does not imply approval.
+  - `--non-interactive` forbids prompt paths. Pending plans must already be approved or use `--approve`.
+- Output behavior:
+  - Default output is unchanged in Phase 1. Use `--output json` to opt in.
+  - JSON responses include `ok`, `command`, `run_id`, and `data` or `error`.
+  - Error payloads include `error.code`, `error.message`, and `error.remediation`.
+  - Non-blocking launches return `state: "launched_not_verified"` with session, socket, and log metadata.
+  - JSON output never includes raw prompt bodies, raw plan markdown, or secrets.
+
+For reviews, use direct CLI — no wrapper needed:
 
 ```bash
 # Detect base branch: main, master, or trunk (whichever exists)

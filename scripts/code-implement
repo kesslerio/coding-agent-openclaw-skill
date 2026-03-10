@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 # code-implement - Wrapper for code implementation with proper timeout
-#
-# Usage:
-#   code-implement "Implement feature X in /path/to/project"
-#   code-implement --plan .ai/plans/<plan>.md [--force]
-
 set -euo pipefail
 
 export PATH="$PATH:/run/current-system/sw/bin"
@@ -12,20 +7,32 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/canonical-repo-guard.sh"
 ensure_canonical_repo_from_script_dir "$SCRIPT_DIR"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/wrapper-io.sh"
+
+COMMAND_NAME="code-implement"
 
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  code-implement "<prompt>"
-  code-implement --plan <path> [--force]
+  code-implement [--output text|json] [--dry-run] "<prompt>"
+  code-implement --plan <path> [--force] [--output text|json] [--dry-run] [--approve|--require-approved] [--non-interactive]
 USAGE
 }
 
 PLAN_PATH=""
-FORCE=0
+PLAN_ID=""
+PLAN_STATUS=""
 PROMPT=""
+FORCE=0
+DRY_RUN=0
+APPROVE_PLAN=0
+REQUIRE_APPROVED=0
+NON_INTERACTIVE=0
+OUTPUT_MODE=""
 EXEC_REPO="$(pwd)"
 NON_INTERACTIVE_STDIN=0
+RUN_ID="$(generate_run_id)"
 
 if [[ ! -t 0 ]]; then
   NON_INTERACTIVE_STDIN=1
@@ -40,6 +47,26 @@ while [[ $# -gt 0 ]]; do
     --force)
       FORCE=1
       shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --approve)
+      APPROVE_PLAN=1
+      shift
+      ;;
+    --require-approved)
+      REQUIRE_APPROVED=1
+      shift
+      ;;
+    --non-interactive)
+      NON_INTERACTIVE=1
+      shift
+      ;;
+    --output)
+      OUTPUT_MODE="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -68,8 +95,29 @@ if [[ $# -gt 0 ]]; then
   fi
 fi
 
+OUTPUT_MODE="$(resolve_output_mode "$OUTPUT_MODE" "text")"
+if ! ensure_output_mode "$OUTPUT_MODE"; then
+  usage
+  exit 1
+fi
+
+TIMEOUT_MS="${CODE_IMPLEMENT_TIMEOUT:-180000}"
+if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INVALID_TIMEOUT" \
+    "CODE_IMPLEMENT_TIMEOUT must be a number of milliseconds." \
+    "{}" \
+    "null" \
+    "Set CODE_IMPLEMENT_TIMEOUT to an integer value, for example: CODE_IMPLEMENT_TIMEOUT=180000"
+  exit 1
+fi
+TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
+
 if [[ -n "$PLAN_PATH" && -n "$PROMPT" ]]; then
-  echo "Error: provide either --plan or a prompt, not both" >&2
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "EXEC_FLAGS_CONFLICT" \
+    "Provide either --plan or a prompt, not both." \
+    "{}" \
+    "null" \
+    "Remove either the free-form prompt or the --plan argument."
   exit 1
 fi
 
@@ -78,13 +126,57 @@ if [[ -z "$PLAN_PATH" && -z "$PROMPT" ]]; then
   exit 1
 fi
 
-TIMEOUT_MS="${CODE_IMPLEMENT_TIMEOUT:-180000}"
-if [[ ! "$TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
-  echo "Error: CODE_IMPLEMENT_TIMEOUT must be a number (milliseconds)" >&2
-  echo "Got: $TIMEOUT_MS" >&2
+if (( APPROVE_PLAN == 1 && REQUIRE_APPROVED == 1 )); then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "EXEC_FLAGS_CONFLICT" \
+    "--approve and --require-approved cannot be used together." \
+    "{}" \
+    "null" \
+    "Choose exactly one of --approve or --require-approved."
   exit 1
 fi
-TIMEOUT_SEC=$((TIMEOUT_MS / 1000))
+
+if (( APPROVE_PLAN == 1 && DRY_RUN == 1 )); then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "EXEC_FLAGS_CONFLICT" \
+    "--approve cannot be combined with --dry-run because dry-run never mutates state." \
+    "{}" \
+    "null" \
+    "Remove --approve or remove --dry-run."
+  exit 1
+fi
+
+if [[ -z "$PLAN_PATH" && ( "$APPROVE_PLAN" == "1" || "$REQUIRE_APPROVED" == "1" || "$FORCE" == "1" ) ]]; then
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "EXEC_FLAGS_CONFLICT" \
+    "--plan is required when using --approve, --require-approved, or --force." \
+    "{}" \
+    "null" \
+    "Use --plan with plan-gating flags, or remove those flags."
+  exit 1
+fi
+
+require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "jq" \
+  "Install jq before running wrapper hardening commands."
+
+if [[ -n "$PROMPT" ]]; then
+  if ! reject_control_chars "prompt" "$PROMPT"; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INPUT_CONTROL_CHARS" \
+      "Prompt contains control characters." \
+      "{}" \
+      "null" \
+      "Remove control characters from the prompt and retry."
+    exit 1
+  fi
+fi
+
+if [[ -n "$PLAN_PATH" ]]; then
+  if ! reject_control_chars "plan path" "$PLAN_PATH"; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INPUT_CONTROL_CHARS" \
+      "Plan path contains control characters." \
+      "{}" \
+      "null" \
+      "Use a normal filesystem path under .ai/plans and retry."
+    exit 1
+  fi
+fi
 
 emit_run_event() {
   local event="$1"
@@ -109,399 +201,646 @@ get_frontmatter_field() {
     BEGIN { in_fm=0 }
     $0 == "---" {
       if (in_fm == 0) { in_fm=1; next }
-      else { exit }
+      exit
     }
-    in_fm == 1 {
-      if (index($0, wanted ":") == 1) {
-        sub("^[^:]+:[ ]*", "", $0)
-        print $0
-        exit
-      }
+    in_fm == 1 && index($0, wanted ":") == 1 {
+      sub("^[^:]+:[ ]*", "", $0)
+      print $0
+      exit
     }
   ' "$file"
 }
 
-set_frontmatter_field() {
+canonicalize_file_path() {
+  local raw_path="$1"
+  (
+    cd "$(dirname "$raw_path")"
+    printf '%s/%s\n' "$(pwd)" "$(basename "$raw_path")"
+  )
+}
+
+plan_context_json() {
+  jq -n \
+    --arg repo_path "$EXEC_REPO" \
+    --arg plan_path "$PLAN_PATH" \
+    --arg plan_id "$PLAN_ID" \
+    --arg plan_status "$PLAN_STATUS" \
+    '{
+      repo_path: $repo_path,
+      plan_path: $plan_path,
+      plan_id: $plan_id,
+      plan_status: $plan_status
+    }'
+}
+
+atomic_update_plan_approval() {
   local file="$1"
-  local key="$2"
-  local value="$3"
-  local tmp
-  tmp="$(mktemp)"
-  awk -v k="$key" -v v="$value" '
-    BEGIN { in_fm=0; replaced=0 }
-    $0 == "---" {
-      if (in_fm == 0) { in_fm=1; print; next }
-      if (in_fm == 1) {
-        if (replaced == 0) { print k ": " v }
-        in_fm=2
+  local approved_by="$2"
+  local approved_at="$3"
+  local tmp_file
+  tmp_file="$(mktemp "${file}.tmp.XXXXXX")"
+
+  awk \
+    -v approved_by="$approved_by" \
+    -v approved_at="$approved_at" '
+      BEGIN {
+        in_fm = 0
+        seen_status = 0
+        seen_by = 0
+        seen_at = 0
+      }
+      $0 == "---" && in_fm == 0 {
+        in_fm = 1
         print
         next
       }
-    }
-    in_fm == 1 {
-      if (index($0, k ":") == 1) {
-        print k ": " v
-        replaced=1
+      $0 == "---" && in_fm == 1 {
+        if (seen_status == 0) { print "status: APPROVED" }
+        if (seen_by == 0) { print "approved_by: " approved_by }
+        if (seen_at == 0) { print "approved_at: " approved_at }
+        in_fm = 2
+        print
         next
       }
-    }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
+      in_fm == 1 {
+        if (index($0, "status:") == 1) {
+          print "status: APPROVED"
+          seen_status = 1
+          next
+        }
+        if (index($0, "approved_by:") == 1) {
+          print "approved_by: " approved_by
+          seen_by = 1
+          next
+        }
+        if (index($0, "approved_at:") == 1) {
+          print "approved_at: " approved_at
+          seen_at = 1
+          next
+        }
+      }
+      { print }
+    ' "$file" > "$tmp_file"
+
+  mv "$tmp_file" "$file"
 }
 
-json_extract_string() {
-  local file="$1"
-  local key="$2"
-  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\"[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
-}
-
-json_extract_bool() {
-  local file="$1"
-  local key="$2"
-  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*(true|false)[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
-}
-
-json_extract_number() {
-  local file="$1"
-  local key="$2"
-  sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*([0-9]+)[[:space:]]*,?[[:space:]]*$/\1/p" "$file" | head -n 1
-}
-
-json_array_length() {
-  local file="$1"
-  local key="$2"
-  local line
-  local content
-  line="$(grep -m1 "\"${key}\"" "$file" || true)"
-  if [[ -z "$line" ]]; then
-    echo "-1"
-    return 0
+resolve_plan_path() {
+  local repo_from_frontmatter=""
+  if [[ ! -f "$PLAN_PATH" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+      "Plan file not found: $PLAN_PATH" \
+      "{}" \
+      "null" \
+      "Pass an existing plan file under the target repository's .ai/plans directory."
+    exit 1
   fi
-  content="$(printf '%s\n' "$line" | sed -nE "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\\[(.*)\\][[:space:]]*,?[[:space:]]*$/\1/p")"
-  if [[ -z "$content" && "$line" != *"[]"* ]]; then
-    echo "-1"
-    return 0
-  fi
-  if [[ -z "$content" ]]; then
-    echo "0"
-    return 0
-  fi
-  printf '%s\n' "$content" | grep -o '"[^"]*"' | wc -l | tr -d '[:space:]'
-}
 
-review_gate_blocked() {
-  local message="$1"
-  local plan_path="$2"
-  echo "Error: review gate blocked implementation." >&2
-  echo "Reason: $message" >&2
-  echo "Remediation:" >&2
-  echo "  1) Run interactive review to resolve blocking decisions:" >&2
-  echo "     ./scripts/plan-review-live --plan $plan_path" >&2
-  echo "  2) Or run batch review to refresh report context:" >&2
-  echo "     ./scripts/plan-review --plan $plan_path" >&2
-  echo "  3) Use --force only when you explicitly accept bypass risk." >&2
-  exit 1
+  PLAN_PATH="$(canonicalize_file_path "$PLAN_PATH")"
+
+  if [[ "$PLAN_PATH" != */.ai/plans/* ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+      "Plan file must live under a repository .ai/plans directory." \
+      "{}" \
+      "null" \
+      "Move or select a plan file from <repo>/.ai/plans/<plan>.md."
+    exit 1
+  fi
+
+  EXEC_REPO="$(cd "$(dirname "$PLAN_PATH")/../.." && pwd)"
+  if ! git -C "$EXEC_REPO" rev-parse --git-dir >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+      "Resolved plan repository is not a git repository: $EXEC_REPO" \
+      "{}" \
+      "null" \
+      "Use a plan file stored inside a git repository under .ai/plans."
+    exit 1
+  fi
+
+  repo_from_frontmatter="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
+  if [[ -n "$repo_from_frontmatter" ]]; then
+    if ! reject_control_chars "plan repo_path" "$repo_from_frontmatter"; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INPUT_CONTROL_CHARS" \
+        "Plan repo_path contains control characters." \
+        "$(plan_context_json)" \
+        "null" \
+        "Regenerate the plan so repo_path contains a normal filesystem path."
+      exit 1
+    fi
+    if [[ ! -d "$repo_from_frontmatter" ]]; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+        "Plan repo_path does not exist or is not a directory: $repo_from_frontmatter" \
+        "$(plan_context_json)" \
+        "null" \
+        "Regenerate the plan or update repo_path to the repository that contains the plan artifact."
+      exit 1
+    fi
+    repo_from_frontmatter="$(cd "$repo_from_frontmatter" && pwd)"
+    if [[ "$repo_from_frontmatter" != "$EXEC_REPO" ]]; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+        "Plan repo_path does not match the repository that contains the plan artifact." \
+        "$(plan_context_json)" \
+        "null" \
+        "Regenerate the plan or move it back under the repository named in repo_path."
+      exit 1
+    fi
+  fi
+
+  PLAN_STATUS="$(get_frontmatter_field "$PLAN_PATH" "status")"
+  PLAN_ID="$(get_frontmatter_field "$PLAN_PATH" "id")"
+  if [[ -z "$PLAN_ID" ]]; then
+    PLAN_ID="$(basename "$PLAN_PATH" .md)"
+  fi
 }
 
 validate_review_gate() {
-  local plan_path="$1"
-  local plan_id="$2"
-  local repo_path="$3"
-  local metadata_file
-  local schema_version
-  local metadata_plan_id
-  local metadata_plan_path
-  local metadata_mode
-  local ready
-  local created_at
-  local review_markdown_path
-  local blocking_count
-
-  metadata_file="$repo_path/.ai/plan-reviews/latest-${plan_id}.json"
+  local metadata_file="$EXEC_REPO/.ai/plan-reviews/latest-${PLAN_ID}.json"
+  local review_markdown_path=""
+  local blocking_count="0"
+  local ready_value="false"
 
   if [[ ! -f "$metadata_file" ]]; then
-    review_gate_blocked "Missing review metadata: $metadata_file" "$plan_path"
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
+      "Missing review metadata: $metadata_file" \
+      "$(plan_context_json)" \
+      "null" \
+      "./scripts/plan-review-live --plan $PLAN_PATH" \
+      "./scripts/plan-review --plan $PLAN_PATH" \
+      "Use --force only when you explicitly accept bypass risk."
+    exit 1
   fi
 
-  schema_version="$(json_extract_number "$metadata_file" "schema_version")"
-  metadata_plan_id="$(json_extract_string "$metadata_file" "plan_id")"
-  metadata_plan_path="$(json_extract_string "$metadata_file" "plan_path")"
-  metadata_mode="$(json_extract_string "$metadata_file" "mode")"
-  ready="$(json_extract_bool "$metadata_file" "ready_for_implementation")"
-  created_at="$(json_extract_string "$metadata_file" "created_at")"
-  review_markdown_path="$(json_extract_string "$metadata_file" "review_markdown_path")"
-  blocking_count="$(json_array_length "$metadata_file" "blocking_decisions")"
-
-  if [[ "$schema_version" != "1" ]]; then
-    review_gate_blocked "Invalid schema_version in $metadata_file (expected 1)." "$plan_path"
-  fi
-  if [[ -z "$metadata_plan_id" || "$metadata_plan_id" != "$plan_id" ]]; then
-    review_gate_blocked "Metadata plan_id mismatch in $metadata_file." "$plan_path"
-  fi
-  if [[ -z "$metadata_plan_path" || "$metadata_plan_path" != "$plan_path" ]]; then
-    review_gate_blocked "Metadata plan_path mismatch in $metadata_file." "$plan_path"
-  fi
-  if [[ "$metadata_mode" != "batch" && "$metadata_mode" != "live" ]]; then
-    review_gate_blocked "Invalid mode in $metadata_file (expected batch/live)." "$plan_path"
-  fi
-  if [[ "$ready" != "true" && "$ready" != "false" ]]; then
-    review_gate_blocked "Invalid ready_for_implementation in $metadata_file." "$plan_path"
-  fi
-  if [[ -z "$created_at" ]]; then
-    review_gate_blocked "Missing created_at in $metadata_file." "$plan_path"
-  fi
-  if [[ -z "$review_markdown_path" || ! -f "$review_markdown_path" ]]; then
-    review_gate_blocked "Missing review_markdown_path target in $metadata_file." "$plan_path"
+  if ! jq -e \
+    --arg plan_id "$PLAN_ID" \
+    --arg plan_path "$PLAN_PATH" \
+    '
+      .schema_version == 1 and
+      .plan_id == $plan_id and
+      .plan_path == $plan_path and
+      (.mode == "batch" or .mode == "live") and
+      (.ready_for_implementation | type == "boolean") and
+      (.created_at | type == "string" and length > 0) and
+      (.review_markdown_path | type == "string" and length > 0) and
+      (.blocking_decisions | type == "array")
+    ' "$metadata_file" >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_METADATA_INVALID" \
+      "Review metadata failed validation: $metadata_file" \
+      "$(plan_context_json)" \
+      "null" \
+      "Regenerate the plan review metadata with ./scripts/plan-review or ./scripts/plan-review-live."
+    exit 1
   fi
 
-  if [[ "$ready" != "true" ]]; then
-    review_gate_blocked "Latest review is not ready for implementation (ready_for_implementation=false)." "$plan_path"
+  review_markdown_path="$(jq -r '.review_markdown_path' "$metadata_file")"
+  if [[ ! -f "$review_markdown_path" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_METADATA_INVALID" \
+      "Review markdown target is missing: $review_markdown_path" \
+      "$(plan_context_json)" \
+      "null" \
+      "Re-run ./scripts/plan-review or ./scripts/plan-review-live to refresh metadata."
+    exit 1
   fi
-  if [[ ! "$blocking_count" =~ ^-?[0-9]+$ ]] || (( blocking_count < 0 )); then
-    review_gate_blocked "Invalid blocking_decisions array in $metadata_file." "$plan_path"
+
+  ready_value="$(jq -r '.ready_for_implementation' "$metadata_file")"
+  if [[ "$ready_value" != "true" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
+      "Latest review is not ready for implementation (ready_for_implementation=false)." \
+      "$(plan_context_json)" \
+      "null" \
+      "./scripts/plan-review-live --plan $PLAN_PATH" \
+      "./scripts/plan-review --plan $PLAN_PATH" \
+      "Use --force only when you explicitly accept bypass risk."
+    exit 1
   fi
+
+  blocking_count="$(jq '.blocking_decisions | length' "$metadata_file")"
   if (( blocking_count > 0 )); then
-    review_gate_blocked "Latest review still has unresolved blocking_decisions." "$plan_path"
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
+      "Latest review still has unresolved blocking decisions." \
+      "$(plan_context_json)" \
+      "$(jq '{blocking_decisions: .blocking_decisions}' "$metadata_file")" \
+      "./scripts/plan-review-live --plan $PLAN_PATH" \
+      "Resolve blocking decisions before implementation."
+    exit 1
   fi
 }
 
-if [[ -n "$PLAN_PATH" ]]; then
-  if [[ ! -f "$PLAN_PATH" ]]; then
-    echo "Error: plan file not found: $PLAN_PATH" >&2
+handle_plan_approval() {
+  local approved_at=""
+  if [[ "$PLAN_STATUS" == "APPROVED" ]]; then
+    return 0
+  fi
+
+  if (( REQUIRE_APPROVED == 1 )); then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
+      "Plan status must already be APPROVED." \
+      "$(plan_context_json)" \
+      "null" \
+      "Approve the plan in advance or rerun with --approve."
     exit 1
   fi
 
-  PLAN_PATH="$(cd "$(dirname "$PLAN_PATH")" && pwd)/$(basename "$PLAN_PATH")"
-
-  status="$(get_frontmatter_field "$PLAN_PATH" "status")"
-  plan_id="$(get_frontmatter_field "$PLAN_PATH" "id")"
-  if [[ -z "$plan_id" ]]; then
-    plan_id="$(basename "$PLAN_PATH" .md)"
-  fi
-
-  repo_from_plan="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
-  if [[ -n "$repo_from_plan" ]]; then
-    if ! git -C "$repo_from_plan" rev-parse --git-dir >/dev/null 2>&1; then
-      echo "Error: repo_path from plan is not a git repo: $repo_from_plan" >&2
+  if (( APPROVE_PLAN == 1 )); then
+    approved_at="$(date -Iseconds)"
+    if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$approved_at"; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_WRITE_FAILED" \
+        "Failed to record plan approval atomically." \
+        "$(plan_context_json)" \
+        "null" \
+        "Inspect the plan file and retry approval."
       exit 1
     fi
-    EXEC_REPO="$repo_from_plan"
+    PLAN_STATUS="APPROVED"
+    return 0
   fi
 
-  if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
-    if (( NON_INTERACTIVE_STDIN == 1 )); then
-      echo "Error: plan $plan_id is ${status:-PENDING} and code-implement is running without interactive stdin." >&2
-      echo "Resolve plan decisions before implementation or use --force explicitly." >&2
-      echo "Examples:" >&2
-      echo "  ./scripts/plan-review-live --plan \"$PLAN_PATH\" --decisions \"1A,2B,3A,4A\" --blocking none" >&2
-      echo "  ./scripts/plan-review-live --plan \"$PLAN_PATH\" --resolve-file /path/to/decisions.json" >&2
-      echo "  ./scripts/code-implement --plan \"$PLAN_PATH\" --force" >&2
-      exit 1
-    fi
-    echo "⚠️  Plan $plan_id is currently ${status:-PENDING}."
-    read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
-    case "${answer,,}" in
-      y|yes)
-        set_frontmatter_field "$PLAN_PATH" "status" "APPROVED"
-        set_frontmatter_field "$PLAN_PATH" "approved_by" "${USER:-unknown}"
-        set_frontmatter_field "$PLAN_PATH" "approved_at" "$(date -Iseconds)"
-        ;;
-      revise)
-        echo "Plan left unchanged. Revise by rerunning code-plan with updated guidance." >&2
-        exit 1
-        ;;
-      *)
-        echo "Execution cancelled." >&2
-        exit 1
-        ;;
-    esac
-  fi
-
-  status="$(get_frontmatter_field "$PLAN_PATH" "status")"
-  if [[ "$status" != "APPROVED" && "$FORCE" != "1" ]]; then
-    echo "Error: plan status must be APPROVED to execute. Use --force to bypass." >&2
+  if (( NON_INTERACTIVE_STDIN == 1 )); then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
+      "Plan $PLAN_ID is ${PLAN_STATUS:-PENDING} and code-implement is running without interactive stdin." \
+      "$(plan_context_json)" \
+      "null" \
+      "Resolve plan decisions before implementation or use --force explicitly." \
+      "./scripts/plan-review-live --plan $PLAN_PATH --decisions \"1A,2B,3A,4A\" --blocking none" \
+      "./scripts/plan-review-live --plan $PLAN_PATH --resolve-file /path/to/decisions.json" \
+      "./scripts/code-implement --plan $PLAN_PATH --force"
     exit 1
   fi
 
-  if [[ "$FORCE" == "1" ]]; then
-    echo "⚠️  --force enabled: bypassing plan-review readiness gate." >&2
-  else
-    validate_review_gate "$PLAN_PATH" "$plan_id" "$EXEC_REPO"
+  if (( NON_INTERACTIVE == 1 )); then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
+      "Plan approval is required in non-interactive mode." \
+      "$(plan_context_json)" \
+      "null" \
+      "./scripts/plan-review-live --plan $PLAN_PATH --decisions \"1A,2B,3A,4A\" --blocking none" \
+      "./scripts/plan-review-live --plan $PLAN_PATH --resolve-file /path/to/decisions.json" \
+      "Approve the plan in advance or rerun with --approve."
+      exit 1
   fi
 
-  echo "Executing approved plan: $PLAN_PATH" >&2
-  plan_body="$(cat "$PLAN_PATH")"
-  PROMPT=$(cat <<EOF
+  printf 'Plan %s is currently %s.\n' "$PLAN_ID" "${PLAN_STATUS:-PENDING}" >&2
+  read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
+  case "${answer,,}" in
+    y|yes)
+      approved_at="$(date -Iseconds)"
+      if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$approved_at"; then
+        emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_WRITE_FAILED" \
+          "Failed to record plan approval atomically." \
+          "$(plan_context_json)" \
+          "null" \
+          "Inspect the plan file and retry approval."
+        exit 1
+      fi
+      PLAN_STATUS="APPROVED"
+      ;;
+    revise)
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_DECLINED" \
+        "Plan left unchanged for revision." \
+        "$(plan_context_json)" \
+        "null" \
+        "Revise the plan, then rerun code-implement."
+      exit 1
+      ;;
+    *)
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_DECLINED" \
+        "Execution cancelled." \
+        "$(plan_context_json)" \
+        "null" \
+        "Approve the plan when you are ready to execute it."
+      exit 1
+      ;;
+  esac
+}
+
+build_execution_prompt() {
+  if [[ -n "$PLAN_PATH" ]]; then
+    local plan_body
+    plan_body="$(cat "$PLAN_PATH")"
+    cat <<PROMPT_EOF
 Executing approved plan: $PLAN_PATH
 
 Follow this plan exactly unless blocked by new evidence. If blocked, explain deviation and proceed with the safest minimal change set.
 
 PLAN CONTENT:
 $plan_body
-EOF
-)
-fi
+PROMPT_EOF
+    return 0
+  fi
 
-echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
-echo "Execution repository: $EXEC_REPO" >&2
-
-if ! command -v codex &> /dev/null; then
-  echo "Error: codex CLI not found. Please install: npm install -g @openai/codex" >&2
-  exit 1
-fi
-
-if ! command -v tmux &> /dev/null; then
-  echo "Error: tmux not found. Install tmux or use a host with tmux available." >&2
-  exit 1
-fi
-
-if ! command -v timeout &> /dev/null; then
-  echo "Error: timeout command not found. Install coreutils (brew install coreutils on macOS)." >&2
-  exit 1
-fi
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-TMUX_RUN="${CODE_IMPLEMENT_TMUX_RUN:-$SCRIPT_DIR/tmux-run}"
-if [[ ! -x "$TMUX_RUN" ]]; then
-  echo "Error: tmux-run not found or not executable: $TMUX_RUN" >&2
-  exit 1
-fi
-
-tmp_stream_dir="$(mktemp -d)"
-tmp_stream="$tmp_stream_dir/stream.fifo"
-tmp_status="$(mktemp)"
-run_id=""
-log_path=""
-terminal_emitted=0
-start_emitted=0
-event_token="evt-$(date +%s)-$$-$RANDOM"
-producer_pid=""
-
-# shellcheck disable=SC2317
-cleanup_tmp_files() {
-  rm -rf "$tmp_stream_dir"
-  rm -f "$tmp_status"
+  printf '%s\n' "$PROMPT"
 }
 
-emit_terminal_event_for_rc() {
-  local rc="$1"
+emit_dry_run_success() {
+  local dry_run_data
+  dry_run_data="$(jq -n \
+    --arg repo_path "$EXEC_REPO" \
+    --arg plan_path "$PLAN_PATH" \
+    --arg plan_id "$PLAN_ID" \
+    --arg plan_status "$PLAN_STATUS" \
+    --arg output_mode "$OUTPUT_MODE" \
+    --arg backend "codex_tmux" \
+    --arg review_gate "$([[ "$FORCE" == "1" ]] && printf 'bypassed' || printf 'validated')" \
+    '{
+      state: "validated",
+      backend: $backend,
+      repo_path: $repo_path,
+      plan_path: (if $plan_path == "" then null else $plan_path end),
+      plan_id: (if $plan_id == "" then null else $plan_id end),
+      plan_status: (if $plan_status == "" then null else $plan_status end),
+      output_mode: $output_mode,
+      review_gate: $review_gate,
+      dry_run: true
+    }')"
+
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$dry_run_data" \
+    "Dry run complete. Validation passed."
+}
+
+require_execution_dependencies() {
+  require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "codex" \
+    "Install Codex CLI before running implementation."
+  require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "tmux" \
+    "Install tmux or run on a host where tmux is available."
+  require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "timeout" \
+    "Install coreutils timeout before running implementation."
+}
+
+resolve_tmux_run_helper() {
+  local tmux_run="${CODE_IMPLEMENT_TMUX_RUN:-$SCRIPT_DIR/tmux-run}"
+  if [[ ! -x "$tmux_run" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "DEPENDENCY_MISSING" \
+      "tmux-run helper is missing or not executable: $tmux_run" \
+      "{}" \
+      "null" \
+      "Restore scripts/tmux-run and retry."
+    exit 1
+  fi
+  printf '%s\n' "$tmux_run"
+}
+
+launch_json_transport() {
+  local execution_prompt="$1"
+  local tmux_run
+  local tmux_output
+  local tmux_error_code=""
+  local tmux_error_message=""
+  local tmux_error_context='{}'
+  local tmux_error_data='null'
+  local remediation_json='[]'
+  local result_data
+
+  require_execution_dependencies
+  tmux_run="$(resolve_tmux_run_helper)"
+
+  if ! tmux_output="$(
+    cd "$EXEC_REPO"
+    CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+      "$tmux_run" --output json timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$execution_prompt"
+  )"; then
+    if printf '%s' "$tmux_output" | jq -e '.ok == false and .error.code' >/dev/null 2>&1; then
+      tmux_error_code="$(printf '%s' "$tmux_output" | jq -r '.error.code')"
+      tmux_error_message="$(printf '%s' "$tmux_output" | jq -r '.error.message')"
+      tmux_error_context="$(printf '%s' "$tmux_output" | jq -c '.error.context // {}')"
+      tmux_error_data="$(printf '%s' "$tmux_output" | jq -c '.data // null')"
+      remediation_json="$(printf '%s' "$tmux_output" | jq -c '.error.remediation // []')"
+      mapfile -t remediation_items < <(printf '%s' "$remediation_json" | jq -r '.[]')
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$tmux_error_code" \
+        "$tmux_error_message" \
+        "$tmux_error_context" \
+        "$tmux_error_data" \
+        "${remediation_items[@]}"
+      exit 1
+    fi
+
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_SESSION_START_FAILED" \
+      "Failed to launch tmux transport." \
+      "$(jq -n --arg repo_path "$EXEC_REPO" '{repo_path: $repo_path}')" \
+      "null" \
+      "Inspect tmux availability and retry."
+    exit 1
+  fi
+
+  if ! printf '%s' "$tmux_output" | jq -e '.ok == true and (.data.session | type == "string")' >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_SESSION_START_FAILED" \
+      "tmux-run returned an unexpected response shape." \
+      "$(jq -n --arg repo_path "$EXEC_REPO" '{repo_path: $repo_path}')" \
+      "null" \
+      "Inspect scripts/tmux-run output and retry."
+    exit 1
+  fi
+
+  result_data="$(jq -n \
+    --arg repo_path "$EXEC_REPO" \
+    --arg plan_path "$PLAN_PATH" \
+    --arg plan_id "$PLAN_ID" \
+    --argjson transport "$(printf '%s' "$tmux_output" | jq -c '.data')" \
+    '{
+      state: "launched_not_verified",
+      backend: "codex_tmux",
+      repo_path: $repo_path,
+      plan_path: (if $plan_path == "" then null else $plan_path end),
+      plan_id: (if $plan_id == "" then null else $plan_id end),
+      transport: $transport
+    }')"
+
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$result_data"
+}
+
+launch_with_run_events() {
+  local execution_prompt="$1"
+  local tmux_run
+  local tmp_stream_dir=""
+  local tmp_stream=""
+  local tmp_status=""
+  local run_id=""
+  local log_path=""
+  local terminal_emitted=0
+  local start_emitted=0
+  local event_token=""
+  local producer_pid=""
+  local tmux_rc=1
+
+  require_execution_dependencies
+  tmux_run="$(resolve_tmux_run_helper)"
+
+  echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
+  echo "Execution repository: $EXEC_REPO" >&2
+
+  tmp_stream_dir="$(mktemp -d)"
+  tmp_stream="$tmp_stream_dir/stream.fifo"
+  tmp_status="$(mktemp)"
+  event_token="evt-$(date +%s)-$$-$RANDOM"
+
+  # shellcheck disable=SC2317,SC2329
+  cleanup_tmp_files() {
+    rm -rf "$tmp_stream_dir"
+    rm -f "$tmp_status"
+  }
+
+  emit_terminal_event_for_rc() {
+    local rc="$1"
+    if [[ "$start_emitted" != "1" ]]; then
+      emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+      start_emitted=1
+    fi
+    if [[ "$terminal_emitted" == "1" ]]; then
+      return 0
+    fi
+    if [[ "$rc" == "0" ]]; then
+      emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+    elif [[ "$rc" == "124" || "$rc" == "130" || "$rc" == "137" || "$rc" == "143" ]]; then
+      emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+    else
+      emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
+    fi
+    terminal_emitted=1
+  }
+
+  # shellcheck disable=SC2317,SC2329
+  handle_signal() {
+    local sig="$1"
+    local rc="$2"
+    emit_terminal_event_for_rc "$rc"
+    if [[ -n "$producer_pid" ]]; then
+      kill -TERM "$producer_pid" 2>/dev/null || true
+      set +e
+      wait "$producer_pid" 2>/dev/null
+      set -e
+    fi
+    cleanup_tmp_files
+    trap - EXIT INT TERM
+    echo "code-implement interrupted by ${sig}" >&2
+    exit "$rc"
+  }
+
+  trap cleanup_tmp_files EXIT
+  trap 'handle_signal INT 130' INT
+  trap 'handle_signal TERM 143' TERM
+
+  mkfifo "$tmp_stream"
+
+  (
+    set +e
+    (
+      cd "$EXEC_REPO"
+      CODEX_TMUX_EVENT_TOKEN="$event_token" \
+      CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+        "$tmux_run" --wait timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$execution_prompt"
+    ) >"$tmp_stream" 2>&1
+    rc=$?
+    printf '%s\n' "$rc" > "$tmp_status"
+  ) &
+  producer_pid=$!
+
+  while IFS= read -r line; do
+    if [[ "$line" == TMUX_RUN_EVENT* ]]; then
+      local event token_val session_val log_val exit_code_val elapsed_val
+      event="$(printf '%s\n' "$line" | awk '{print $2}')"
+      token_val="$(extract_kv_value "$line" "token")"
+      if [[ -z "$token_val" || "$token_val" != "$event_token" ]]; then
+        echo "$line" >&2
+        continue
+      fi
+      session_val="$(extract_kv_value "$line" "session")"
+      log_val="$(extract_kv_value "$line" "log_path")"
+      exit_code_val="$(extract_kv_value "$line" "exit_code")"
+      elapsed_val="$(extract_kv_value "$line" "elapsed_s")"
+
+      if [[ -n "$session_val" ]]; then
+        run_id="$session_val"
+      fi
+      if [[ -n "$log_val" ]]; then
+        log_path="$log_val"
+      fi
+
+      case "$event" in
+        start)
+          emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
+          start_emitted=1
+          ;;
+        heartbeat)
+          emit_run_event "heartbeat" "phase=code-implement run_id=${run_id:-unknown} elapsed=${elapsed_val:-unknown}s"
+          ;;
+        done)
+          emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-0} elapsed=${elapsed_val:-unknown}s"
+          terminal_emitted=1
+          ;;
+        failed)
+          emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
+          terminal_emitted=1
+          ;;
+        interrupted)
+          emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
+          terminal_emitted=1
+          ;;
+        *)
+          echo "$line" >&2
+          ;;
+      esac
+    else
+      echo "$line" >&2
+    fi
+  done < "$tmp_stream"
+
+  set +e
+  wait "$producer_pid"
+  set -e
+  if [[ -f "$tmp_status" ]]; then
+    tmux_rc="$(cat "$tmp_status" 2>/dev/null || echo 1)"
+  fi
+
   if [[ "$start_emitted" != "1" ]]; then
     emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
     start_emitted=1
   fi
-  if [[ "$terminal_emitted" == "1" ]]; then
-    return 0
-  fi
-  if [[ "$rc" == "0" ]]; then
-    emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
-  elif [[ "$rc" == "124" || "$rc" == "130" || "$rc" == "137" || "$rc" == "143" ]]; then
-    emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
-  else
-    emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=$rc"
-  fi
-  terminal_emitted=1
+
+  emit_terminal_event_for_rc "$tmux_rc"
+  exit "$tmux_rc"
 }
 
-# shellcheck disable=SC2317
-handle_signal() {
-  local sig="$1"
-  local rc="$2"
-  emit_terminal_event_for_rc "$rc"
-  if [[ -n "$producer_pid" ]]; then
-    kill -TERM "$producer_pid" 2>/dev/null || true
-    set +e
-    wait "$producer_pid" 2>/dev/null
-    set -e
-  fi
-  cleanup_tmp_files
-  trap - EXIT INT TERM
-  echo "code-implement interrupted by ${sig}" >&2
-  exit "$rc"
-}
+if [[ -n "$PLAN_PATH" ]]; then
+  resolve_plan_path
+fi
 
-trap cleanup_tmp_files EXIT
-trap 'handle_signal INT 130' INT
-trap 'handle_signal TERM 143' TERM
-
-mkfifo "$tmp_stream"
-
-(
-  set +e
-  (
-    cd "$EXEC_REPO"
-    CODEX_TMUX_EVENT_TOKEN="$event_token" \
-    CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-      "$TMUX_RUN" --wait timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$PROMPT"
-  ) >"$tmp_stream" 2>&1
-  rc=$?
-  printf '%s\n' "$rc" >"$tmp_status"
-) &
-producer_pid=$!
-
-while IFS= read -r line; do
-  if [[ "$line" == TMUX_RUN_EVENT* ]]; then
-    event="$(printf '%s\n' "$line" | awk '{print $2}')"
-    token_val="$(extract_kv_value "$line" "token")"
-    if [[ -z "$token_val" || "$token_val" != "$event_token" ]]; then
-      echo "$line" >&2
-      continue
-    fi
-    session_val="$(extract_kv_value "$line" "session")"
-    log_val="$(extract_kv_value "$line" "log_path")"
-    exit_code_val="$(extract_kv_value "$line" "exit_code")"
-    elapsed_val="$(extract_kv_value "$line" "elapsed_s")"
-
-    if [[ -n "$session_val" ]]; then
-      run_id="$session_val"
-    fi
-    if [[ -n "$log_val" ]]; then
-      log_path="$log_val"
-    fi
-
-    case "$event" in
-      start)
-        emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
-        start_emitted=1
-        ;;
-      heartbeat)
-        emit_run_event "heartbeat" "phase=code-implement run_id=${run_id:-unknown} elapsed=${elapsed_val:-unknown}s"
-        ;;
-      done)
-        emit_run_event "done" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-0} elapsed=${elapsed_val:-unknown}s"
-        terminal_emitted=1
-        ;;
-      failed)
-        emit_run_event "failed" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
-        terminal_emitted=1
-        ;;
-      interrupted)
-        emit_run_event "interrupted" "phase=code-implement run_id=${run_id:-unknown} exit_code=${exit_code_val:-1} elapsed=${elapsed_val:-unknown}s"
-        terminal_emitted=1
-        ;;
-      *)
-        echo "$line" >&2
-        ;;
-    esac
+if [[ -n "$PLAN_PATH" ]]; then
+  if (( DRY_RUN == 0 )); then
+    handle_plan_approval
   else
-    echo "$line" >&2
+    if (( REQUIRE_APPROVED == 1 )) && [[ "$PLAN_STATUS" != "APPROVED" ]]; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
+        "Plan status must already be APPROVED." \
+        "$(plan_context_json)" \
+        "null" \
+        "Approve the plan in advance or rerun without --require-approved."
+      exit 1
+    fi
+    if (( NON_INTERACTIVE == 1 || NON_INTERACTIVE_STDIN == 1 )) && [[ "$PLAN_STATUS" != "APPROVED" ]]; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
+        "Plan approval is required in non-interactive mode." \
+        "$(plan_context_json)" \
+        "null" \
+        "Approve the plan in advance before using --dry-run in non-interactive mode."
+      exit 1
+    fi
   fi
-done < "$tmp_stream"
 
-set +e
-wait "$producer_pid"
-set -e
-if [[ -f "$tmp_status" ]]; then
-  tmux_rc="$(cat "$tmp_status" 2>/dev/null || echo 1)"
+  if (( FORCE == 1 )) && [[ "$OUTPUT_MODE" == "text" ]]; then
+    echo "⚠️  --force enabled: bypassing plan-review readiness gate." >&2
+  fi
+  if (( FORCE == 0 )); then
+    validate_review_gate
+  fi
 else
-  tmux_rc=1
+  EXEC_REPO="$(pwd)"
 fi
 
-if [[ "$start_emitted" != "1" ]]; then
-  emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
-  start_emitted=1
+if (( DRY_RUN == 1 )); then
+  emit_dry_run_success
+  exit 0
 fi
 
-emit_terminal_event_for_rc "$tmux_rc"
+if [[ "$OUTPUT_MODE" == "json" ]]; then
+  launch_json_transport "$(build_execution_prompt)"
+  exit 0
+fi
 
-exit "$tmux_rc"
+launch_with_run_events "$(build_execution_prompt)"
