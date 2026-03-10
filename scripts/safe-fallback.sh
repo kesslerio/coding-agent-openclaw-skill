@@ -163,6 +163,11 @@ detect_base_branch() {
     return 0
   fi
 
+  if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
+    printf '%s\n' "$current_branch"
+    return 0
+  fi
+
   printf 'main\n'
 }
 
