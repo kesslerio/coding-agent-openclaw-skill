@@ -401,6 +401,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$output_mode" == "json" ]]; then
+  if [[ "${SMOKE_TMUX_RUN_JSON_STDERR:-0}" == "1" ]]; then
+    echo "TMUX_RUN_EVENT start ts=2026-01-01T00:00:00+00:00${token_part} session=${session} log_path=${log_path} socket=/tmp/smoke.sock mode=non-blocking" >&2
+  fi
   case "$mode" in
     success)
       cat <<JSON
@@ -2438,6 +2441,7 @@ test_safe_fallback_json_preserves_launch_state() {
     CODING_AGENT_IMPL_MODE=tmux \
     CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
     SMOKE_TMUX_RUN_MODE=success \
+    SMOKE_TMUX_RUN_JSON_STDERR=1 \
     "$SCRIPT_DIR/safe-fallback.sh" impl --output json "launch state check" >"$output"
 
   assert_json_expr "$output" '.ok == true'

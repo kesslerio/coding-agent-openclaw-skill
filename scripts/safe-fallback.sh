@@ -213,6 +213,8 @@ run_backend() {
   local backend_response='null'
   local backend_state="completed"
   local output_file=""
+  local stdout_file=""
+  local stderr_file=""
   local failure_summary="${backend}: command failed"
 
   if [[ "$OUTPUT_MODE" != "json" ]]; then
@@ -228,10 +230,15 @@ run_backend() {
     return 1
   fi
 
-  if ! output="$("$@" 2>&1)"; then
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+  if ! "$@" >"$stdout_file" 2>"$stderr_file"; then
+    rm -f "$stdout_file" "$stderr_file"
     record_failure "$failure_summary"
     return 1
   fi
+  output="$(cat "$stdout_file" 2>/dev/null || true)"
+  rm -f "$stdout_file" "$stderr_file"
 
   if printf '%s' "$output" | jq -e '.ok' >/dev/null 2>&1; then
     backend_response="$(printf '%s' "$output" | jq -c '.')"
