@@ -155,6 +155,8 @@ fi
 
 require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "jq" \
   "Install jq before running wrapper hardening commands."
+require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "python3" \
+  "Install python3 before running code-implement."
 
 if [[ -n "$PROMPT" ]]; then
   if ! reject_control_chars "prompt" "$PROMPT"; then
@@ -192,31 +194,6 @@ extract_kv_value() {
   local line="$1"
   local key="$2"
   printf '%s\n' "$line" | sed -nE "s/.*[[:space:]]${key}=([^[:space:]]+).*/\\1/p" | head -n 1
-}
-
-get_frontmatter_field() {
-  local file="$1"
-  local key="$2"
-  awk -F': ' -v wanted="$key" '
-    BEGIN { in_fm=0 }
-    $0 == "---" {
-      if (in_fm == 0) { in_fm=1; next }
-      exit
-    }
-    in_fm == 1 && index($0, wanted ":") == 1 {
-      sub("^[^:]+:[ ]*", "", $0)
-      print $0
-      exit
-    }
-  ' "$file"
-}
-
-canonicalize_file_path() {
-  local raw_path="$1"
-  (
-    cd "$(dirname "$raw_path")"
-    printf '%s/%s\n' "$(pwd)" "$(basename "$raw_path")"
-  )
 }
 
 plan_context_json() {
@@ -297,175 +274,121 @@ atomic_update_plan_approval() {
   mv "$tmp_file" "$file"
 }
 
-resolve_plan_path() {
-  local repo_from_frontmatter=""
-  local derived_repo=""
-  if [[ ! -f "$PLAN_PATH" ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-      "Plan file not found: $PLAN_PATH" \
+resolve_wrapper_policy_cmd() {
+  local policy_cmd="${WRAPPER_POLICY_CMD:-$SCRIPT_DIR/wrapper-policy}"
+  if [[ ! -x "$policy_cmd" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "DEPENDENCY_MISSING" \
+      "wrapper-policy helper is missing or not executable: $policy_cmd" \
       "{}" \
       "null" \
-      "Pass an existing plan file under the target repository's .ai/plans directory."
+      "Restore scripts/wrapper-policy and retry."
     exit 1
   fi
-
-  PLAN_PATH="$(canonicalize_file_path "$PLAN_PATH")"
-
-  if [[ "$PLAN_PATH" != */.ai/plans/* ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-      "Plan file must live under a repository .ai/plans directory." \
-      "{}" \
-      "null" \
-      "Move or select a plan file from <repo>/.ai/plans/<plan>.md."
-    exit 1
-  fi
-
-  derived_repo="${PLAN_PATH%/.ai/plans/*}"
-  if [[ -z "$derived_repo" || ! -d "$derived_repo" ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-      "Unable to resolve repository root from plan path: $PLAN_PATH" \
-      "{}" \
-      "null" \
-      "Use a plan file stored under <repo>/.ai/plans/."
-    exit 1
-  fi
-
-  EXEC_REPO="$(cd "$derived_repo" && pwd)"
-  if ! git -C "$EXEC_REPO" rev-parse --git-dir >/dev/null 2>&1; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-      "Resolved plan repository is not a git repository: $EXEC_REPO" \
-      "{}" \
-      "null" \
-      "Use a plan file stored inside a git repository under .ai/plans."
-    exit 1
-  fi
-
-  repo_from_frontmatter="$(get_frontmatter_field "$PLAN_PATH" "repo_path")"
-  if [[ -n "$repo_from_frontmatter" ]]; then
-    if ! reject_control_chars "plan repo_path" "$repo_from_frontmatter"; then
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "INPUT_CONTROL_CHARS" \
-        "Plan repo_path contains control characters." \
-        "$(plan_context_json)" \
-        "null" \
-        "Regenerate the plan so repo_path contains a normal filesystem path."
-      exit 1
-    fi
-    if [[ ! -d "$repo_from_frontmatter" ]]; then
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-        "Plan repo_path does not exist or is not a directory: $repo_from_frontmatter" \
-        "$(plan_context_json)" \
-        "null" \
-        "Regenerate the plan or update repo_path to the repository that contains the plan artifact."
-      exit 1
-    fi
-    repo_from_frontmatter="$(cd "$repo_from_frontmatter" && pwd)"
-    if [[ "$repo_from_frontmatter" != "$EXEC_REPO" ]]; then
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
-        "Plan repo_path does not match the repository that contains the plan artifact." \
-        "$(plan_context_json)" \
-        "null" \
-        "Regenerate the plan or move it back under the repository named in repo_path."
-      exit 1
-    fi
-  fi
-
-  PLAN_STATUS="$(get_frontmatter_field "$PLAN_PATH" "status")"
-  PLAN_ID="$(get_frontmatter_field "$PLAN_PATH" "id")"
-  if [[ -z "$PLAN_ID" ]]; then
-    PLAN_ID="$(basename "$PLAN_PATH" .md)"
-  fi
+  printf '%s\n' "$policy_cmd"
 }
 
-validate_review_gate() {
-  local metadata_file="$EXEC_REPO/.ai/plan-reviews/latest-${PLAN_ID}.json"
-  local review_markdown_path=""
-  local blocking_count="0"
-  local ready_value="false"
+run_wrapper_policy_json() {
+  local policy_cmd="$1"
+  local payload_json="$2"
+  shift 2
+  local output=""
 
-  if [[ ! -f "$metadata_file" ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
-      "Missing review metadata: $metadata_file" \
-      "$(plan_context_json)" \
+  if [[ -n "$payload_json" ]]; then
+    if ! output="$(printf '%s' "$payload_json" | "$policy_cmd" "$@")"; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "WRAPPER_POLICY_FAILED" \
+        "wrapper-policy command failed." \
+        "{}" \
+        "null" \
+        "Inspect the Python wrapper policy command and retry."
+      exit 1
+    fi
+  else
+    if ! output="$("$policy_cmd" "$@")"; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "WRAPPER_POLICY_FAILED" \
+        "wrapper-policy command failed." \
+        "{}" \
+        "null" \
+        "Inspect the Python wrapper policy command and retry."
+      exit 1
+    fi
+  fi
+
+  if ! printf '%s' "$output" | jq -e 'has("ok")' >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "WRAPPER_POLICY_FAILED" \
+      "wrapper-policy returned an unexpected response shape." \
+      "{}" \
       "null" \
-      "./scripts/plan-review-live --plan $PLAN_PATH" \
-      "./scripts/plan-review --plan $PLAN_PATH" \
-      "Use --force only when you explicitly accept bypass risk."
+      "Inspect the Python wrapper policy command and retry."
     exit 1
   fi
 
-  if ! jq -e \
-    --arg plan_id "$PLAN_ID" \
+  printf '%s\n' "$output"
+}
+
+emit_policy_error_from_json() {
+  local payload_json="$1"
+  local code message context_json data_json
+  local remediation_items=()
+
+  code="$(printf '%s' "$payload_json" | jq -r '.error.code')"
+  message="$(printf '%s' "$payload_json" | jq -r '.error.message')"
+  context_json="$(printf '%s' "$payload_json" | jq -c '.error.context // {}')"
+  data_json="$(printf '%s' "$payload_json" | jq -c '.data // null')"
+  while IFS= read -r remediation_item; do
+    remediation_items+=("$remediation_item")
+  done < <(printf '%s' "$payload_json" | jq -r '.error.remediation // [] | .[]')
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$code" \
+    "$message" \
+    "$context_json" \
+    "$data_json" \
+    "${remediation_items[@]}"
+}
+
+build_plan_gate_payload() {
+  local approve_plan_value="${1:-$APPROVE_PLAN}"
+  jq -n \
     --arg plan_path "$PLAN_PATH" \
-    '
-      .schema_version == 1 and
-      .plan_id == $plan_id and
-      .plan_path == $plan_path and
-      (.mode == "batch" or .mode == "live") and
-      (.ready_for_implementation | type == "boolean") and
-      (.created_at | type == "string" and length > 0) and
-      (.review_markdown_path | type == "string" and length > 0) and
-      (.blocking_decisions | type == "array")
-    ' "$metadata_file" >/dev/null 2>&1; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_METADATA_INVALID" \
-      "Review metadata failed validation: $metadata_file" \
-      "$(plan_context_json)" \
-      "null" \
-      "Regenerate the plan review metadata with ./scripts/plan-review or ./scripts/plan-review-live."
-    exit 1
-  fi
-
-  review_markdown_path="$(jq -r '.review_markdown_path' "$metadata_file")"
-  if [[ ! -f "$review_markdown_path" ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_METADATA_INVALID" \
-      "Review markdown target is missing: $review_markdown_path" \
-      "$(plan_context_json)" \
-      "null" \
-      "Re-run ./scripts/plan-review or ./scripts/plan-review-live to refresh metadata."
-    exit 1
-  fi
-
-  ready_value="$(jq -r '.ready_for_implementation' "$metadata_file")"
-  if [[ "$ready_value" != "true" ]]; then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
-      "Latest review is not ready for implementation (ready_for_implementation=false)." \
-      "$(plan_context_json)" \
-      "null" \
-      "./scripts/plan-review-live --plan $PLAN_PATH" \
-      "./scripts/plan-review --plan $PLAN_PATH" \
-      "Use --force only when you explicitly accept bypass risk."
-    exit 1
-  fi
-
-  blocking_count="$(jq '.blocking_decisions | length' "$metadata_file")"
-  if (( blocking_count > 0 )); then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "REVIEW_GATE_BLOCKED" \
-      "Latest review still has unresolved blocking decisions." \
-      "$(plan_context_json)" \
-      "$(jq '{blocking_decisions: .blocking_decisions}' "$metadata_file")" \
-      "./scripts/plan-review-live --plan $PLAN_PATH" \
-      "Resolve blocking decisions before implementation."
-    exit 1
-  fi
+    --argjson approve_plan "$([[ "$approve_plan_value" == "1" ]] && printf 'true' || printf 'false')" \
+    --argjson require_approved "$([[ "$REQUIRE_APPROVED" == "1" ]] && printf 'true' || printf 'false')" \
+    --argjson non_interactive "$([[ "$NON_INTERACTIVE" == "1" ]] && printf 'true' || printf 'false')" \
+    --argjson non_interactive_stdin "$([[ "$NON_INTERACTIVE_STDIN" == "1" ]] && printf 'true' || printf 'false')" \
+    --argjson dry_run "$([[ "$DRY_RUN" == "1" ]] && printf 'true' || printf 'false')" \
+    --argjson force "$([[ "$FORCE" == "1" ]] && printf 'true' || printf 'false')" \
+    '{
+      plan_path: $plan_path,
+      approve_plan: $approve_plan,
+      require_approved: $require_approved,
+      non_interactive: $non_interactive,
+      non_interactive_stdin: $non_interactive_stdin,
+      dry_run: $dry_run,
+      force: $force
+    }'
 }
 
-handle_plan_approval() {
-  local approved_at=""
-  if [[ "$PLAN_STATUS" == "APPROVED" ]]; then
-    return 0
-  fi
+apply_plan_gate_response() {
+  local gate_json="$1"
+  EXEC_REPO="$(printf '%s' "$gate_json" | jq -r '.data.repo_path')"
+  PLAN_PATH="$(printf '%s' "$gate_json" | jq -r '.data.plan_path')"
+  PLAN_ID="$(printf '%s' "$gate_json" | jq -r '.data.plan_id')"
+  PLAN_STATUS="$(printf '%s' "$gate_json" | jq -r '.data.plan_status')"
+  APPROVED_AT="$(printf '%s' "$gate_json" | jq -r '.data.approved_at // ""')"
+}
 
-  if (( REQUIRE_APPROVED == 1 )); then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
-      "Plan status must already be APPROVED." \
-      "$(plan_context_json)" \
-      "null" \
-      "Approve the plan in advance or rerun with --approve."
+apply_plan_gate() {
+  local payload_json gate_json approval_action approval_json answer
+
+  payload_json="$(build_plan_gate_payload)"
+  gate_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$payload_json" plan-gate)"
+  if [[ "$(printf '%s' "$gate_json" | jq -r '.ok')" != "true" ]]; then
+    emit_policy_error_from_json "$gate_json"
     exit 1
   fi
 
-  if (( APPROVE_PLAN == 1 )); then
-    approved_at="$(date -Iseconds)"
-    if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$approved_at"; then
+  apply_plan_gate_response "$gate_json"
+  approval_action="$(printf '%s' "$gate_json" | jq -r '.data.approval_action')"
+
+  if [[ "$approval_action" == "approve" ]]; then
+    if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$APPROVED_AT"; then
       emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_WRITE_FAILED" \
         "Failed to record plan approval atomically." \
         "$(plan_context_json)" \
@@ -474,64 +397,55 @@ handle_plan_approval() {
       exit 1
     fi
     PLAN_STATUS="APPROVED"
+    payload_json="$(build_plan_gate_payload 0)"
+    gate_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$payload_json" plan-gate)"
+    if [[ "$(printf '%s' "$gate_json" | jq -r '.ok')" != "true" ]]; then
+      emit_policy_error_from_json "$gate_json"
+      exit 1
+    fi
+    apply_plan_gate_response "$gate_json"
     return 0
   fi
 
-  if (( NON_INTERACTIVE_STDIN == 1 )); then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
-      "Plan $PLAN_ID is ${PLAN_STATUS:-PENDING} and code-implement is running without interactive stdin." \
-      "$(plan_context_json)" \
-      "null" \
-      "Resolve plan decisions before implementation or approve the plan explicitly." \
-      "./scripts/plan-review-live --plan $PLAN_PATH --decisions \"1A,2B,3A,4A\" --blocking none" \
-      "./scripts/plan-review-live --plan $PLAN_PATH --resolve-file /path/to/decisions.json" \
-      "./scripts/code-implement --plan $PLAN_PATH --approve --non-interactive"
-    exit 1
-  fi
-
-  if (( NON_INTERACTIVE == 1 )); then
-    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
-      "Plan approval is required in non-interactive mode." \
-      "$(plan_context_json)" \
-      "null" \
-      "./scripts/plan-review-live --plan $PLAN_PATH --decisions \"1A,2B,3A,4A\" --blocking none" \
-      "./scripts/plan-review-live --plan $PLAN_PATH --resolve-file /path/to/decisions.json" \
-      "Approve the plan in advance or rerun with --approve."
+  if [[ "$approval_action" == "prompt" ]]; then
+    printf 'Plan %s is currently %s.\n' "$PLAN_ID" "${PLAN_STATUS:-PENDING}" >&2
+    read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
+    approval_json="$(jq -n \
+      --arg repo_path "$EXEC_REPO" \
+      --arg plan_path "$PLAN_PATH" \
+      --arg plan_id "$PLAN_ID" \
+      --arg plan_status "$PLAN_STATUS" \
+      --arg approval_response "$answer" \
+      '{
+        repo_path: $repo_path,
+        plan_path: $plan_path,
+        plan_id: $plan_id,
+        plan_status: $plan_status,
+        approval_response: $approval_response
+      }')"
+    approval_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$approval_json" approval-transition)"
+    if [[ "$(printf '%s' "$approval_json" | jq -r '.ok')" != "true" ]]; then
+      emit_policy_error_from_json "$approval_json"
       exit 1
-  fi
-
-  printf 'Plan %s is currently %s.\n' "$PLAN_ID" "${PLAN_STATUS:-PENDING}" >&2
-  read -r -p "Do you approve this plan for execution? [y/N/revise] " answer
-  case "${answer,,}" in
-    y|yes)
-      approved_at="$(date -Iseconds)"
-      if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$approved_at"; then
-        emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_WRITE_FAILED" \
-          "Failed to record plan approval atomically." \
-          "$(plan_context_json)" \
-          "null" \
-          "Inspect the plan file and retry approval."
-        exit 1
-      fi
-      PLAN_STATUS="APPROVED"
-      ;;
-    revise)
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_DECLINED" \
-        "Plan left unchanged for revision." \
+    fi
+    APPROVED_AT="$(printf '%s' "$approval_json" | jq -r '.data.approved_at // ""')"
+    if ! atomic_update_plan_approval "$PLAN_PATH" "${USER:-unknown}" "$APPROVED_AT"; then
+      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_WRITE_FAILED" \
+        "Failed to record plan approval atomically." \
         "$(plan_context_json)" \
         "null" \
-        "Revise the plan, then rerun code-implement."
+        "Inspect the plan file and retry approval."
       exit 1
-      ;;
-    *)
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_DECLINED" \
-        "Execution cancelled." \
-        "$(plan_context_json)" \
-        "null" \
-        "Approve the plan when you are ready to execute it."
+    fi
+    PLAN_STATUS="APPROVED"
+    payload_json="$(build_plan_gate_payload 0)"
+    gate_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$payload_json" plan-gate)"
+    if [[ "$(printf '%s' "$gate_json" | jq -r '.ok')" != "true" ]]; then
+      emit_policy_error_from_json "$gate_json"
       exit 1
-      ;;
-  esac
+    fi
+    apply_plan_gate_response "$gate_json"
+  fi
 }
 
 build_execution_prompt() {
@@ -553,28 +467,26 @@ PROMPT_EOF
 }
 
 emit_dry_run_success() {
-  local dry_run_data
+  local dry_run_data normalized_json
   dry_run_data="$(jq -n \
+    --arg kind "code-implement-dry-run" \
     --arg repo_path "$EXEC_REPO" \
     --arg plan_path "$PLAN_PATH" \
     --arg plan_id "$PLAN_ID" \
     --arg plan_status "$PLAN_STATUS" \
     --arg output_mode "$OUTPUT_MODE" \
-    --arg backend "codex_tmux" \
     --arg review_gate "$([[ "$FORCE" == "1" ]] && printf 'bypassed' || printf 'validated')" \
     '{
-      state: "validated",
-      backend: $backend,
+      kind: $kind,
       repo_path: $repo_path,
       plan_path: (if $plan_path == "" then null else $plan_path end),
       plan_id: (if $plan_id == "" then null else $plan_id end),
       plan_status: (if $plan_status == "" then null else $plan_status end),
       output_mode: $output_mode,
-      review_gate: $review_gate,
-      dry_run: true
+      review_gate: $review_gate
     }')"
-
-  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$dry_run_data" \
+  normalized_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$dry_run_data" normalize-result)"
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$(printf '%s' "$normalized_json" | jq -c '.data')" \
     "Dry run complete. Validation passed."
 }
 
@@ -609,7 +521,7 @@ launch_json_transport() {
   local tmux_error_context='{}'
   local tmux_error_data='null'
   local remediation_json='[]'
-  local result_data
+  local result_data normalized_json
 
   require_execution_dependencies
   tmux_run="$(resolve_tmux_run_helper)"
@@ -625,7 +537,10 @@ launch_json_transport() {
       tmux_error_context="$(printf '%s' "$tmux_output" | jq -c '.error.context // {}')"
       tmux_error_data="$(printf '%s' "$tmux_output" | jq -c '.data // null')"
       remediation_json="$(printf '%s' "$tmux_output" | jq -c '.error.remediation // []')"
-      mapfile -t remediation_items < <(printf '%s' "$remediation_json" | jq -r '.[]')
+      remediation_items=()
+      while IFS= read -r remediation_item; do
+        remediation_items+=("$remediation_item")
+      done < <(printf '%s' "$remediation_json" | jq -r '.[]')
       emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$tmux_error_code" \
         "$tmux_error_message" \
         "$tmux_error_context" \
@@ -652,20 +567,20 @@ launch_json_transport() {
   fi
 
   result_data="$(jq -n \
+    --arg kind "code-implement-launch" \
     --arg repo_path "$EXEC_REPO" \
     --arg plan_path "$PLAN_PATH" \
     --arg plan_id "$PLAN_ID" \
     --argjson transport "$(printf '%s' "$tmux_output" | jq -c '.data')" \
     '{
-      state: "launched_not_verified",
-      backend: "codex_tmux",
+      kind: $kind,
       repo_path: $repo_path,
       plan_path: (if $plan_path == "" then null else $plan_path end),
       plan_id: (if $plan_id == "" then null else $plan_id end),
       transport: $transport
     }')"
-
-  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$result_data"
+  normalized_json="$(run_wrapper_policy_json "$WRAPPER_POLICY_BIN" "$result_data" normalize-result)"
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$(printf '%s' "$normalized_json" | jq -c '.data')"
 }
 
 launch_with_run_events() {
@@ -820,45 +735,18 @@ launch_with_run_events() {
   exit "$tmux_rc"
 }
 
-if [[ -n "$PLAN_PATH" ]]; then
-  resolve_plan_path
-fi
+WRAPPER_POLICY_BIN="$(resolve_wrapper_policy_cmd)"
 
 if [[ -n "$PLAN_PATH" ]]; then
-  if (( DRY_RUN == 0 )); then
-    handle_plan_approval
-  else
-    if (( REQUIRE_APPROVED == 1 )) && [[ "$PLAN_STATUS" != "APPROVED" ]]; then
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
-        "Plan status must already be APPROVED." \
-        "$(plan_context_json)" \
-        "null" \
-        "Approve the plan in advance or rerun without --require-approved."
-      exit 1
-    fi
-    if (( NON_INTERACTIVE == 1 || NON_INTERACTIVE_STDIN == 1 )) && [[ "$PLAN_STATUS" != "APPROVED" ]]; then
-      emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "APPROVAL_REQUIRED" \
-        "Plan approval is required in non-interactive mode." \
-        "$(plan_context_json)" \
-        "null" \
-        "Approve the plan in advance before using --dry-run in non-interactive mode."
-      exit 1
-    fi
-  fi
-
+  apply_plan_gate
   if (( FORCE == 1 )) && [[ "$OUTPUT_MODE" == "text" ]]; then
     echo "⚠️  --force enabled: bypassing plan-review readiness gate." >&2
-  fi
-  if (( FORCE == 0 )); then
-    validate_review_gate
   fi
 else
   EXEC_REPO="$(pwd)"
 fi
 
 if (( DRY_RUN == 1 )); then
-  require_execution_dependencies
-  resolve_tmux_run_helper >/dev/null
   emit_dry_run_success
   exit 0
 fi

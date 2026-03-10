@@ -34,6 +34,7 @@ check_cmd "codex" "npm install -g @openai/codex"
 check_cmd "gh" "brew install gh"
 check_cmd "timeout" "brew install coreutils && mkdir -p \"$HOME/.local/bin\" && ln -sf \"\$(brew --prefix coreutils)/bin/gtimeout\" \"$HOME/.local/bin/timeout\""
 check_cmd "jq" "brew install jq"
+check_cmd "python3" "Install Python 3 and ensure python3 is available in PATH"
 
 if claude_bin="$(resolve_claude_bin)"; then
   printf '[ok] claude: %s\n' "$claude_bin"

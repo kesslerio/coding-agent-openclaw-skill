@@ -84,8 +84,29 @@ CLI wrappers:
   --open-pr --issue 50
 
 # Validate an approved plan without mutating or launching (machine-readable output stays opt-in)
+# Dry-run now validates plan/review/approval state only; it no longer requires codex/tmux to be installed.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md --dry-run --output json
 ```
+
+## Wrapper Architecture
+
+The wrapper surface is split intentionally:
+
+```text
+Bash wrappers:
+- argv/env parsing
+- backend execution
+- text streaming
+- tmux lifecycle and trusted RUN_EVENT handling
+
+Python policy core:
+- review-base selection
+- plan-path and review-gate validation
+- approval decisioning
+- structured result normalization
+```
+
+This keeps transport behavior in shell while moving duplicated policy into one tested core.
 
 ## Command Map (Telegram/OpenClaw)
 
@@ -142,6 +163,7 @@ Example resolve file for non-TTY finalization:
 
 - GitHub CLI (`gh`)
 - `jq`
+- `python3`
 - One of: Codex CLI (`codex`) or Claude Code CLI (`claude` / `~/.claude/local/claude`)
 - GNU `timeout` command (coreutils on macOS)
 - Optional: tmux (wrapper workflows)

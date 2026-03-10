@@ -19,6 +19,9 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
+      - name: Python wrapper policy tests
+        run: python3 -m unittest tests/python/test_wrapper_policy.py
+
       - name: Bash syntax check
         run: |
           set -euo pipefail

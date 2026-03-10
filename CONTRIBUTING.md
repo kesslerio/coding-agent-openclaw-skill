@@ -20,6 +20,7 @@ Include exact commands and outcomes in every PR.
 For script changes, run:
 
 ```bash
+python3 -m unittest tests/python/test_wrapper_policy.py
 while IFS= read -r script; do [[ -f "$script" ]] || continue; bash -n "$script"; done < <(git ls-files scripts)
 while IFS= read -r script; do [[ -f "$script" ]] || continue; shellcheck "$script"; done < <(git ls-files scripts)
 ./scripts/doc-drift-check
