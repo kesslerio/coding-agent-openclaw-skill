@@ -2378,6 +2378,28 @@ test_code_implement_approve_updates_plan_and_launches() {
   assert_contains "$plan_path" "approved_at: "
 }
 
+test_code_implement_approve_rejects_missing_frontmatter() {
+  local repo="$tmp_dir/repo-code-implement-approve-missing-frontmatter"
+  local plan_path="$repo/.ai/plans/2026-02-19-000023b-missing-frontmatter.md"
+  local output="$tmp_dir/code-implement-approve-missing-frontmatter.json"
+
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plans"
+  cat > "$plan_path" <<EOF
+# Plan: Missing frontmatter
+
+No YAML frontmatter here.
+EOF
+
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --approve --non-interactive --output json > "$output"); then
+    echo "Expected code-implement --approve to fail without frontmatter" >&2
+    exit 1
+  fi
+
+  assert_json_expr "$output" '.ok == false'
+  assert_json_expr "$output" '.error.code == "APPROVAL_WRITE_FAILED"'
+}
+
 test_safe_fallback_json_contract() {
   local output="$tmp_dir/safe-fallback.json"
   local codex_args="$tmp_dir/safe-fallback-codex-args.txt"
@@ -2391,6 +2413,36 @@ test_safe_fallback_json_contract() {
   assert_json_expr "$output" '.command == "safe-fallback"'
   assert_json_expr "$output" '.data.backend == "codex_direct"'
   assert_not_contains "$output" "prompt without secret body"
+}
+
+test_safe_fallback_json_failure_redacts_backend_output() {
+  local custom_bin="$tmp_dir/custom-redact-bin"
+  local codex_script="$custom_bin/codex"
+  local output="$tmp_dir/safe-fallback-redacted.json"
+  local json_only="$tmp_dir/safe-fallback-redacted-only.json"
+
+  mkdir -p "$custom_bin"
+  cat >"$codex_script" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'backend exploded with SECRET-PROMPT-TEXT\n' >&2
+exit 1
+EOF
+  chmod +x "$codex_script"
+
+  if PATH="$custom_bin:$fake_bin:$PATH" \
+    CODING_AGENT_ACP_ENABLE=0 \
+    "$SCRIPT_DIR/safe-fallback.sh" review --output json "prompt contains SECRET-PROMPT-TEXT" >"$output" 2>&1; then
+    echo "Expected safe-fallback JSON blocker path to fail" >&2
+    exit 1
+  fi
+
+  awk 'BEGIN { start = 0 } /^\{/ { start = 1 } start { print }' "$output" >"$json_only"
+
+  assert_json_expr "$json_only" '.ok == false'
+  assert_json_expr "$json_only" '.error.code == "ALL_BACKENDS_UNAVAILABLE"'
+  assert_contains "$output" "codex_review: command failed"
+  assert_not_contains "$output" "SECRET-PROMPT-TEXT"
 }
 
 test_emit_error_text_mode_does_not_require_jq() {
@@ -2891,7 +2943,9 @@ run_test test_code_implement_rejects_invalid_plan_path
 run_test test_code_implement_rejects_malformed_metadata
 run_test test_code_implement_requires_approved_non_interactive
 run_test test_code_implement_approve_updates_plan_and_launches
+run_test test_code_implement_approve_rejects_missing_frontmatter
 run_test test_safe_fallback_json_contract
+run_test test_safe_fallback_json_failure_redacts_backend_output
 run_test test_emit_error_text_mode_does_not_require_jq
 run_test test_code_implement_launches_with_unverified_state
 run_test test_code_implement_accepts_metadata_from_non_tty_apply_flow

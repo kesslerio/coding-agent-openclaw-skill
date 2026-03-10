@@ -208,6 +208,7 @@ run_backend() {
   local output=""
   local backend_response='null'
   local output_file=""
+  local failure_summary="${backend}: command failed"
 
   if [[ "$OUTPUT_MODE" != "json" ]]; then
     output_file="$(mktemp)"
@@ -218,12 +219,12 @@ run_backend() {
 
     output="$(cat "$output_file" 2>/dev/null || true)"
     rm -f "$output_file"
-    record_failure "$backend: ${output:-command failed}"
+    record_failure "$failure_summary"
     return 1
   fi
 
   if ! output="$("$@" 2>&1)"; then
-    record_failure "$backend: ${output:-command failed}"
+    record_failure "$failure_summary"
     return 1
   fi
 

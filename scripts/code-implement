@@ -240,16 +240,19 @@ atomic_update_plan_approval() {
   local tmp_file
   tmp_file="$(mktemp "${file}.tmp.XXXXXX")"
 
-  awk \
+  if ! awk \
     -v approved_by="$approved_by" \
     -v approved_at="$approved_at" '
       BEGIN {
         in_fm = 0
+        found_start = 0
+        found_end = 0
         seen_status = 0
         seen_by = 0
         seen_at = 0
       }
       $0 == "---" && in_fm == 0 {
+        found_start = 1
         in_fm = 1
         print
         next
@@ -259,6 +262,7 @@ atomic_update_plan_approval() {
         if (seen_by == 0) { print "approved_by: " approved_by }
         if (seen_at == 0) { print "approved_at: " approved_at }
         in_fm = 2
+        found_end = 1
         print
         next
       }
@@ -280,7 +284,15 @@ atomic_update_plan_approval() {
         }
       }
       { print }
-    ' "$file" > "$tmp_file"
+      END {
+        if (found_start == 0 || found_end == 0) {
+          exit 1
+        }
+      }
+    ' "$file" > "$tmp_file"; then
+    rm -f "$tmp_file"
+    return 1
+  fi
 
   mv "$tmp_file" "$file"
 }
