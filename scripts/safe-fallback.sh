@@ -211,6 +211,7 @@ run_backend() {
   shift
   local output=""
   local backend_response='null'
+  local backend_state="completed"
   local output_file=""
   local failure_summary="${backend}: command failed"
 
@@ -234,9 +235,10 @@ run_backend() {
 
   if printf '%s' "$output" | jq -e '.ok' >/dev/null 2>&1; then
     backend_response="$(printf '%s' "$output" | jq -c '.')"
+    backend_state="$(printf '%s' "$output" | jq -r '.data.state // "completed"')"
   fi
   emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
-    "$(json_success_payload "$backend" "completed" "$backend_response")"
+    "$(json_success_payload "$backend" "$backend_state" "$backend_response")"
   return 0
 }
 
@@ -290,20 +292,34 @@ try_acpx() {
   acpx_session="$(derive_acpx_session_name)"
 
   info "Trying ACPX (${CODING_AGENT_ACP_AGENT}) session=${acpx_session}..."
-  if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session"; then
+  if [[ "$OUTPUT_MODE" == "json" ]]; then
+    if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session" >/dev/null 2>&1; then
+      record_failure "ACPX: sessions ensure failed"
+      return 1
+    fi
+  elif ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" sessions ensure --name "$acpx_session"; then
     record_failure "ACPX: sessions ensure failed"
     return 1
   fi
 
   if [[ -n "$CODING_AGENT_ACP_SESSION_MODE" ]]; then
-    if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE"; then
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+      if ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE" >/dev/null 2>&1; then
+        warn "ACPX set-mode failed; continuing with existing mode"
+      fi
+    elif ! ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" set-mode "$CODING_AGENT_ACP_SESSION_MODE"; then
       warn "ACPX set-mode failed; continuing with existing mode"
     fi
   fi
 
   acpx_log="$(mktemp)"
   if ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" -s "$acpx_session" "$acpx_prompt" >"$acpx_log" 2>&1; then
-    cat "$acpx_log"
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+      emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
+        "$(json_success_payload "acpx" "completed")"
+    else
+      cat "$acpx_log"
+    fi
     rm -f "$acpx_log"
     ok "ACPX succeeded"
     return 0

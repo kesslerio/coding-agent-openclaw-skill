@@ -810,6 +810,21 @@ test_impl_uses_acpx_first_when_available() {
   fi
 }
 
+test_safe_fallback_json_acpx_success_contract() {
+  local output="$tmp_dir/safe-fallback-acpx.json"
+  local acpx_args="$tmp_dir/acpx-json-args.txt"
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl --output json "json contract via acpx" >"$output"
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.backend == "acpx"'
+  assert_json_expr "$output" '.data.state == "completed"'
+  assert_not_contains "$output" "acpx ok"
+}
+
 test_review_uses_codex_review_first() {
   local prompt="Review this PR via codex review first."
   local acpx_args="$tmp_dir/acpx-review-no-call.txt"
@@ -2415,6 +2430,22 @@ test_safe_fallback_json_contract() {
   assert_not_contains "$output" "prompt without secret body"
 }
 
+test_safe_fallback_json_preserves_launch_state() {
+  local output="$tmp_dir/safe-fallback-launch-state.json"
+
+  PATH="$fake_bin:$PATH" \
+    CODING_AGENT_ACP_ENABLE=0 \
+    CODING_AGENT_IMPL_MODE=tmux \
+    CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+    SMOKE_TMUX_RUN_MODE=success \
+    "$SCRIPT_DIR/safe-fallback.sh" impl --output json "launch state check" >"$output"
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.backend == "codex_tmux"'
+  assert_json_expr "$output" '.data.state == "launched_not_verified"'
+  assert_json_expr "$output" '.data.backend_response.data.state == "launched_not_verified"'
+}
+
 test_safe_fallback_json_failure_redacts_backend_output() {
   local custom_bin="$tmp_dir/custom-redact-bin"
   local codex_script="$custom_bin/codex"
@@ -2507,6 +2538,37 @@ EOF
   assert_json_expr "$output" '.data.state == "launched_not_verified"'
   assert_json_expr "$output" '.data.transport.log_file | length > 0'
   assert_not_contains "$output" "PLAN CONTENT"
+}
+
+test_code_implement_dry_run_requires_execution_dependencies() {
+  local repo="$tmp_dir/repo-code-implement-dry-run-missing-deps"
+  local jq_only_bin="$tmp_dir/jq-only-bin"
+  local plan_path
+  local output="$tmp_dir/code-implement-dry-run-missing-deps.json"
+
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews" "$jq_only_bin"
+  ln -sf "$(command -v jq)" "$jq_only_bin/jq"
+
+  plan_path="$(create_plan "$repo" "2026-02-19-000020d-dry-run-deps" "APPROVED")"
+  echo "review" > "$repo/.ai/plan-reviews/review.md"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000020d-dry-run-deps.json" \
+    "2026-02-19-000020d-dry-run-deps" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$repo/.ai/plan-reviews/review.md"
+
+  if (cd "$repo" && PATH="$jq_only_bin:/usr/bin:/bin" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output"); then
+    echo "Expected dry-run to fail when execution dependencies are missing" >&2
+    exit 1
+  fi
+
+  assert_json_expr "$output" '.ok == false'
+  assert_json_expr "$output" '.error.code == "DEPENDENCY_MISSING"'
 }
 
 test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
@@ -2912,6 +2974,7 @@ run_test test_invalid_impl_mode_rejected
 run_test test_invalid_acp_enable_rejected
 run_test test_impl_direct_mode_uses_codex_exec
 run_test test_impl_uses_acpx_first_when_available
+run_test test_safe_fallback_json_acpx_success_contract
 run_test test_review_uses_codex_review_first
 run_test test_review_fallback_uses_current_default_branch_when_alone
 run_test test_review_fallback_prefers_current_default_branch
@@ -2952,6 +3015,7 @@ run_test test_code_implement_non_tty_pending_plan_fails_fast
 run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
 run_test test_code_implement_dry_run_json_happy_path
+run_test test_code_implement_dry_run_requires_execution_dependencies
 run_test test_code_implement_accepts_nested_plan_artifact
 run_test test_code_implement_rejects_invalid_plan_path
 run_test test_code_implement_rejects_malformed_metadata
@@ -2959,6 +3023,7 @@ run_test test_code_implement_requires_approved_non_interactive
 run_test test_code_implement_approve_updates_plan_and_launches
 run_test test_code_implement_approve_rejects_missing_frontmatter
 run_test test_safe_fallback_json_contract
+run_test test_safe_fallback_json_preserves_launch_state
 run_test test_safe_fallback_json_failure_redacts_backend_output
 run_test test_emit_error_text_mode_does_not_require_jq
 run_test test_safe_fallback_text_blocker_does_not_require_jq

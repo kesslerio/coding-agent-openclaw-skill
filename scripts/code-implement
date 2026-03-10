@@ -857,6 +857,8 @@ else
 fi
 
 if (( DRY_RUN == 1 )); then
+  require_execution_dependencies
+  resolve_tmux_run_helper >/dev/null
   emit_dry_run_success
   exit 0
 fi
