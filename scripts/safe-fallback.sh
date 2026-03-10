@@ -204,9 +204,31 @@ record_failure() {
 }
 
 emit_blocker() {
-  local policy_cmd blocker_payload_json blocker_json
+  local policy_cmd blocker_payload_json blocker_json failures_json context_json
+  context_json="$(printf '{"mode":"%s"}' "$MODE")"
+  if [[ "$OUTPUT_MODE" != "json" ]] || ! command -v jq >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "ALL_BACKENDS_UNAVAILABLE" \
+      "All execution backends failed for mode '$MODE'." \
+      "$context_json" \
+      "null" \
+      "Wait for tool availability or install the required CLI tools." \
+      "Inspect the recorded failures and retry with a healthier backend."
+    exit 1
+  fi
+
   policy_cmd="$(resolve_wrapper_policy_cmd)"
-  blocker_payload_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s --arg kind "safe-fallback-blocker" --arg mode "$MODE" --arg cause_class "unknown_backend_failure" '{kind: $kind, mode: $mode, cause_class: $cause_class, failures: .}')"
+  failures_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s .)"
+  blocker_payload_json="$(jq -n \
+    --arg kind "safe-fallback-blocker" \
+    --arg mode "$MODE" \
+    --arg cause_class "unknown_backend_failure" \
+    --argjson failures "$failures_json" \
+    '{
+      kind: $kind,
+      mode: $mode,
+      cause_class: $cause_class,
+      failures: $failures
+    }')"
   blocker_json="$(printf '%s' "$blocker_payload_json" | "$policy_cmd" normalize-result)"
   emit_policy_error_from_json "$blocker_json"
   exit 1

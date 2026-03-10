@@ -38,7 +38,7 @@ def _repo_from_plan_path(plan_path: str) -> str | None:
     normalized = plan_path.replace("\\", "/")
     if marker not in normalized:
         return None
-    return normalized.split(marker, 1)[0] or None
+    return normalized.rsplit(marker, 1)[0] or None
 
 
 def _is_git_repo(path: str) -> bool:

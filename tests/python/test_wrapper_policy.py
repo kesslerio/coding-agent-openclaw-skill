@@ -179,6 +179,18 @@ class PlanGateTests(unittest.TestCase):
             self.assertEqual(result["data"]["repo_path"], str(repo))
             self.assertEqual(result["data"]["plan_path"], str(plan_path))
 
+    def test_repo_resolution_uses_rightmost_plans_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir) / ".ai" / "plans" / "repo"
+            repo.mkdir(parents=True)
+            self._init_repo(repo)
+            plan_id = "rightmost"
+            plan_path = self._write_plan(repo, "", plan_id)
+            self._write_metadata(repo, plan_id, plan_path)
+            result = resolve_plan_gate({"plan_path": str(plan_path), "dry_run": True})
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["data"]["repo_path"], str(repo))
+
     def test_repo_path_mismatch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir) / "repo"
