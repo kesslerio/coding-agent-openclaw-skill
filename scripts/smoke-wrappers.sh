@@ -2694,7 +2694,7 @@ test_code_implement_large_plan_uses_stdin_transport_json() {
   assert_not_contains "$output" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
   assert_contains "$tmux_args" "bash"
   assert_contains "$tmux_args" "-lc"
-  assert_contains "$tmux_args" 'codex exec --full-auto - < "$prompt_file"'
+  assert_contains "$tmux_args" "codex exec --full-auto - < \"\$prompt_file\""
   assert_not_contains "$tmux_args" "PLAN CONTENT"
   assert_not_contains "$tmux_args" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
 }
@@ -2738,7 +2738,7 @@ test_code_implement_large_plan_uses_stdin_transport_run_events() {
   assert_not_contains "$output" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
   assert_contains "$tmux_args" "bash"
   assert_contains "$tmux_args" "-lc"
-  assert_contains "$tmux_args" 'codex exec --full-auto - < "$prompt_file"'
+  assert_contains "$tmux_args" "codex exec --full-auto - < \"\$prompt_file\""
   assert_not_contains "$tmux_args" "PLAN CONTENT"
   assert_not_contains "$tmux_args" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
 }
