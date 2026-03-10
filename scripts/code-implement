@@ -470,10 +470,10 @@ handle_plan_approval() {
       "Plan $PLAN_ID is ${PLAN_STATUS:-PENDING} and code-implement is running without interactive stdin." \
       "$(plan_context_json)" \
       "null" \
-      "Resolve plan decisions before implementation or use --force explicitly." \
+      "Resolve plan decisions before implementation or approve the plan explicitly." \
       "./scripts/plan-review-live --plan $PLAN_PATH --decisions \"1A,2B,3A,4A\" --blocking none" \
       "./scripts/plan-review-live --plan $PLAN_PATH --resolve-file /path/to/decisions.json" \
-      "./scripts/code-implement --plan $PLAN_PATH --force"
+      "./scripts/code-implement --plan $PLAN_PATH --approve --non-interactive"
     exit 1
   fi
 

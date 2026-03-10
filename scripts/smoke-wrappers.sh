@@ -865,6 +865,42 @@ test_review_fallback_uses_current_default_branch_when_alone() {
   fi
 }
 
+test_review_fallback_prefers_current_default_branch() {
+  local repo="$tmp_dir/repo-main-and-master"
+  local prompt="Review fallback should keep the active default branch."
+  local codex_args="$tmp_dir/codex-review-main-master-args.txt"
+  local output="$tmp_dir/review-main-master.txt"
+
+  mkdir -p "$repo"
+  git init -q -b main "$repo"
+  (
+    cd "$repo"
+    git config user.name "Smoke Test"
+    git config user.email "smoke@example.test"
+    echo "default branch" > README.md
+    git add README.md
+    git commit -q -m "init"
+    git branch master
+  )
+
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      SMOKE_CODEX_ARGS_FILE="$codex_args" \
+      "$SCRIPT_DIR/safe-fallback.sh" review "$prompt" >"$output" 2>&1
+  )
+
+  assert_contains "$codex_args" "review"
+  assert_contains "$codex_args" "--base"
+  assert_contains "$codex_args" "main"
+  if grep -Fxq "master" "$codex_args"; then
+    printf 'Expected current default branch main to remain the review base\n' >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$codex_args" >&2
+    exit 1
+  fi
+}
+
 test_safe_fallback_streams_text_output() {
   local custom_bin="$tmp_dir/custom-stream-bin"
   local codex_script="$custom_bin/codex"
@@ -2088,7 +2124,9 @@ EOF
   fi
 
   assert_contains "$output" "running without interactive stdin"
-  assert_contains "$output" "Resolve plan decisions before implementation or use --force explicitly."
+  assert_contains "$output" "Resolve plan decisions before implementation or approve the plan explicitly."
+  assert_contains "$output" "./scripts/code-implement --plan $plan_path --approve --non-interactive"
+  assert_not_contains "$output" "./scripts/code-implement --plan $plan_path --force"
   assert_not_contains "$output" "Do you approve this plan for execution?"
   assert_not_contains "$output" "Execution cancelled."
 }
@@ -2810,6 +2848,7 @@ run_test test_impl_direct_mode_uses_codex_exec
 run_test test_impl_uses_acpx_first_when_available
 run_test test_review_uses_codex_review_first
 run_test test_review_fallback_uses_current_default_branch_when_alone
+run_test test_review_fallback_prefers_current_default_branch
 run_test test_safe_fallback_streams_text_output
 run_test test_acp_agent_alias_forwarded
 run_test test_acpx_cmd_override_is_used

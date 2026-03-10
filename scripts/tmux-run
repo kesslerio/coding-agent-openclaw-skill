@@ -303,6 +303,11 @@ if [[ "$WAIT" == "1" ]]; then
     emit_tmux_run_event "failed" "session=$SESSION exit_code=$rc elapsed_s=${elapsed_total}"
   fi
 
+  pane_output=""
+  if [[ "$OUTPUT_MODE" != "json" ]]; then
+    pane_output="$(tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S "-${CAPTURE_LINES}" 2>/dev/null || true)"
+  fi
+
   if [[ "$CLEANUP" == "1" ]]; then
     tmux -S "$SOCKET" kill-session -t "$SESSION" || true
   fi
@@ -332,7 +337,9 @@ if [[ "$WAIT" == "1" ]]; then
     exit "$rc"
   fi
 
-  tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S "-${CAPTURE_LINES}" 2>/dev/null || true
+  if [[ -n "$pane_output" ]]; then
+    printf '%s\n' "$pane_output"
+  fi
   exit "$rc"
 fi
 
