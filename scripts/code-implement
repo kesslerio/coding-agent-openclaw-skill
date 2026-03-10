@@ -466,6 +466,46 @@ PROMPT_EOF
   printf '%s\n' "$PROMPT"
 }
 
+cleanup_prompt_artifacts() {
+  local prompt_file="$1"
+  local prompt_dir="$2"
+
+  if [[ -n "$prompt_file" ]]; then
+    rm -f "$prompt_file" 2>/dev/null || true
+  fi
+  if [[ -n "$prompt_dir" ]]; then
+    rmdir "$prompt_dir" 2>/dev/null || rm -rf "$prompt_dir" 2>/dev/null || true
+  fi
+}
+
+stage_execution_prompt() {
+  local execution_prompt="$1"
+  local prompt_dir=""
+  local prompt_file=""
+
+  if ! prompt_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-implement-prompt.XXXXXX")"; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PROMPT_STAGE_FAILED" \
+      "Failed to create a temporary prompt directory." \
+      "$(jq -n --arg repo_path "$EXEC_REPO" '{repo_path: $repo_path}')" \
+      "null" \
+      "Inspect temporary directory permissions and retry."
+    exit 1
+  fi
+
+  prompt_file="$prompt_dir/prompt.txt"
+  if ! printf '%s' "$execution_prompt" > "$prompt_file"; then
+    cleanup_prompt_artifacts "$prompt_file" "$prompt_dir"
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PROMPT_STAGE_FAILED" \
+      "Failed to write the staged execution prompt." \
+      "$(jq -n --arg repo_path "$EXEC_REPO" '{repo_path: $repo_path}')" \
+      "null" \
+      "Inspect temporary directory permissions and retry."
+    exit 1
+  fi
+
+  printf '%s\n%s\n' "$prompt_file" "$prompt_dir"
+}
+
 emit_dry_run_success() {
   local dry_run_data normalized_json
   dry_run_data="$(jq -n \
@@ -516,6 +556,8 @@ launch_json_transport() {
   local execution_prompt="$1"
   local tmux_run
   local tmux_output
+  local prompt_file=""
+  local prompt_dir=""
   local tmux_error_code=""
   local tmux_error_message=""
   local tmux_error_context='{}'
@@ -525,12 +567,16 @@ launch_json_transport() {
 
   require_execution_dependencies
   tmux_run="$(resolve_tmux_run_helper)"
+  IFS=$'\n' read -r prompt_file prompt_dir < <(stage_execution_prompt "$execution_prompt")
 
   if ! tmux_output="$(
     cd "$EXEC_REPO"
     CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-      "$tmux_run" --output json timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$execution_prompt"
+      "$tmux_run" --output json timeout "${TIMEOUT_SEC}s" \
+        bash -lc 'prompt_file="$1"; prompt_dir="$2"; codex exec --full-auto - < "$prompt_file"; rc=$?; rm -f "$prompt_file"; rmdir "$prompt_dir" 2>/dev/null || true; exit $rc' \
+        _ "$prompt_file" "$prompt_dir"
   )"; then
+    cleanup_prompt_artifacts "$prompt_file" "$prompt_dir"
     if printf '%s' "$tmux_output" | jq -e '.ok == false and .error.code' >/dev/null 2>&1; then
       tmux_error_code="$(printf '%s' "$tmux_output" | jq -r '.error.code')"
       tmux_error_message="$(printf '%s' "$tmux_output" | jq -r '.error.message')"
@@ -558,6 +604,7 @@ launch_json_transport() {
   fi
 
   if ! printf '%s' "$tmux_output" | jq -e '.ok == true and (.data.session | type == "string")' >/dev/null 2>&1; then
+    cleanup_prompt_artifacts "$prompt_file" "$prompt_dir"
     emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "TMUX_SESSION_START_FAILED" \
       "tmux-run returned an unexpected response shape." \
       "$(jq -n --arg repo_path "$EXEC_REPO" '{repo_path: $repo_path}')" \
@@ -586,6 +633,8 @@ launch_json_transport() {
 launch_with_run_events() {
   local execution_prompt="$1"
   local tmux_run
+  local prompt_file=""
+  local prompt_dir=""
   local tmp_stream_dir=""
   local tmp_stream=""
   local tmp_status=""
@@ -599,6 +648,7 @@ launch_with_run_events() {
 
   require_execution_dependencies
   tmux_run="$(resolve_tmux_run_helper)"
+  IFS=$'\n' read -r prompt_file prompt_dir < <(stage_execution_prompt "$execution_prompt")
 
   echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
   echo "Execution repository: $EXEC_REPO" >&2
@@ -644,6 +694,9 @@ launch_with_run_events() {
       wait "$producer_pid" 2>/dev/null
       set -e
     fi
+    if [[ "$start_emitted" != "1" ]]; then
+      cleanup_prompt_artifacts "$prompt_file" "$prompt_dir"
+    fi
     cleanup_tmp_files
     trap - EXIT INT TERM
     echo "code-implement interrupted by ${sig}" >&2
@@ -662,7 +715,9 @@ launch_with_run_events() {
       cd "$EXEC_REPO"
       CODEX_TMUX_EVENT_TOKEN="$event_token" \
       CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
-        "$tmux_run" --wait timeout "${TIMEOUT_SEC}s" codex exec --full-auto "$execution_prompt"
+        "$tmux_run" --wait timeout "${TIMEOUT_SEC}s" \
+          bash -lc 'prompt_file="$1"; prompt_dir="$2"; codex exec --full-auto - < "$prompt_file"; rc=$?; rm -f "$prompt_file"; rmdir "$prompt_dir" 2>/dev/null || true; exit $rc' \
+          _ "$prompt_file" "$prompt_dir"
     ) >"$tmp_stream" 2>&1
     rc=$?
     printf '%s\n' "$rc" > "$tmp_status"
@@ -725,6 +780,7 @@ launch_with_run_events() {
   if [[ -f "$tmp_status" ]]; then
     tmux_rc="$(cat "$tmp_status" 2>/dev/null || echo 1)"
   fi
+  cleanup_prompt_artifacts "$prompt_file" "$prompt_dir"
 
   if [[ "$start_emitted" != "1" ]]; then
     emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"

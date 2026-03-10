@@ -400,6 +400,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "${SMOKE_TMUX_RUN_ARGS_FILE:-}" ]]; then
+  {
+    printf -- '---CALL---\n'
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+  } >>"$SMOKE_TMUX_RUN_ARGS_FILE"
+fi
+
 if [[ "$output_mode" == "json" ]]; then
   if [[ "${SMOKE_TMUX_RUN_JSON_STDERR:-0}" == "1" ]]; then
     echo "TMUX_RUN_EVENT start ts=2026-01-01T00:00:00+00:00${token_part} session=${session} log_path=${log_path} socket=/tmp/smoke.sock mode=non-blocking" >&2
@@ -2039,6 +2048,20 @@ create_plan() {
   create_approved_plan "$@"
 }
 
+build_large_multiline_plan_body() {
+  local plan_id="$1"
+  local body="# Plan: $plan_id"$'\n\n'"TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
+  local line=""
+  local i
+
+  for ((i=1; i<=220; i++)); do
+    printf -v line -- "\n- Step %03d: preserve 'single quotes', \"double quotes\", and markdown transport details for issue #72." "$i"
+    body+="$line"
+  done
+
+  printf '%s\n' "$body"
+}
+
 init_repo() {
   local repo="$1"
   mkdir -p "$repo"
@@ -2633,6 +2656,93 @@ EOF
   assert_not_contains "$output" "PLAN CONTENT"
 }
 
+test_code_implement_large_plan_uses_stdin_transport_json() {
+  local repo="$tmp_dir/repo-code-implement-large-plan-json"
+  local output="$tmp_dir/code-implement-large-plan.json"
+  local tmux_args="$tmp_dir/code-implement-large-plan-tmux-args.txt"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  local body=""
+  local plan_path=""
+
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+  body="$(build_large_multiline_plan_body "2026-03-10-000025-large-json")"
+  plan_path="$(create_approved_plan "$repo" "2026-03-10-000025-large-json" "APPROVED" "$body")"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-03-10-000025-large-json.json" \
+    "2026-03-10-000025-large-json" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+      SMOKE_TMUX_RUN_MODE=success \
+      SMOKE_TMUX_RUN_ARGS_FILE="$tmux_args" \
+      "$SCRIPT_DIR/code-implement" --plan "$plan_path" --output json > "$output"
+  )
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.state == "launched_not_verified"'
+  assert_not_contains "$output" "PLAN CONTENT"
+  assert_not_contains "$output" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
+  assert_contains "$tmux_args" "bash"
+  assert_contains "$tmux_args" "-lc"
+  assert_contains "$tmux_args" 'codex exec --full-auto - < "$prompt_file"'
+  assert_not_contains "$tmux_args" "PLAN CONTENT"
+  assert_not_contains "$tmux_args" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
+}
+
+test_code_implement_large_plan_uses_stdin_transport_run_events() {
+  local repo="$tmp_dir/repo-code-implement-large-plan-run-events"
+  local output="$tmp_dir/code-implement-large-plan-run-events.out"
+  local tmux_args="$tmp_dir/code-implement-large-plan-run-events-tmux-args.txt"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  local body=""
+  local plan_path=""
+
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+  body="$(build_large_multiline_plan_body "2026-03-10-000026-large-events")"
+  plan_path="$(create_approved_plan "$repo" "2026-03-10-000026-large-events" "APPROVED" "$body")"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-03-10-000026-large-events.json" \
+    "2026-03-10-000026-large-events" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      CODE_IMPLEMENT_TMUX_RUN="$fake_bin/tmux-run" \
+      SMOKE_TMUX_RUN_MODE=success \
+      SMOKE_TMUX_RUN_ARGS_FILE="$tmux_args" \
+      "$SCRIPT_DIR/code-implement" --plan "$plan_path" >"$output" 2>&1
+  )
+
+  assert_contains "$output" "RUN_EVENT start"
+  assert_contains "$output" "RUN_EVENT heartbeat"
+  assert_contains "$output" "RUN_EVENT done"
+  assert_not_contains "$output" "PLAN CONTENT"
+  assert_not_contains "$output" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
+  assert_contains "$tmux_args" "bash"
+  assert_contains "$tmux_args" "-lc"
+  assert_contains "$tmux_args" 'codex exec --full-auto - < "$prompt_file"'
+  assert_not_contains "$tmux_args" "PLAN CONTENT"
+  assert_not_contains "$tmux_args" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
+}
+
 test_code_implement_dry_run_skips_execution_dependencies() {
   local repo="$tmp_dir/repo-code-implement-dry-run-missing-deps"
   local jq_only_bin="$tmp_dir/jq-only-bin"
@@ -3122,6 +3232,8 @@ run_test test_safe_fallback_json_failure_redacts_backend_output
 run_test test_emit_error_text_mode_does_not_require_jq
 run_test test_safe_fallback_text_blocker_does_not_require_jq
 run_test test_code_implement_launches_with_unverified_state
+run_test test_code_implement_large_plan_uses_stdin_transport_json
+run_test test_code_implement_large_plan_uses_stdin_transport_run_events
 run_test test_code_implement_accepts_metadata_from_non_tty_apply_flow
 run_test test_code_implement_accepts_metadata_from_apply_mode
 run_test test_code_implement_emits_run_events_success
