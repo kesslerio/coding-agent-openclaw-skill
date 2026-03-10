@@ -567,7 +567,10 @@ launch_json_transport() {
 
   require_execution_dependencies
   tmux_run="$(resolve_tmux_run_helper)"
-  IFS=$'\n' read -r prompt_file prompt_dir < <(stage_execution_prompt "$execution_prompt")
+  {
+    IFS= read -r prompt_file
+    IFS= read -r prompt_dir
+  } < <(stage_execution_prompt "$execution_prompt")
 
   if ! tmux_output="$(
     cd "$EXEC_REPO"
@@ -648,7 +651,10 @@ launch_with_run_events() {
 
   require_execution_dependencies
   tmux_run="$(resolve_tmux_run_helper)"
-  IFS=$'\n' read -r prompt_file prompt_dir < <(stage_execution_prompt "$execution_prompt")
+  {
+    IFS= read -r prompt_file
+    IFS= read -r prompt_dir
+  } < <(stage_execution_prompt "$execution_prompt")
 
   echo "Starting implementation in tmux with ${TIMEOUT_SEC}s timeout..." >&2
   echo "Execution repository: $EXEC_REPO" >&2
