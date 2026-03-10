@@ -574,7 +574,8 @@ launch_json_transport() {
 
   if ! tmux_output="$(
     cd "$EXEC_REPO"
-    CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+    # shellcheck disable=SC2016
+    env CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
       "$tmux_run" --output json timeout "${TIMEOUT_SEC}s" \
         bash -lc 'prompt_file="$1"; prompt_dir="$2"; codex exec --full-auto - < "$prompt_file"; rc=$?; rm -f "$prompt_file"; rmdir "$prompt_dir" 2>/dev/null || true; exit $rc' \
         _ "$prompt_file" "$prompt_dir"
@@ -719,8 +720,9 @@ launch_with_run_events() {
     set +e
     (
       cd "$EXEC_REPO"
-      CODEX_TMUX_EVENT_TOKEN="$event_token" \
-      CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
+      # shellcheck disable=SC2016
+      env CODEX_TMUX_EVENT_TOKEN="$event_token" \
+        CODEX_TMUX_SESSION_PREFIX="${CODEX_TMUX_SESSION_PREFIX:-codex-impl}" \
         "$tmux_run" --wait timeout "${TIMEOUT_SEC}s" \
           bash -lc 'prompt_file="$1"; prompt_dir="$2"; codex exec --full-auto - < "$prompt_file"; rc=$?; rm -f "$prompt_file"; rmdir "$prompt_dir" 2>/dev/null || true; exit $rc' \
           _ "$prompt_file" "$prompt_dir"
