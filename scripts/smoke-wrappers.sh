@@ -828,6 +828,22 @@ test_safe_fallback_json_acpx_success_contract() {
   assert_not_contains "$output" "acpx ok"
 }
 
+test_safe_fallback_defaults_to_text_output() {
+  local output="$tmp_dir/safe-fallback-acpx.txt"
+  local acpx_args="$tmp_dir/acpx-text-args.txt"
+
+  PATH="$fake_bin:$PATH" \
+  SMOKE_ACPX_BEHAVIOR=success \
+  SMOKE_ACPX_ARGS_FILE="$acpx_args" \
+  "$SCRIPT_DIR/safe-fallback.sh" impl "text contract via acpx" >"$output"
+
+  assert_contains "$output" "acpx ok"
+  if jq -e . <"$output" >/dev/null 2>&1; then
+    printf 'Expected safe-fallback default output to remain text\n' >&2
+    exit 1
+  fi
+}
+
 test_review_uses_codex_review_first() {
   local prompt="Review this PR via codex review first."
   local acpx_args="$tmp_dir/acpx-review-no-call.txt"
@@ -2279,6 +2295,44 @@ test_code_implement_dry_run_json_happy_path() {
   assert_not_contains "$output" "SECRET-PLAN-BODY"
 }
 
+test_code_implement_dry_run_defaults_to_text_output() {
+  local repo="$tmp_dir/repo-code-implement-dry-run-text"
+  init_repo "$repo"
+  mkdir -p "$repo/.ai/plan-reviews"
+
+  local plan_path
+  plan_path="$(create_plan "$repo" "2026-02-19-000020c-dry-run-text" "APPROVED" $'# Plan: Dry run text\n\nSECRET-PLAN-BODY')"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000020c-dry-run-text.json" \
+    "2026-02-19-000020c-dry-run-text" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  local before="$tmp_dir/dry-run-text-before.md"
+  cp "$plan_path" "$before"
+  local output="$tmp_dir/code-implement-dry-run.txt"
+
+  (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run > "$output")
+
+  cmp -s "$before" "$plan_path" || {
+    echo "Expected dry-run text mode to leave plan unchanged" >&2
+    exit 1
+  }
+
+  assert_contains "$output" "Dry run complete. Validation passed."
+  assert_not_contains "$output" "SECRET-PLAN-BODY"
+  if jq -e . <"$output" >/dev/null 2>&1; then
+    printf 'Expected code-implement dry-run default output to remain text\n' >&2
+    exit 1
+  fi
+}
+
 test_code_implement_accepts_nested_plan_artifact() {
   local repo="$tmp_dir/repo-code-implement-nested-plan"
   local plan_id="2026-02-19-000020b-nested"
@@ -3014,6 +3068,7 @@ run_test test_invalid_acp_enable_rejected
 run_test test_impl_direct_mode_uses_codex_exec
 run_test test_impl_uses_acpx_first_when_available
 run_test test_safe_fallback_json_acpx_success_contract
+run_test test_safe_fallback_defaults_to_text_output
 run_test test_review_uses_codex_review_first
 run_test test_review_fallback_uses_current_default_branch_when_alone
 run_test test_review_fallback_uses_current_nonstandard_branch_when_alone
@@ -3055,6 +3110,7 @@ run_test test_code_implement_non_tty_pending_plan_fails_fast
 run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
 run_test test_code_implement_dry_run_json_happy_path
+run_test test_code_implement_dry_run_defaults_to_text_output
 run_test test_code_implement_dry_run_requires_execution_dependencies
 run_test test_code_implement_accepts_nested_plan_artifact
 run_test test_code_implement_rejects_invalid_plan_path

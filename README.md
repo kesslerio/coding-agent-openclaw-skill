@@ -73,6 +73,7 @@ CLI wrappers:
 # Execute an approved plan artifact
 # Requires latest plan-review metadata to be ready unless --force is used.
 # In non-TTY orchestration, this fails fast if plan status is not APPROVED.
+# Wrapper output remains text by default; pass --output json explicitly for machine-readable automation.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 
 # Supervise review/fix loop until P0/P1/P2 clear (optional PR open/update)
@@ -82,7 +83,7 @@ CLI wrappers:
   --test-cmd "npm test" \
   --open-pr --issue 50
 
-# Validate an approved plan without mutating or launching
+# Validate an approved plan without mutating or launching (machine-readable output stays opt-in)
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md --dry-run --output json
 ```
 
