@@ -128,7 +128,7 @@ Run CLI drift checks before changing command docs:
 "${CODING_AGENT_DIR:-./}/scripts/code-implement" --plan /path/to/repo/.ai/plans/<plan>.md
 ```
 
-### code-implement Phase 1 contract
+### code-implement execution contract
 
 - New flags:
   - `--output text|json`
@@ -142,7 +142,7 @@ Run CLI drift checks before changing command docs:
   - `--force` bypasses review readiness only. It does not imply approval.
   - `--non-interactive` forbids prompt paths. Pending plans must already be approved or use `--approve`.
 - Output behavior:
-  - Default output is unchanged in Phase 1. Use `--output json` to opt in.
+  - Default output remains text. Use `--output json` explicitly when machine-readable output is required.
   - JSON responses include `ok`, `command`, `run_id`, and `data` or `error`.
   - Error payloads include `error.code`, `error.message`, and `error.remediation`.
   - Non-blocking launches return `state: "launched_not_verified"` with session, socket, and log metadata.
