@@ -865,6 +865,61 @@ test_review_fallback_uses_current_default_branch_when_alone() {
   fi
 }
 
+test_safe_fallback_streams_text_output() {
+  local custom_bin="$tmp_dir/custom-stream-bin"
+  local codex_script="$custom_bin/codex"
+  local codex_args="$tmp_dir/codex-stream-args.txt"
+  local output="$tmp_dir/safe-fallback-stream.txt"
+  local pid=""
+
+  mkdir -p "$custom_bin"
+  cat >"$codex_script" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${SMOKE_CODEX_ARGS_FILE:?}"
+{
+  printf -- '---CALL---\n'
+  for arg in "$@"; do
+    printf '%s\n' "$arg"
+  done
+} >>"$SMOKE_CODEX_ARGS_FILE"
+printf 'RUN_EVENT start streaming\n'
+sleep 2
+printf 'RUN_EVENT done streaming\n'
+EOF
+  chmod +x "$codex_script"
+
+  (
+    PATH="$custom_bin:$fake_bin:$PATH" \
+      SMOKE_CODEX_ARGS_FILE="$codex_args" \
+      "$SCRIPT_DIR/safe-fallback.sh" review "stream check" >"$output" 2>&1
+  ) &
+  pid=$!
+
+  sleep 1
+  if ! grep -Fq "RUN_EVENT start streaming" "$output"; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    printf 'Expected safe-fallback text mode to stream early backend output\n' >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$output" >&2
+    exit 1
+  fi
+
+  if grep -Fq "RUN_EVENT done streaming" "$output"; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    printf 'Expected final backend output to remain pending during the stream check\n' >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$output" >&2
+    exit 1
+  fi
+
+  wait "$pid"
+  assert_contains "$output" "RUN_EVENT done streaming"
+  assert_contains "$codex_args" "review"
+}
+
 test_invalid_acp_enable_rejected() {
   local output="$tmp_dir/invalid-acp-enable.txt"
   if CODING_AGENT_ACP_ENABLE=2 "$SCRIPT_DIR/safe-fallback.sh" impl "prompt" >"$output" 2>&1; then
@@ -2133,6 +2188,46 @@ test_code_implement_dry_run_json_happy_path() {
   assert_not_contains "$output" "SECRET-PLAN-BODY"
 }
 
+test_code_implement_accepts_nested_plan_artifact() {
+  local repo="$tmp_dir/repo-code-implement-nested-plan"
+  local plan_id="2026-02-19-000020b-nested"
+  local plan_dir="$repo/.ai/plans/team"
+  local plan_path="$plan_dir/${plan_id}.md"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  local output="$tmp_dir/code-implement-nested-plan.json"
+
+  init_repo "$repo"
+  mkdir -p "$plan_dir" "$repo/.ai/plan-reviews"
+
+  cat > "$plan_path" <<EOF
+---
+id: $plan_id
+status: APPROVED
+repo_path: $repo
+approved_by:
+approved_at:
+---
+
+# Plan: Nested
+EOF
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-${plan_id}.json" \
+    "$plan_id" \
+    "$plan_path" \
+    "live" \
+    "true" \
+    "[]" \
+    "[]" \
+    "$review_path"
+
+  (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output")
+
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" ".data.repo_path == \"$repo\""
+  assert_json_expr "$output" ".data.plan_path == \"$plan_path\""
+}
+
 test_code_implement_rejects_invalid_plan_path() {
   local repo="$tmp_dir/repo-code-implement-invalid-path"
   init_repo "$repo"
@@ -2715,6 +2810,7 @@ run_test test_impl_direct_mode_uses_codex_exec
 run_test test_impl_uses_acpx_first_when_available
 run_test test_review_uses_codex_review_first
 run_test test_review_fallback_uses_current_default_branch_when_alone
+run_test test_safe_fallback_streams_text_output
 run_test test_acp_agent_alias_forwarded
 run_test test_acpx_cmd_override_is_used
 run_test test_acp_disable_skips_acpx
@@ -2751,6 +2847,7 @@ run_test test_code_implement_non_tty_pending_plan_fails_fast
 run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
 run_test test_code_implement_dry_run_json_happy_path
+run_test test_code_implement_accepts_nested_plan_artifact
 run_test test_code_implement_rejects_invalid_plan_path
 run_test test_code_implement_rejects_malformed_metadata
 run_test test_code_implement_requires_approved_non_interactive

@@ -204,23 +204,31 @@ run_backend() {
   shift
   local output=""
   local backend_response='null'
+  local output_file=""
+
+  if [[ "$OUTPUT_MODE" != "json" ]]; then
+    output_file="$(mktemp)"
+    if "$@" > >(tee "$output_file") 2>&1; then
+      rm -f "$output_file"
+      return 0
+    fi
+
+    output="$(cat "$output_file" 2>/dev/null || true)"
+    rm -f "$output_file"
+    record_failure "$backend: ${output:-command failed}"
+    return 1
+  fi
 
   if ! output="$("$@" 2>&1)"; then
     record_failure "$backend: ${output:-command failed}"
     return 1
   fi
 
-  if [[ "$OUTPUT_MODE" == "json" ]]; then
-    if printf '%s' "$output" | jq -e '.ok' >/dev/null 2>&1; then
-      backend_response="$(printf '%s' "$output" | jq -c '.')"
-    fi
-    emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
-      "$(json_success_payload "$backend" "completed" "$backend_response")"
-  else
-    if [[ -n "$output" ]]; then
-      printf '%s\n' "$output"
-    fi
+  if printf '%s' "$output" | jq -e '.ok' >/dev/null 2>&1; then
+    backend_response="$(printf '%s' "$output" | jq -c '.')"
   fi
+  emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
+    "$(json_success_payload "$backend" "completed" "$backend_response")"
   return 0
 }
 

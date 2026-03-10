@@ -287,6 +287,7 @@ atomic_update_plan_approval() {
 
 resolve_plan_path() {
   local repo_from_frontmatter=""
+  local derived_repo=""
   if [[ ! -f "$PLAN_PATH" ]]; then
     emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
       "Plan file not found: $PLAN_PATH" \
@@ -307,7 +308,17 @@ resolve_plan_path() {
     exit 1
   fi
 
-  EXEC_REPO="$(cd "$(dirname "$PLAN_PATH")/../.." && pwd)"
+  derived_repo="${PLAN_PATH%/.ai/plans/*}"
+  if [[ -z "$derived_repo" || ! -d "$derived_repo" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
+      "Unable to resolve repository root from plan path: $PLAN_PATH" \
+      "{}" \
+      "null" \
+      "Use a plan file stored under <repo>/.ai/plans/."
+    exit 1
+  fi
+
+  EXEC_REPO="$(cd "$derived_repo" && pwd)"
   if ! git -C "$EXEC_REPO" rev-parse --git-dir >/dev/null 2>&1; then
     emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "PLAN_PATH_INVALID" \
       "Resolved plan repository is not a git repository: $EXEC_REPO" \
