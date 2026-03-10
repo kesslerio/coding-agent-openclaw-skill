@@ -19,11 +19,17 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
+      - name: Python wrapper policy tests
+        run: python3 -m unittest tests/python/test_wrapper_policy.py
+
       - name: Bash syntax check
         run: |
           set -euo pipefail
           while IFS= read -r script; do
             [[ -f "$script" ]] || continue
+            if ! head -n 1 "$script" | grep -Eq '^#!/usr/bin/env (bash|sh)$|^#!/bin/(bash|sh)$'; then
+              continue
+            fi
             bash -n "$script"
           done < <(git ls-files scripts)
 
@@ -32,6 +38,9 @@ jobs:
           set -euo pipefail
           while IFS= read -r script; do
             [[ -f "$script" ]] || continue
+            if ! head -n 1 "$script" | grep -Eq '^#!/usr/bin/env (bash|sh)$|^#!/bin/(bash|sh)$'; then
+              continue
+            fi
             shellcheck "$script"
           done < <(git ls-files scripts)
 

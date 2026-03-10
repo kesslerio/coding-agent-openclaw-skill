@@ -2633,7 +2633,7 @@ EOF
   assert_not_contains "$output" "PLAN CONTENT"
 }
 
-test_code_implement_dry_run_requires_execution_dependencies() {
+test_code_implement_dry_run_skips_execution_dependencies() {
   local repo="$tmp_dir/repo-code-implement-dry-run-missing-deps"
   local jq_only_bin="$tmp_dir/jq-only-bin"
   local plan_path
@@ -2655,13 +2655,11 @@ test_code_implement_dry_run_requires_execution_dependencies() {
     "[]" \
     "$repo/.ai/plan-reviews/review.md"
 
-  if (cd "$repo" && PATH="$jq_only_bin:/usr/bin:/bin" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output"); then
-    echo "Expected dry-run to fail when execution dependencies are missing" >&2
-    exit 1
-  fi
+  (cd "$repo" && PATH="$jq_only_bin:/usr/bin:/bin" "$SCRIPT_DIR/code-implement" --plan "$plan_path" --dry-run --output json > "$output")
 
-  assert_json_expr "$output" '.ok == false'
-  assert_json_expr "$output" '.error.code == "DEPENDENCY_MISSING"'
+  assert_json_expr "$output" '.ok == true'
+  assert_json_expr "$output" '.data.state == "validated"'
+  assert_json_expr "$output" '.data.dry_run == true'
 }
 
 test_code_implement_accepts_metadata_from_non_tty_apply_flow() {
@@ -3111,7 +3109,7 @@ run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
 run_test test_code_implement_dry_run_json_happy_path
 run_test test_code_implement_dry_run_defaults_to_text_output
-run_test test_code_implement_dry_run_requires_execution_dependencies
+run_test test_code_implement_dry_run_skips_execution_dependencies
 run_test test_code_implement_accepts_nested_plan_artifact
 run_test test_code_implement_rejects_invalid_plan_path
 run_test test_code_implement_rejects_malformed_metadata

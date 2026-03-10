@@ -88,6 +88,9 @@ if [[ "$CODING_AGENT_ACP_ENABLE" != "0" && "$CODING_AGENT_ACP_ENABLE" != "1" ]];
   exit 1
 fi
 
+require_cmd_or_die "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "python3" \
+  "Install python3 before running safe-fallback.sh."
+
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
@@ -98,6 +101,56 @@ error() { echo -e "${RED}❌ $1${NC}" >&2; }
 warn() { echo -e "${YELLOW}⚠️  $1${NC}" >&2; }
 ok() { echo -e "${GREEN}✅ $1${NC}" >&2; }
 info() { echo -e "${CYAN}ℹ️  $1${NC}" >&2; }
+
+resolve_wrapper_policy_cmd() {
+  local policy_cmd="${WRAPPER_POLICY_CMD:-$SCRIPT_DIR/wrapper-policy}"
+  if [[ ! -x "$policy_cmd" ]]; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "DEPENDENCY_MISSING" \
+      "wrapper-policy helper is missing or not executable: $policy_cmd" \
+      "{}" \
+      "null" \
+      "Restore scripts/wrapper-policy and retry."
+    exit 1
+  fi
+  printf '%s\n' "$policy_cmd"
+}
+
+run_wrapper_policy() {
+  local policy_cmd="$1"
+  shift
+  local output=""
+
+  if ! output="$("$policy_cmd" "$@")"; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "WRAPPER_POLICY_FAILED" \
+      "wrapper-policy command failed." \
+      "{}" \
+      "null" \
+      "Inspect the Python wrapper policy command and retry."
+    exit 1
+  fi
+  printf '%s\n' "$output"
+}
+
+emit_policy_error_from_json() {
+  local payload_json="$1"
+  local code message context_json data_json
+  local remediation_items=()
+
+  code="$(printf '%s' "$payload_json" | jq -r '.error.code')"
+  message="$(printf '%s' "$payload_json" | jq -r '.error.message')"
+  context_json="$(printf '%s' "$payload_json" | jq -c '.error.context // {}')"
+  data_json="$(printf '%s' "$payload_json" | jq -c '.data // null')"
+  while IFS= read -r remediation_item; do
+    remediation_items+=("$remediation_item")
+  done < <(printf '%s' "$payload_json" | jq -r '.error.remediation // [] | .[]')
+  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "$code" \
+    "$message" \
+    "$context_json" \
+    "$data_json" \
+    "${remediation_items[@]}"
+}
+
+WRAPPER_POLICY_BIN="$(resolve_wrapper_policy_cmd)"
 
 resolve_impl_mode() {
   if [[ -n "${CODING_AGENT_IMPL_MODE:-}" ]]; then
@@ -118,74 +171,32 @@ resolve_impl_mode() {
 }
 
 detect_base_branch() {
-  local base_branch=""
-  local current_branch=""
-  local candidate=""
-
-  if ! git rev-parse --git-dir >/dev/null 2>&1; then
-    printf 'main\n'
-    return 0
-  fi
-
-  current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-  base_branch="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-  if [[ -n "$base_branch" && "$base_branch" != "$current_branch" ]]; then
-    printf '%s\n' "$base_branch"
-    return 0
-  fi
-
-  for candidate in main master trunk; do
-    if git show-ref --verify --quiet "refs/heads/${candidate}" || \
-       git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
-      if [[ "$candidate" == "$current_branch" ]]; then
-        printf '%s\n' "$current_branch"
-        return 0
-      fi
-    fi
-  done
-
-  for candidate in main master trunk; do
-    if [[ "$candidate" == "$current_branch" ]]; then
-      continue
-    fi
-    if git show-ref --verify --quiet "refs/heads/${candidate}" || \
-       git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  candidate="$({
-    git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin 2>/dev/null || true
-  } | sed 's@^origin/@@' | grep -v '^HEAD$' | grep -v '^$' | grep -vx -- "$current_branch" | head -n 1)"
-  if [[ -n "$candidate" ]]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-
-  if [[ -n "$current_branch" && "$current_branch" != "HEAD" ]]; then
-    printf '%s\n' "$current_branch"
-    return 0
-  fi
-
-  printf 'main\n'
+  local policy_cmd="$1"
+  run_wrapper_policy "$policy_cmd" review-base --cwd "$PWD" --format raw
 }
 
-json_success_payload() {
-  local backend="$1"
-  local state="$2"
-  local backend_response_json="${3:-null}"
-  jq -n \
+normalize_success_payload() {
+  local policy_cmd="$1"
+  local backend="$2"
+  local state="$3"
+  local backend_response_json="${4:-null}"
+  local payload_json normalized_json
+
+  payload_json="$(jq -n \
+    --arg kind "safe-fallback-success" \
     --arg mode "$MODE" \
     --arg backend "$backend" \
     --arg state "$state" \
     --argjson backend_response "$backend_response_json" \
     '{
+      kind: $kind,
       mode: $mode,
       backend: $backend,
       state: $state,
       backend_response: $backend_response
-    }'
+    }')"
+  normalized_json="$(printf '%s' "$payload_json" | "$policy_cmd" normalize-result)"
+  printf '%s\n' "$normalized_json"
 }
 
 record_failure() {
@@ -193,21 +204,33 @@ record_failure() {
 }
 
 emit_blocker() {
-  local context_json
-  local data_json='null'
-  local failures_json='null'
+  local policy_cmd blocker_payload_json blocker_json failures_json context_json
   context_json="$(printf '{"mode":"%s"}' "$MODE")"
-  if command -v jq >/dev/null 2>&1; then
-    failures_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s .)"
-    data_json="$(jq -n --argjson failures "$failures_json" '{failures: $failures}')"
+  if [[ "$OUTPUT_MODE" != "json" ]] || ! command -v jq >/dev/null 2>&1; then
+    emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "ALL_BACKENDS_UNAVAILABLE" \
+      "All execution backends failed for mode '$MODE'." \
+      "$context_json" \
+      "null" \
+      "Wait for tool availability or install the required CLI tools." \
+      "Inspect the recorded failures and retry with a healthier backend."
+    exit 1
   fi
 
-  emit_error "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" "ALL_BACKENDS_UNAVAILABLE" \
-    "All execution backends failed for mode '$MODE'." \
-    "$context_json" \
-    "$data_json" \
-    "Wait for tool availability or install the required CLI tools." \
-    "Inspect the recorded failures and retry with a healthier backend."
+  policy_cmd="$(resolve_wrapper_policy_cmd)"
+  failures_json="$(printf '%s\n' "${FAILURES[@]}" | jq -R . | jq -s .)"
+  blocker_payload_json="$(jq -n \
+    --arg kind "safe-fallback-blocker" \
+    --arg mode "$MODE" \
+    --arg cause_class "unknown_backend_failure" \
+    --argjson failures "$failures_json" \
+    '{
+      kind: $kind,
+      mode: $mode,
+      cause_class: $cause_class,
+      failures: $failures
+    }')"
+  blocker_json="$(printf '%s' "$blocker_payload_json" | "$policy_cmd" normalize-result)"
+  emit_policy_error_from_json "$blocker_json"
   exit 1
 }
 
@@ -217,6 +240,7 @@ run_backend() {
   local output=""
   local backend_response='null'
   local backend_state="completed"
+  local normalized_json=""
   local output_file=""
   local stdout_file=""
   local stderr_file=""
@@ -249,8 +273,9 @@ run_backend() {
     backend_response="$(printf '%s' "$output" | jq -c '.')"
     backend_state="$(printf '%s' "$output" | jq -r '.data.state // "completed"')"
   fi
+  normalized_json="$(normalize_success_payload "$WRAPPER_POLICY_BIN" "$backend" "$backend_state" "$backend_response")"
   emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
-    "$(json_success_payload "$backend" "$backend_state" "$backend_response")"
+    "$(printf '%s' "$normalized_json" | jq -c '.data')"
   return 0
 }
 
@@ -327,8 +352,10 @@ try_acpx() {
   acpx_log="$(mktemp)"
   if ACPX_RUN_TIMEOUT="$TIMEOUT" acpx_run_canonical "$acpx_bin" "$PWD" quiet "$CODING_AGENT_ACP_AGENT" -s "$acpx_session" "$acpx_prompt" >"$acpx_log" 2>&1; then
     if [[ "$OUTPUT_MODE" == "json" ]]; then
+      local normalized_json=""
+      normalized_json="$(normalize_success_payload "$WRAPPER_POLICY_BIN" "acpx" "completed" "null")"
       emit_success "$OUTPUT_MODE" "$COMMAND_NAME" "$RUN_ID" \
-        "$(json_success_payload "acpx" "completed")"
+        "$(printf '%s' "$normalized_json" | jq -c '.data')"
     else
       cat "$acpx_log"
     fi
@@ -372,7 +399,7 @@ try_codex_cli_direct() {
 
   if [[ "$MODE" == "review" ]]; then
     local base_branch=""
-    base_branch="$(detect_base_branch)"
+    base_branch="$(detect_base_branch "$WRAPPER_POLICY_BIN")"
     run_backend "codex_review" timeout "${TIMEOUT}s" codex review --base "$base_branch" --title "${PROMPT:0:100}" "$PROMPT"
     return $?
   fi
