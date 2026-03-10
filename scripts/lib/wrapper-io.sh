@@ -72,11 +72,10 @@ emit_error() {
   local remediation=("$@")
   local remediation_json="[]"
 
-  if ((${#remediation[@]} > 0)); then
-    remediation_json="$(printf '%s\n' "${remediation[@]}" | jq -R . | jq -s .)"
-  fi
-
   if [[ "$output_mode" == "json" ]] && command -v jq >/dev/null 2>&1; then
+    if ((${#remediation[@]} > 0)); then
+      remediation_json="$(printf '%s\n' "${remediation[@]}" | jq -R . | jq -s .)"
+    fi
     jq -n \
       --arg command "$command_name" \
       --arg run_id "$run_id" \

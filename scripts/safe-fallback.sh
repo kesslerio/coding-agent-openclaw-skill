@@ -121,6 +121,7 @@ detect_base_branch() {
   local base_branch=""
   local current_branch=""
   local candidate=""
+  local current_is_default=0
 
   if ! git rev-parse --git-dir >/dev/null 2>&1; then
     printf 'main\n'
@@ -135,11 +136,12 @@ detect_base_branch() {
   fi
 
   for candidate in main master trunk; do
-    if [[ "$candidate" == "$current_branch" ]]; then
-      continue
-    fi
     if git show-ref --verify --quiet "refs/heads/${candidate}" || \
        git show-ref --verify --quiet "refs/remotes/origin/${candidate}"; then
+      if [[ "$candidate" == "$current_branch" ]]; then
+        current_is_default=1
+        continue
+      fi
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -150,6 +152,11 @@ detect_base_branch() {
   } | sed 's@^origin/@@' | grep -v '^HEAD$' | grep -v '^$' | grep -vx -- "$current_branch" | head -n 1)"
   if [[ -n "$candidate" ]]; then
     printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if [[ "$current_is_default" == "1" ]]; then
+    printf '%s\n' "$current_branch"
     return 0
   fi
 

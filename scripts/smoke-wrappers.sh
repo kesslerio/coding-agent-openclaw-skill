@@ -830,6 +830,41 @@ test_review_uses_codex_review_first() {
   fi
 }
 
+test_review_fallback_uses_current_default_branch_when_alone() {
+  local repo="$tmp_dir/repo-single-branch-master"
+  local prompt="Review fallback should keep the only default branch."
+  local codex_args="$tmp_dir/codex-review-single-branch-args.txt"
+  local output="$tmp_dir/review-single-branch.txt"
+
+  mkdir -p "$repo"
+  git init -q -b master "$repo"
+  (
+    cd "$repo"
+    git config user.name "Smoke Test"
+    git config user.email "smoke@example.test"
+    echo "single branch" > README.md
+    git add README.md
+    git commit -q -m "init"
+  )
+
+  (
+    cd "$repo"
+    PATH="$fake_bin:$PATH" \
+      SMOKE_CODEX_ARGS_FILE="$codex_args" \
+      "$SCRIPT_DIR/safe-fallback.sh" review "$prompt" >"$output" 2>&1
+  )
+
+  assert_contains "$codex_args" "review"
+  assert_contains "$codex_args" "--base"
+  assert_contains "$codex_args" "master"
+  if grep -Fxq "main" "$codex_args"; then
+    printf 'Expected single-branch fallback to avoid a nonexistent main base\n' >&2
+    printf '%s\n' '--- file content ---' >&2
+    cat "$codex_args" >&2
+    exit 1
+  fi
+}
+
 test_invalid_acp_enable_rejected() {
   local output="$tmp_dir/invalid-acp-enable.txt"
   if CODING_AGENT_ACP_ENABLE=2 "$SCRIPT_DIR/safe-fallback.sh" impl "prompt" >"$output" 2>&1; then
@@ -2225,6 +2260,20 @@ test_safe_fallback_json_contract() {
   assert_not_contains "$output" "prompt without secret body"
 }
 
+test_emit_error_text_mode_does_not_require_jq() {
+  local output="$tmp_dir/wrapper-io-no-jq.txt"
+
+  PATH="/usr/bin:/bin" bash -lc '
+    set -euo pipefail
+    source "$1"
+    emit_error text wrapper-test run-123 DEPENDENCY_MISSING "Required command not found: jq" "{}" "null" "Install jq and retry."
+  ' _ "$SCRIPT_DIR/lib/wrapper-io.sh" >"$output" 2>&1
+
+  assert_contains "$output" "Error [DEPENDENCY_MISSING]: Required command not found: jq"
+  assert_contains "$output" "Install jq and retry."
+  assert_not_contains "$output" "jq: command not found"
+}
+
 test_code_implement_launches_with_unverified_state() {
   local repo="$tmp_dir/repo-code-implement-launch"
   init_repo "$repo"
@@ -2665,6 +2714,7 @@ run_test test_invalid_acp_enable_rejected
 run_test test_impl_direct_mode_uses_codex_exec
 run_test test_impl_uses_acpx_first_when_available
 run_test test_review_uses_codex_review_first
+run_test test_review_fallback_uses_current_default_branch_when_alone
 run_test test_acp_agent_alias_forwarded
 run_test test_acpx_cmd_override_is_used
 run_test test_acp_disable_skips_acpx
@@ -2706,6 +2756,7 @@ run_test test_code_implement_rejects_malformed_metadata
 run_test test_code_implement_requires_approved_non_interactive
 run_test test_code_implement_approve_updates_plan_and_launches
 run_test test_safe_fallback_json_contract
+run_test test_emit_error_text_mode_does_not_require_jq
 run_test test_code_implement_launches_with_unverified_state
 run_test test_code_implement_accepts_metadata_from_non_tty_apply_flow
 run_test test_code_implement_accepts_metadata_from_apply_mode
