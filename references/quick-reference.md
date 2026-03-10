@@ -83,6 +83,16 @@ Known limitation:
 - Upstream issue #43 can affect ACP spawned-run observability and `profile=chrome` relay expectations.
 - See `references/acp-troubleshooting.md` for bounded checks and fallback commands.
 
+Validated wrapper note:
+- Issue #58 confirmed that the wrapper-hardened path in Telegram topic `4112`
+  on `2026-03-03` to `2026-03-04` was observable from the parent topic via
+  `RUN_EVENT` telemetry alone.
+- Success criterion for this path: the parent topic shows the `RUN_EVENT`
+  lifecycle (`start`, `heartbeat`, terminal `interrupted`/`failed`/`done` as
+  applicable) plus the emitted artifact or log path when provided.
+- Keep issue #43 warnings scoped to upstream ACP/runtime behavior and
+  legacy/direct visibility paths; do not treat this as a global runtime fix.
+
 Canonical local repo policy:
 - Use `/home/art/projects/skills/shared/coding-agent` as the only local clone for this repo.
 - Wrappers fail fast on non-canonical clones unless `CODING_AGENT_ALLOW_NONCANONICAL=1` is explicitly set.

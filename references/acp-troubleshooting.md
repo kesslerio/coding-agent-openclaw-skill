@@ -11,6 +11,36 @@ runtime fix for:
 - cross-session ACP run completion visibility, and
 - browser relay alias mapping for `profile=chrome`.
 
+## Validated Wrapper Path (Issue #58)
+
+The wrapper-hardened path was validated in Telegram topic `4112` on
+`2026-03-03` to `2026-03-04` and did not reproduce the historical parent-side
+observability failure from issue #43.
+
+Validated parent-visible pattern:
+- `RUN_EVENT start`
+- repeated `RUN_EVENT heartbeat`
+- `RUN_EVENT interrupted`
+- `RUN_EVENT failed`
+- restarted `RUN_EVENT start`
+- terminal `RUN_EVENT done`
+
+Negative findings in the validated sample:
+- no `Session history visibility is restricted`
+- no `Profile "chrome" not found`
+- no `No session found`
+
+Interpretation:
+- for the wrapper-hardened path, parent-topic `RUN_EVENT` telemetry now provides
+  sufficient observability without parent reads of hidden ACP child-session
+  history
+- no gateway-level change is needed for this validated wrapper path
+- this does not claim a global ACP runtime fix; keep issue #43 cautions for
+  legacy or direct ACP visibility paths
+
+Evidence source:
+- Issue #58 validation note: https://github.com/kesslerio/coding-agent-openclaw-skill/issues/58#issuecomment-4033980599
+
 ## Symptom Signatures
 
 ### 1) Spawn accepted, but run output not observable
