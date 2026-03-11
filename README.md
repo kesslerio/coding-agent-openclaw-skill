@@ -73,11 +73,13 @@ CLI wrappers:
 # Execute an approved plan artifact
 # Requires latest plan-review metadata to be ready unless --force is used.
 # In non-TTY orchestration, this fails fast if plan status is not APPROVED.
+# If the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first.
 # Wrapper output remains text by default; pass --output json explicitly for machine-readable automation.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 
 # Supervise review/fix loop until P0/P1/P2 clear (optional PR open/update)
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main
+# --open-pr expects a committed, clean feature branch before the review loop starts.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main \
   --test-cmd "npm run lint" \
   --test-cmd "npm test" \

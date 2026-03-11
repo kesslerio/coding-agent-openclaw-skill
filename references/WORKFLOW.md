@@ -245,8 +245,10 @@ For non-trivial work, generate a plan artifact before implementation:
 # Optional strict resume behavior:
 ./scripts/plan-review-live --resume-token <token> --resume-missing-state error --output /path/to/repo/.ai/plan-reviews/<same-file>.md
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
+# If the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first.
 # Supervise review/fix loop until P0-P2 clear; optional PR open/update.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main
+# --open-pr expects a committed, clean feature branch before the review loop starts.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main --test-cmd "npm test" --open-pr --issue 50
 ```
 
@@ -255,6 +257,8 @@ uses the in-repo Lobster workflow by default and falls back to the legacy live-r
 Lobster is unavailable. In non-TTY orchestration, `code-implement --plan` fails fast when plan
 status is not `APPROVED` instead of blocking on interactive confirmation. Use `plan-review-live` to
 resolve blocking decisions before execution, or `--force` to bypass explicitly.
+If the next step is `review-loop-supervisor --open-pr`, commit the generated implementation changes
+before handing off so the review loop starts from a clean, deterministic branch state.
 `review-loop-supervisor` uses a strict parse contract (`SUPERVISOR_COUNTS`/`SUPERVISOR_TOP`) and
 persists machine-readable state to `.ai/review-loops/latest.json` plus per-run history JSON files.
 

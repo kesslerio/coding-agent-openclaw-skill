@@ -172,10 +172,12 @@ claude --resume
 
 # Execute approved plan (non-TTY runs fail fast if still PENDING)
 # Requires latest plan-review metadata to be ready unless --force is used.
+# If the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 
 # Supervise review/fix loop until P0-P2 blockers clear
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main
+# --open-pr expects a committed, clean feature branch before the review loop starts.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main \
   --test-cmd "npm run lint" --test-cmd "npm test" --open-pr --issue 50
 ```
