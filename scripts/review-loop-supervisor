@@ -108,6 +108,10 @@ ensure_tooling() {
     echo "Error: missing required tools: ${missing[*]}" >&2
     exit 1
   fi
+  if [[ ! -x "$SAFE_REVIEW_BIN" ]]; then
+    echo "Error: review wrapper is missing or not executable: $SAFE_REVIEW_BIN" >&2
+    exit 1
+  fi
 }
 
 match_last_line() {
@@ -156,7 +160,8 @@ write_state() {
   local state="$1"
   local reason="$2"
 
-  local now_iso elapsed dirty pr_url_json
+  local now_iso elapsed dirty pr_url_json last_review_exit_code_json
+  local last_review_command_json last_review_artifact_json
   now_iso="$(date -Iseconds)"
   elapsed=$(( $(date +%s) - START_TS ))
   dirty="false"
@@ -168,6 +173,24 @@ write_state() {
     pr_url_json="$(json_escape "$PR_URL")"
   else
     pr_url_json="null"
+  fi
+
+  if [[ -n "$LAST_REVIEW_EXIT_CODE" ]]; then
+    last_review_exit_code_json="$LAST_REVIEW_EXIT_CODE"
+  else
+    last_review_exit_code_json="null"
+  fi
+
+  if [[ -n "$LAST_REVIEW_COMMAND" ]]; then
+    last_review_command_json="$(json_escape "$LAST_REVIEW_COMMAND")"
+  else
+    last_review_command_json="null"
+  fi
+
+  if [[ -n "$LAST_REVIEW_ARTIFACT" ]]; then
+    last_review_artifact_json="$(json_escape "$LAST_REVIEW_ARTIFACT")"
+  else
+    last_review_artifact_json="null"
   fi
 
   cat > "$STATE_HISTORY_FILE" <<EOFSTATE
@@ -203,6 +226,9 @@ write_state() {
   "pr_url": ${pr_url_json},
   "worktree_dirty": ${dirty},
   "last_review_output": $(json_escape "$LAST_REVIEW_OUTPUT"),
+  "last_review_exit_code": ${last_review_exit_code_json},
+  "last_review_command": ${last_review_command_json},
+  "last_review_artifact": ${last_review_artifact_json},
   "last_fix_output": $(json_escape "$LAST_FIX_OUTPUT"),
   "updated_at": "${now_iso}"
 }
@@ -336,6 +362,97 @@ run_tests() {
   emit_supervisor_event "tests_completed" "{\"phase\":$(json_escape "$phase"),\"count\":${#TEST_COMMANDS[@]}}"
 }
 
+build_review_title() {
+  printf 'PR Review\n'
+}
+
+build_review_command_summary() {
+  local title="$1"
+  printf 'TIMEOUT=%s %s codex review --base %s --title %s [prompt omitted]\n' \
+    "$REVIEW_TIMEOUT" \
+    "$SAFE_REVIEW_BIN" \
+    "$BASE_BRANCH" \
+    "$title"
+}
+
+persist_terminal_review_artifact() {
+  local attempt="$1"
+  local artifact_path
+
+  artifact_path="$(state_dir_path)/${RUN_TS}-${HEAD_BRANCH//\//-}-review-iter-${ITERATION}-attempt-${attempt}.txt"
+  cp "$LAST_REVIEW_OUTPUT" "$artifact_path"
+  LAST_REVIEW_ARTIFACT="$artifact_path"
+}
+
+build_review_failure_payload() {
+  local attempt="$1"
+  local reason="$2"
+  local output_json artifact_json exit_code_json command_json
+
+  output_json="$(json_escape "$LAST_REVIEW_OUTPUT")"
+  if [[ -n "$LAST_REVIEW_ARTIFACT" ]]; then
+    artifact_json="$(json_escape "$LAST_REVIEW_ARTIFACT")"
+  else
+    artifact_json="null"
+  fi
+  if [[ -n "$LAST_REVIEW_EXIT_CODE" ]]; then
+    exit_code_json="$LAST_REVIEW_EXIT_CODE"
+  else
+    exit_code_json="null"
+  fi
+  if [[ -n "$LAST_REVIEW_COMMAND" ]]; then
+    command_json="$(json_escape "$LAST_REVIEW_COMMAND")"
+  else
+    command_json="null"
+  fi
+
+  printf '{"iteration":%s,"attempt":%s,"reason":%s,"output":%s,"artifact":%s,"exit_code":%s,"command":%s}' \
+    "$ITERATION" \
+    "$attempt" \
+    "$(json_escape "$reason")" \
+    "$output_json" \
+    "$artifact_json" \
+    "$exit_code_json" \
+    "$command_json"
+}
+
+run_review_attempt() {
+  local attempt="$1"
+  local prompt="$2"
+  local start_reason="${3:-}"
+  local title review_rc
+  local start_payload
+
+  title="$(build_review_title)"
+  LAST_REVIEW_OUTPUT="$RUN_TMP_DIR/review-iter-${ITERATION}-attempt-${attempt}.txt"
+  LAST_REVIEW_EXIT_CODE=""
+  LAST_REVIEW_ARTIFACT=""
+  LAST_REVIEW_COMMAND="$(build_review_command_summary "$title")"
+
+  start_payload="{\"iteration\":${ITERATION},\"attempt\":${attempt}"
+  if [[ -n "$start_reason" ]]; then
+    start_payload+=",\"reason\":$(json_escape "$start_reason")"
+  fi
+  start_payload+="}"
+  emit_supervisor_event "review_started" "$start_payload"
+  if (
+    cd "$REPO_PATH"
+    TIMEOUT="$REVIEW_TIMEOUT" "$SAFE_REVIEW_BIN" codex review --base "$BASE_BRANCH" --title "$title" "$prompt"
+  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
+    LAST_REVIEW_EXIT_CODE="0"
+    return 0
+  else
+    review_rc=$?
+  fi
+
+  LAST_REVIEW_EXIT_CODE="$review_rc"
+  persist_terminal_review_artifact "$attempt"
+  emit_supervisor_event "review_failed" "$(build_review_failure_payload "$attempt" "review_command_nonzero")"
+  write_state "failed" "review_command_failed"
+  emit_run_event "failed" "phase=review-loop-supervisor reason=review_command_failed iteration=${ITERATION}"
+  exit 1
+}
+
 run_review_with_parse_retry() {
   local review_prompt correction_prompt
 
@@ -345,17 +462,7 @@ run_review_with_parse_retry() {
     review_prompt+="Context issue: #$ISSUE_NUMBER"
   fi
 
-  LAST_REVIEW_OUTPUT="$RUN_TMP_DIR/review-iter-${ITERATION}-attempt-1.txt"
-  emit_supervisor_event "review_started" "{\"iteration\":${ITERATION},\"attempt\":1}"
-  if ! (
-    cd "$REPO_PATH"
-    timeout "${REVIEW_TIMEOUT}s" codex review --base "$BASE_BRANCH" "$review_prompt"
-  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
-    emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":1,\"reason\":\"codex_review_nonzero\"}"
-    write_state "failed" "review_command_failed"
-    emit_run_event "failed" "phase=review-loop-supervisor reason=review_command_failed iteration=${ITERATION}"
-    exit 1
-  fi
+  run_review_attempt 1 "$review_prompt"
 
   if parse_review_footer "$LAST_REVIEW_OUTPUT"; then
     emit_supervisor_event "review_completed" "{\"iteration\":${ITERATION},\"attempt\":1,\"parse\":\"ok\"}"
@@ -365,24 +472,15 @@ run_review_with_parse_retry() {
   correction_prompt="$review_prompt"$'\n\n'
   correction_prompt+="Your prior response was missing strict SUPERVISOR_* footer lines. Re-run review and output valid machine footer exactly."
 
-  LAST_REVIEW_OUTPUT="$RUN_TMP_DIR/review-iter-${ITERATION}-attempt-2.txt"
-  emit_supervisor_event "review_started" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"parse_retry\"}"
-  if ! (
-    cd "$REPO_PATH"
-    timeout "${REVIEW_TIMEOUT}s" codex review --base "$BASE_BRANCH" "$correction_prompt"
-  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
-    emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"codex_review_nonzero\"}"
-    write_state "failed" "review_command_failed"
-    emit_run_event "failed" "phase=review-loop-supervisor reason=review_command_failed iteration=${ITERATION}"
-    exit 1
-  fi
+  run_review_attempt 2 "$correction_prompt" "parse_retry"
 
   if parse_review_footer "$LAST_REVIEW_OUTPUT"; then
     emit_supervisor_event "review_completed" "{\"iteration\":${ITERATION},\"attempt\":2,\"parse\":\"ok\"}"
     return 0
   fi
 
-  emit_supervisor_event "review_failed" "{\"iteration\":${ITERATION},\"attempt\":2,\"reason\":\"parse_failed\",\"output\":$(json_escape "$LAST_REVIEW_OUTPUT") }"
+  persist_terminal_review_artifact 2
+  emit_supervisor_event "review_failed" "$(build_review_failure_payload 2 "parse_failed")"
   write_state "failed" "parse_failed"
   emit_run_event "failed" "phase=review-loop-supervisor reason=parse_failed iteration=${ITERATION}"
   exit 1
@@ -623,6 +721,7 @@ PR_TITLE=""
 PR_BODY=""
 PR_BODY_FILE=""
 TEST_COMMANDS=()
+SAFE_REVIEW_BIN="${REVIEW_LOOP_SAFE_REVIEW_BIN:-$SCRIPT_DIR/safe-review.sh}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -768,6 +867,9 @@ TOP_P3_LOCATION="none"
 TOP_P3_ISSUE="none"
 TOP_P3_PATCH="none"
 LAST_REVIEW_OUTPUT=""
+LAST_REVIEW_EXIT_CODE=""
+LAST_REVIEW_COMMAND=""
+LAST_REVIEW_ARTIFACT=""
 LAST_FIX_OUTPUT=""
 PR_URL=""
 ITERATION=0
@@ -780,7 +882,9 @@ emit_supervisor_event "start" "{\"repo\":$(json_escape "$REPO_PATH"),\"base\":$(
 write_state "running" "started"
 
 if (( OPEN_PR == 1 )) && [[ -n "$(repo_status_filtered)" ]]; then
-  echo "Error: --open-pr requires a clean working tree at start to avoid committing unrelated changes." >&2
+  echo "Error: --open-pr requires a clean working tree at start." >&2
+  echo "Implementation changes must already be committed before starting review-loop-supervisor --open-pr." >&2
+  echo "Commit the generated changes on the feature branch, then rerun review-loop-supervisor." >&2
   write_state "failed" "open_pr_requires_clean_tree"
   emit_run_event "failed" "phase=review-loop-supervisor reason=open_pr_requires_clean_tree"
   exit 1

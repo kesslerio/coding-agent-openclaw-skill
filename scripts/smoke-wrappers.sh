@@ -172,6 +172,10 @@ OUT
         echo "Still malformed footer."
         exit 0
         ;;
+      review-nonzero)
+        echo "Wrapped review failed intentionally." >&2
+        exit 7
+        ;;
       state-change)
         if (( review_count == 1 )); then
           cat <<'OUT'
@@ -294,6 +298,23 @@ Reply with one:
 - `REVISE: tweak`
 PLAN
 exit 0
+EOF
+
+cat >"$fake_bin/safe-review.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${SMOKE_SAFE_REVIEW_ARGS_FILE:-}" ]]; then
+  {
+    printf -- '---CALL---\n'
+    printf 'TIMEOUT=%s\n' "${TIMEOUT:-}"
+    for arg in "$@"; do
+      printf '%s\n' "$arg"
+    done
+  } >>"$SMOKE_SAFE_REVIEW_ARGS_FILE"
+fi
+
+exec "$@"
 EOF
 
 cat >"$fake_bin/claude" <<'EOF'
@@ -595,7 +616,7 @@ echo "unsupported command" >&2
 exit 2
 EOF
 
-chmod +x "$fake_bin/timeout" "$fake_bin/gh" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx" "$fake_bin/tmux" "$fake_bin/tmux-run" "$fake_bin/lobster"
+chmod +x "$fake_bin/timeout" "$fake_bin/gh" "$fake_bin/codex" "$fake_bin/claude" "$fake_bin/acpx" "$fake_bin/tmux" "$fake_bin/tmux-run" "$fake_bin/lobster" "$fake_bin/safe-review.sh"
 
 assert_contains() {
   local file="$1"
@@ -2734,6 +2755,7 @@ test_code_implement_large_plan_uses_stdin_transport_run_events() {
   assert_contains "$output" "RUN_EVENT start"
   assert_contains "$output" "RUN_EVENT heartbeat"
   assert_contains "$output" "RUN_EVENT done"
+  assert_contains "$output" "Reminder: if the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first."
   assert_not_contains "$output" "PLAN CONTENT"
   assert_not_contains "$output" "TRANSPORT-SENTINEL-RAW-PLAN-LINE-777"
   assert_contains "$tmux_args" "bash"
@@ -2954,20 +2976,30 @@ test_review_loop_supervisor_converges() {
   local repo="$tmp_dir/repo-review-loop-converge"
   local output="$tmp_dir/review-loop-converge.out"
   local codex_args="$tmp_dir/review-loop-converge-codex-args.txt"
+  local safe_review_args="$tmp_dir/review-loop-converge-safe-review-args.txt"
   local state_file="$tmp_dir/review-loop-converge-state.txt"
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
 
   PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_SAFE_REVIEW_ARGS_FILE="$safe_review_args" \
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
 
   assert_contains "$output" "\"type\":\"ready\""
   assert_contains "$output" "\"type\":\"done\""
+  assert_contains "$safe_review_args" "TIMEOUT=900"
+  assert_contains "$safe_review_args" "codex"
+  assert_contains "$safe_review_args" "review"
+  assert_contains "$safe_review_args" "--base"
+  assert_contains "$safe_review_args" "main"
+  assert_contains "$safe_review_args" "--title"
+  assert_contains "$safe_review_args" "PR Review"
   local latest_state="$repo/.ai/review-loops/latest.json"
   [[ -f "$latest_state" ]] || { echo "Expected review-loop latest state file" >&2; exit 1; }
   assert_contains "$latest_state" "\"state\": \"done\""
@@ -2978,42 +3010,50 @@ test_review_loop_supervisor_parse_retry_success() {
   local repo="$tmp_dir/repo-review-loop-parse-retry-success"
   local output="$tmp_dir/review-loop-parse-retry-success.out"
   local codex_args="$tmp_dir/review-loop-parse-retry-success-codex-args.txt"
+  local safe_review_args="$tmp_dir/review-loop-parse-retry-success-safe-review-args.txt"
   local state_file="$tmp_dir/review-loop-parse-retry-success-state.txt"
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
 
   PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=parse-retry-success \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_SAFE_REVIEW_ARGS_FILE="$safe_review_args" \
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1
 
   assert_contains "$output" "\"attempt\":2"
   assert_contains "$output" "\"parse\":\"ok\""
+  assert_contains "$safe_review_args" "TIMEOUT=900"
 }
 
 test_review_loop_supervisor_parse_retry_fails_closed() {
   local repo="$tmp_dir/repo-review-loop-parse-retry-fail"
   local output="$tmp_dir/review-loop-parse-retry-fail.out"
   local codex_args="$tmp_dir/review-loop-parse-retry-fail-codex-args.txt"
+  local safe_review_args="$tmp_dir/review-loop-parse-retry-fail-safe-review-args.txt"
   local state_file="$tmp_dir/review-loop-parse-retry-fail-state.txt"
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
 
   if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=parse-retry-fail \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_SAFE_REVIEW_ARGS_FILE="$safe_review_args" \
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1; then
     echo "Expected parse retry failure to fail closed" >&2
     exit 1
   fi
 
   assert_contains "$output" "reason=parse_failed"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"last_review_artifact\":"
 }
 
 test_review_loop_supervisor_emits_state_change_event() {
@@ -3026,6 +3066,7 @@ test_review_loop_supervisor_emits_state_change_event() {
   create_supervisor_repo "$repo"
 
   PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=state-change \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
@@ -3046,6 +3087,7 @@ test_review_loop_supervisor_detects_stuck_loop() {
   create_supervisor_repo "$repo"
 
   if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=stuck \
     SMOKE_REVIEW_LOOP_FIX_BEHAVIOR=no-change \
@@ -3070,6 +3112,7 @@ test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree() {
   echo "preexisting-dirty-change" >> "$repo/README.md"
 
   if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=stuck \
     SMOKE_REVIEW_LOOP_FIX_BEHAVIOR=no-change \
@@ -3097,6 +3140,7 @@ test_review_loop_supervisor_without_open_pr_does_not_require_gh() {
   ln -sf "$fake_bin/timeout" "$no_gh_bin/timeout"
 
   PATH="$no_gh_bin:/usr/bin:/bin:/run/current-system/sw/bin" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
@@ -3122,6 +3166,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
 
   PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
@@ -3147,6 +3192,7 @@ test_review_loop_supervisor_open_pr_requires_clean_tree() {
   echo "dirty" >> "$repo/README.md"
 
   if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
@@ -3156,7 +3202,51 @@ test_review_loop_supervisor_open_pr_requires_clean_tree() {
   fi
 
   assert_contains "$output" "requires a clean working tree at start"
+  assert_contains "$output" "Implementation changes must already be committed before starting review-loop-supervisor --open-pr."
+  assert_contains "$output" "Commit the generated changes on the feature branch, then rerun review-loop-supervisor."
   assert_contains "$output" "open_pr_requires_clean_tree"
+}
+
+test_review_loop_supervisor_review_nonzero_persists_artifact() {
+  local repo="$tmp_dir/repo-review-loop-review-nonzero"
+  local output="$tmp_dir/review-loop-review-nonzero.out"
+  local codex_args="$tmp_dir/review-loop-review-nonzero-codex-args.txt"
+  local safe_review_args="$tmp_dir/review-loop-review-nonzero-safe-review-args.txt"
+  local state_file="$tmp_dir/review-loop-review-nonzero-state.txt"
+  local latest_state=""
+  local artifact_path=""
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=review-nonzero \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_SAFE_REVIEW_ARGS_FILE="$safe_review_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1; then
+    echo "Expected wrapped review nonzero failure" >&2
+    exit 1
+  fi
+
+  latest_state="$repo/.ai/review-loops/latest.json"
+  [[ -f "$latest_state" ]] || { echo "Expected review-loop latest state file" >&2; exit 1; }
+  assert_contains "$output" "reason=review_command_failed"
+  assert_contains "$safe_review_args" "TIMEOUT=900"
+  assert_contains "$safe_review_args" "codex"
+  assert_contains "$safe_review_args" "review"
+  assert_contains "$safe_review_args" "--base"
+  assert_contains "$safe_review_args" "main"
+  assert_contains "$safe_review_args" "--title"
+  assert_contains "$safe_review_args" "PR Review"
+  assert_contains "$latest_state" "\"last_review_exit_code\": 7"
+  assert_contains "$latest_state" "\"last_review_command\": \"TIMEOUT=900 $fake_bin/safe-review.sh codex review --base main --title PR Review [prompt omitted]\""
+  assert_contains "$latest_state" "\"last_review_artifact\": "
+  artifact_path="$(jq -r '.last_review_artifact' <"$latest_state")"
+  [[ -f "$artifact_path" ]] || { echo "Expected durable review artifact" >&2; exit 1; }
+  assert_contains "$artifact_path" "Wrapped review failed intentionally."
 }
 
 run_test() {
@@ -3244,6 +3334,7 @@ run_test test_code_implement_emits_interrupted_on_sigterm
 run_test test_review_loop_supervisor_converges
 run_test test_review_loop_supervisor_parse_retry_success
 run_test test_review_loop_supervisor_parse_retry_fails_closed
+run_test test_review_loop_supervisor_review_nonzero_persists_artifact
 run_test test_review_loop_supervisor_emits_state_change_event
 run_test test_review_loop_supervisor_detects_stuck_loop
 run_test test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree

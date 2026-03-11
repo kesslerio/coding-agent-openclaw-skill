@@ -506,6 +506,12 @@ stage_execution_prompt() {
   printf '%s\n%s\n' "$prompt_file" "$prompt_dir"
 }
 
+emit_review_loop_handoff_reminder() {
+  if [[ -n "$PLAN_PATH" ]]; then
+    echo "Reminder: if the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first." >&2
+  fi
+}
+
 emit_dry_run_success() {
   local dry_run_data normalized_json
   dry_run_data="$(jq -n \
@@ -793,6 +799,10 @@ launch_with_run_events() {
   if [[ "$start_emitted" != "1" ]]; then
     emit_run_event "start" "phase=code-implement run_id=${run_id:-unknown} log_path=${log_path:-unknown}"
     start_emitted=1
+  fi
+
+  if [[ "$tmux_rc" == "0" ]]; then
+    emit_review_loop_handoff_reminder
   fi
 
   emit_terminal_event_for_rc "$tmux_rc"
