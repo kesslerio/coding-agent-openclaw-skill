@@ -143,7 +143,15 @@ class PlanGateTests(unittest.TestCase):
         )
         return plan_path
 
-    def _write_metadata(self, repo: Path, plan_id: str, plan_path: Path, ready: bool = True, blocking: list[str] | None = None) -> None:
+    def _write_metadata(
+        self,
+        repo: Path,
+        plan_id: str,
+        plan_path: Path,
+        ready: bool = True,
+        blocking: list[str] | None = None,
+        mode: str = "live",
+    ) -> None:
         review_dir = repo / ".ai" / "plan-reviews"
         review_dir.mkdir(parents=True, exist_ok=True)
         review_path = review_dir / "review.md"
@@ -152,7 +160,7 @@ class PlanGateTests(unittest.TestCase):
             "schema_version": 1,
             "plan_id": plan_id,
             "plan_path": str(plan_path),
-            "mode": "live",
+            "mode": mode,
             "ready_for_implementation": ready,
             "created_at": "2026-03-10T00:00:00Z",
             "review_markdown_path": str(review_path),
@@ -222,10 +230,30 @@ class PlanGateTests(unittest.TestCase):
             self._init_repo(repo)
             plan_id = "blocked"
             plan_path = self._write_plan(repo, "", plan_id)
-            self._write_metadata(repo, plan_id, plan_path, blocking=["Run plan-review-live"])
+            self._write_metadata(repo, plan_id, plan_path, mode="live", blocking=["2B unresolved"])
             result = resolve_plan_gate({"plan_path": str(plan_path), "dry_run": True})
             self.assertFalse(result["ok"])
             self.assertEqual(result["error"]["code"], "REVIEW_GATE_BLOCKED")
+
+    def test_batch_review_requires_interactive_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self._init_repo(repo)
+            plan_id = "batch-blocked"
+            plan_path = self._write_plan(repo, "", plan_id)
+            self._write_metadata(
+                repo,
+                plan_id,
+                plan_path,
+                mode="batch",
+                ready=False,
+                blocking=[
+                    "Interactive resolution required: batch plan-review cannot finalize implementation readiness without explicit decision input."
+                ],
+            )
+            result = resolve_plan_gate({"plan_path": str(plan_path), "dry_run": True})
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"]["code"], "REVIEW_REQUIRES_INTERACTIVE_RESOLUTION")
 
     def test_ready_metadata_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

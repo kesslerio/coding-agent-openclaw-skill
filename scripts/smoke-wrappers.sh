@@ -1485,7 +1485,7 @@ EOF
   assert_contains "$codex_args" "Plan file: $repo/.ai/plans/2026-02-19-000002-new.md"
   assert_contains "$codex_args" "REVIEW MODE: batch"
   assert_contains "$latest_metadata" "\"ready_for_implementation\": false"
-  assert_contains "$latest_metadata" "\"blocking_decisions\": [\"Run ./scripts/plan-review-live to resolve interactive decisions\"]"
+  assert_contains "$latest_metadata" "\"blocking_decisions\": [\"Interactive resolution required: batch plan-review cannot finalize implementation readiness without explicit decision input.\"]"
 }
 
 test_plan_review_output_parent_dirs_created() {
@@ -2207,6 +2207,40 @@ test_code_implement_blocks_when_unresolved_blockers_exist() {
 
   assert_contains "$output" "Error [REVIEW_GATE_BLOCKED]"
   assert_contains "$output" "ready_for_implementation=false"
+}
+
+test_code_implement_blocks_when_batch_review_requires_interactive_resolution() {
+  local repo="$tmp_dir/repo-code-implement-batch-interactive"
+  mkdir -p "$repo/.ai/plan-reviews"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email smoke@example.com
+  git -C "$repo" config user.name smoke
+  echo "hi" > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "init"
+
+  local plan_path
+  plan_path="$(create_approved_plan "$repo" "2026-02-19-000012c-batch-interactive")"
+  local review_path="$repo/.ai/plan-reviews/review.md"
+  echo "review" > "$review_path"
+  write_metadata_file \
+    "$repo/.ai/plan-reviews/latest-2026-02-19-000012c-batch-interactive.json" \
+    "2026-02-19-000012c-batch-interactive" \
+    "$plan_path" \
+    "batch" \
+    "false" \
+    "[\"Interactive resolution required: batch plan-review cannot finalize implementation readiness without explicit decision input.\"]" \
+    "[]" \
+    "$review_path"
+
+  local output="$tmp_dir/code-implement-batch-interactive.out"
+  if (cd "$repo" && PATH="$fake_bin:$PATH" "$SCRIPT_DIR/code-implement" --plan "$plan_path" > "$output" 2>&1); then
+    echo "Expected code-implement to block when batch review requires interactive resolution" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "Error [REVIEW_REQUIRES_INTERACTIVE_RESOLUTION]"
+  assert_contains "$output" "Latest batch plan review cannot unlock implementation until interactive decisions are resolved."
 }
 
 test_code_implement_non_tty_pending_plan_fails_fast() {
@@ -3304,6 +3338,7 @@ run_test test_plan_review_live_rejects_mixed_resolution_inputs
 run_test test_code_implement_blocks_when_metadata_missing
 run_test test_code_implement_blocks_when_metadata_invalid
 run_test test_code_implement_blocks_when_unresolved_blockers_exist
+run_test test_code_implement_blocks_when_batch_review_requires_interactive_resolution
 run_test test_code_implement_non_tty_pending_plan_fails_fast
 run_test test_code_implement_allows_ready_metadata
 run_test test_code_implement_force_bypasses_review_gate
