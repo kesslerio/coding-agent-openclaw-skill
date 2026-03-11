@@ -632,7 +632,7 @@ EOF
       write_metadata "true"
     fi
   else
-    printf '%s\n' "Run ./scripts/plan-review-live to resolve interactive decisions" >> "$BLOCKING_FILE"
+    printf '%s\n' "Interactive resolution required: batch plan-review cannot finalize implementation readiness without explicit decision input." >> "$BLOCKING_FILE"
     write_metadata "false"
   fi
 elif [[ "$MODE" == "apply" ]]; then

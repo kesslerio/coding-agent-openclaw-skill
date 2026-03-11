@@ -234,7 +234,7 @@ Before marking ANY task complete:
 
 ### Activate
 Use `/coding` in OpenClaw to activate this skill.
-For plan-first flow, use `/plan <task>` (maps to `scripts/plan`), `/plan-review` (batch), and `/plan-review-live` (Lobster workflow by default with legacy fallback; pass `--decisions/--blocking` or `--resolve-file` in non-TTY chat flows).
+For plan-first flow, use `/plan <task>` (maps to `scripts/plan`), `/plan-review` (batch), and `/plan-review-live` (Lobster workflow by default with legacy fallback; pass `--decisions/--blocking` or `--resolve-file` in non-TTY chat flows). If batch review reports that interactive resolution is still required, stop there; do not treat batch review alone as implementation-ready.
 `review-loop-supervisor` is CLI-only and writes run state to `.ai/review-loops/latest.json`.
 
 ### Agent CLI Commands

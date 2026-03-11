@@ -116,7 +116,7 @@ These aliases are routing hints at the channel layer. Behavior is enforced by sk
 
 - `/coding` → compatibility entry skill (`SKILL.md`), routes plan-first + execution flow
 - `/plan <task>` → `skills/plan-issue/SKILL.md` (plan only, no writes)
-- `/plan-review [--plan <path>]` → batch plan review (single-pass full report, marks unresolved blocking decisions)
+- `/plan-review [--plan <path>]` → batch plan review (single-pass full report). In unattended flow it may still end in a blocked state when interactive decision resolution is required; treat that as a hard stop, not an implicit handoff to implementation.
 - `/plan-review-live [--plan <path>]` → Lobster workflow checkpoints by default (in-repo `workflows/plan-review-live.lobster`), legacy fallback if Lobster is unavailable; in non-TTY/chat use `--decisions/--blocking` or `--resolve-file` to finalize readiness metadata
 - `/review_pr <number|url>` → review workflow with standards checks via `references/reviews.md`
 
