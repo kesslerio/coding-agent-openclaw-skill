@@ -127,7 +127,17 @@ def _validate_review_metadata(
         )
 
     if metadata["ready_for_implementation"] is not True:
-        if metadata.get("mode") == "batch":
+        blocking_decisions = metadata.get("blocking_decisions", [])
+        interactive_blocker = (
+            metadata.get("mode") == "batch"
+            and any(
+                isinstance(item, str)
+                and item
+                == "Interactive resolution required: batch plan-review cannot finalize implementation readiness without explicit decision input."
+                for item in blocking_decisions
+            )
+        )
+        if interactive_blocker:
             return error(
                 "REVIEW_REQUIRES_INTERACTIVE_RESOLUTION",
                 "Latest batch plan review cannot unlock implementation until interactive decisions are resolved.",
@@ -137,7 +147,7 @@ def _validate_review_metadata(
                     "If unattended flow is required, stop here and ask for human approval/decision resolution instead of continuing to implementation.",
                     "Use --force only when you explicitly accept bypass risk.",
                 ],
-                data={"blocking_decisions": metadata.get("blocking_decisions", [])},
+                data={"blocking_decisions": blocking_decisions},
             )
         return error(
             "REVIEW_GATE_BLOCKED",
