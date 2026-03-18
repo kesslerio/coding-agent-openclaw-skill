@@ -25,6 +25,69 @@ NC='\033[0m' # No Color
 error() { echo -e "${RED}❌ $1${NC}" >&2; }
 warn() { echo -e "${YELLOW}⚠️  $1${NC}" >&2; }
 
+emit_run_event() {
+  local event="$1"
+  local details="${2:-}"
+  if [[ -n "$details" ]]; then
+    echo "RUN_EVENT $event ts=$(date -Iseconds) $details" >&2
+  else
+    echo "RUN_EVENT $event ts=$(date -Iseconds)" >&2
+  fi
+}
+
+HEARTBEAT_PID=""
+CHILD_PID=""
+TERMINAL_EVENT_EMITTED=0
+START_TS=""
+
+start_heartbeat() {
+  (
+    sleep 30 || exit 0
+    while true; do
+      local now elapsed
+      now="$(date +%s)"
+      elapsed=$(( now - START_TS ))
+      emit_run_event "heartbeat" "phase=safe-review cli=$CLI elapsed=${elapsed}s"
+      sleep 20 || exit 0
+    done
+  ) &
+  HEARTBEAT_PID=$!
+}
+
+stop_heartbeat() {
+  if [[ -n "$HEARTBEAT_PID" ]]; then
+    kill "$HEARTBEAT_PID" >/dev/null 2>&1 || true
+    wait "$HEARTBEAT_PID" 2>/dev/null || true
+    HEARTBEAT_PID=""
+  fi
+}
+
+emit_terminal_event_once() {
+  local event="$1"
+  local details="${2:-}"
+  if (( TERMINAL_EVENT_EMITTED == 0 )); then
+    emit_run_event "$event" "$details"
+    TERMINAL_EVENT_EMITTED=1
+  fi
+}
+
+# shellcheck disable=SC2329
+handle_signal() {
+  local signal="$1"
+  local exit_code="130"
+  if [[ "$signal" == "TERM" ]]; then
+    exit_code="143"
+  fi
+
+  stop_heartbeat
+  if [[ -n "$CHILD_PID" ]]; then
+    kill "$CHILD_PID" >/dev/null 2>&1 || true
+    wait "$CHILD_PID" 2>/dev/null || true
+  fi
+  emit_terminal_event_once "interrupted" "phase=safe-review cli=$CLI signal=$signal exit_code=$exit_code"
+  exit "$exit_code"
+}
+
 # Detect which CLI to use
 CLI="${1:-}"
 if [[ -z "$CLI" ]]; then
@@ -101,4 +164,33 @@ fi
 
 # Execute with timeout (use ${arr[@]+...} for older bash compatibility)
 warn "Running $CLI with ${TIMEOUT}s timeout (min: ${MIN_REVIEW_TIMEOUT}s)"
-exec timeout "${TIMEOUT}s" "$CLI_BIN" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@"
+START_TS="$(date +%s)"
+trap 'handle_signal INT' INT
+trap 'handle_signal TERM' TERM
+
+emit_run_event "start" "phase=safe-review cli=$CLI timeout=${TIMEOUT}s"
+start_heartbeat
+
+set +e
+timeout -k5s "${TIMEOUT}s" "$CLI_BIN" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@" &
+CHILD_PID=$!
+wait "$CHILD_PID"
+rc=$?
+set -e
+
+stop_heartbeat
+CHILD_PID=""
+
+case "$rc" in
+  0)
+    emit_terminal_event_once "done" "phase=safe-review cli=$CLI exit_code=0"
+    ;;
+  124|130|137|143)
+    emit_terminal_event_once "interrupted" "phase=safe-review cli=$CLI exit_code=$rc"
+    ;;
+  *)
+    emit_terminal_event_once "failed" "phase=safe-review cli=$CLI exit_code=$rc"
+    ;;
+esac
+
+exit "$rc"

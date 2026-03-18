@@ -18,6 +18,10 @@ Options:
   --repo <path>                     Repository path (default: current directory)
   --base <branch>                   Base branch for codex review (default: auto-detect)
   --test-cmd <command>              Test command to run (repeatable)
+  --closure-mode <local|github>     Completion rule (default: local)
+  --github-review-author <login>    Require a GitHub review from this login (repeatable)
+  --github-review-wait-seconds <s>  Max wait for GitHub-visible review closure (default: 180)
+  --github-review-poll-seconds <s>  Poll interval while waiting on GitHub review (default: 15)
   --review-timeout <seconds>        Timeout for codex review (default: 900, min: 600)
   --fix-timeout <seconds>           Timeout for codex fix exec (default: 900)
   --max-runtime-seconds <seconds>   Total runtime budget (default: 5400)
@@ -95,7 +99,7 @@ derive_base_branch() {
 ensure_tooling() {
   local missing=()
   local required=(codex timeout git python3)
-  if (( OPEN_PR == 1 )); then
+  if (( OPEN_PR == 1 )) || [[ "$CLOSURE_MODE" == "github" ]]; then
     required+=(gh)
   fi
   local bin
@@ -112,6 +116,19 @@ ensure_tooling() {
     echo "Error: review wrapper is missing or not executable: $SAFE_REVIEW_BIN" >&2
     exit 1
   fi
+}
+
+handle_supervisor_signal() {
+  local signal="$1"
+  local exit_code="130"
+  if [[ "$signal" == "TERM" ]]; then
+    exit_code="143"
+  fi
+
+  write_state "interrupted" "signal_${signal}"
+  emit_supervisor_event "terminal" "{\"state\":\"interrupted\",\"reason\":\"signal_${signal}\",\"iteration\":${ITERATION}}"
+  emit_run_event "interrupted" "phase=review-loop-supervisor state=${CURRENT_STATE} iteration=${ITERATION} signal=${signal} exit_code=${exit_code}"
+  exit "$exit_code"
 }
 
 match_last_line() {
@@ -152,6 +169,15 @@ state_dir_path() {
   printf '%s/.ai/review-loops\n' "$REPO_PATH"
 }
 
+refresh_head_state() {
+  HEAD_BRANCH="$(git -C "$REPO_PATH" branch --show-current)"
+  if [[ -z "$HEAD_BRANCH" ]]; then
+    echo "Error: unable to determine current branch in $REPO_PATH" >&2
+    exit 1
+  fi
+  HEAD_SHA="$(git -C "$REPO_PATH" rev-parse HEAD)"
+}
+
 repo_status_filtered() {
   git -C "$REPO_PATH" status --porcelain --untracked-files=all -- . ':(exclude).ai/review-loops/**'
 }
@@ -162,6 +188,7 @@ write_state() {
 
   local now_iso elapsed dirty pr_url_json last_review_exit_code_json
   local last_review_command_json last_review_artifact_json
+  local github_review_url_json github_review_author_json github_review_submitted_at_json
   now_iso="$(date -Iseconds)"
   elapsed=$(( $(date +%s) - START_TS ))
   dirty="false"
@@ -193,6 +220,24 @@ write_state() {
     last_review_artifact_json="null"
   fi
 
+  if [[ -n "$GITHUB_REVIEW_URL" ]]; then
+    github_review_url_json="$(json_escape "$GITHUB_REVIEW_URL")"
+  else
+    github_review_url_json="null"
+  fi
+
+  if [[ -n "$GITHUB_REVIEW_AUTHOR" ]]; then
+    github_review_author_json="$(json_escape "$GITHUB_REVIEW_AUTHOR")"
+  else
+    github_review_author_json="null"
+  fi
+
+  if [[ -n "$GITHUB_REVIEW_SUBMITTED_AT" ]]; then
+    github_review_submitted_at_json="$(json_escape "$GITHUB_REVIEW_SUBMITTED_AT")"
+  else
+    github_review_submitted_at_json="null"
+  fi
+
   cat > "$STATE_HISTORY_FILE" <<EOFSTATE
 {
   "schema_version": 1,
@@ -201,7 +246,9 @@ write_state() {
   "repo_path": "${REPO_PATH}",
   "base_branch": "${BASE_BRANCH}",
   "head_branch": "${HEAD_BRANCH}",
+  "head_sha": "${HEAD_SHA}",
   "open_pr": ${OPEN_PR},
+  "closure_mode": "${CLOSURE_MODE}",
   "issue": ${ISSUE_NUMBER_JSON},
   "current_iteration": ${ITERATION},
   "elapsed_seconds": ${elapsed},
@@ -230,6 +277,12 @@ write_state() {
   "last_review_command": ${last_review_command_json},
   "last_review_artifact": ${last_review_artifact_json},
   "last_fix_output": $(json_escape "$LAST_FIX_OUTPUT"),
+  "github_review": {
+    "status": "${GITHUB_REVIEW_STATUS}",
+    "url": ${github_review_url_json},
+    "author": ${github_review_author_json},
+    "submitted_at": ${github_review_submitted_at_json}
+  },
   "updated_at": "${now_iso}"
 }
 EOFSTATE
@@ -522,11 +575,7 @@ run_fix() {
 }
 
 ensure_mutation_preconditions() {
-  HEAD_BRANCH="$(git -C "$REPO_PATH" branch --show-current)"
-  if [[ -z "$HEAD_BRANCH" ]]; then
-    echo "Error: unable to determine current branch in $REPO_PATH" >&2
-    exit 1
-  fi
+  refresh_head_state
 
   case "$HEAD_BRANCH" in
     main|master)
@@ -618,6 +667,227 @@ repo_content_fingerprint() {
   )
 }
 
+repo_slug() {
+  git -C "$REPO_PATH" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+/[^/.]+)(\.git)?#\1#'
+}
+
+ensure_pr_context() {
+  local pr_json
+
+  pr_json="$(gh pr view --json number,url 2>/dev/null || true)"
+  if [[ -z "$pr_json" || "$pr_json" == "null" ]]; then
+    return 1
+  fi
+
+  PR_NUMBER="$(python3 - <<'PY' "$pr_json"
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+print(payload.get("number", ""))
+PY
+)"
+  if [[ -z "$PR_NUMBER" ]]; then
+    return 1
+  fi
+
+  if [[ -z "$PR_URL" ]]; then
+    PR_URL="$(python3 - <<'PY' "$pr_json"
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+print(payload.get("url", ""))
+PY
+)"
+  fi
+
+  return 0
+}
+
+fetch_github_review_payload() {
+  local slug owner repo_name
+
+  if ! ensure_pr_context; then
+    return 1
+  fi
+
+  slug="$(repo_slug)"
+  owner="${slug%%/*}"
+  repo_name="${slug#*/}"
+  # shellcheck disable=SC2016
+  gh api graphql \
+    -F owner="$owner" \
+    -F repo="$repo_name" \
+    -F pr="$PR_NUMBER" \
+    -f query='query($owner:String!, $repo:String!, $pr:Int!) {
+      repository(owner:$owner, name:$repo) {
+        pullRequest(number:$pr) {
+          number
+          url
+          headRefOid
+          reviews(last:100) {
+            nodes {
+              author { login }
+              state
+              submittedAt
+              url
+              commit { oid }
+            }
+          }
+        }
+      }
+    }'
+}
+
+summarize_github_review_payload() {
+  python3 - <<'PY' "$1" "$HEAD_SHA" "${GITHUB_REVIEW_AUTHORS[*]:-}"
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+head_sha = sys.argv[2]
+authors = [value for value in sys.argv[3].split() if value]
+
+pr = (((payload.get("data") or {}).get("repository") or {}).get("pullRequest") or {})
+if not pr:
+    print(json.dumps({"status": "missing_pr"}))
+    raise SystemExit(0)
+
+pr_head_sha = pr.get("headRefOid")
+reviews = ((pr.get("reviews") or {}).get("nodes") or [])
+candidates = []
+for review in reviews:
+    commit = (review.get("commit") or {}).get("oid")
+    author = ((review.get("author") or {}).get("login")) or ""
+    if commit != head_sha:
+        continue
+    if authors and author not in authors:
+        continue
+    candidates.append(review)
+
+latest = None
+if candidates:
+    latest = sorted(candidates, key=lambda review: review.get("submittedAt") or "")[-1]
+
+status = "pending_review"
+if pr_head_sha != head_sha:
+    status = "pending_head"
+elif latest:
+    status = "matched"
+
+print(json.dumps({
+    "status": status,
+    "pr_url": pr.get("url"),
+    "pr_head_sha": pr_head_sha,
+    "matched_review_url": (latest or {}).get("url"),
+    "matched_review_author": (((latest or {}).get("author") or {}).get("login")),
+    "matched_review_submitted_at": (latest or {}).get("submittedAt"),
+}))
+PY
+}
+
+wait_for_github_review_closure() {
+  local start_ts now elapsed review_payload="" review_summary="" summary_status="" pr_head_sha=""
+  local matched_review_url="" matched_review_author="" matched_review_submitted_at=""
+
+  if [[ "$CLOSURE_MODE" != "github" ]]; then
+    return 0
+  fi
+
+  if [[ -n "$(repo_status_filtered)" ]]; then
+    write_state "failed" "github_review_requires_clean_pushed_head"
+    emit_supervisor_event "terminal" "{\"state\":\"failed\",\"reason\":\"github_review_requires_clean_pushed_head\",\"iteration\":${ITERATION}}"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=github_review_requires_clean_pushed_head iteration=${ITERATION}"
+    exit 1
+  fi
+
+  emit_supervisor_event "github_review_started" "{\"iteration\":${ITERATION},\"head_sha\":$(json_escape "$HEAD_SHA"),\"poll_seconds\":${GITHUB_REVIEW_POLL_SECONDS},\"wait_seconds\":${GITHUB_REVIEW_WAIT_SECONDS}}"
+  GITHUB_REVIEW_STATUS="pending"
+  write_state "running" "github_review_wait_started"
+  start_ts="$(date +%s)"
+
+  while true; do
+    maybe_heartbeat "github_review"
+    review_payload="$(fetch_github_review_payload 2>/dev/null || true)"
+    if [[ -n "$review_payload" ]]; then
+      review_summary="$(summarize_github_review_payload "$review_payload")"
+      summary_status="$(python3 - <<'PY' "$review_summary"
+import json
+import sys
+print((json.loads(sys.argv[1]) or {}).get("status", "missing_pr"))
+PY
+)"
+      pr_head_sha="$(python3 - <<'PY' "$review_summary"
+import json
+import sys
+print((json.loads(sys.argv[1]) or {}).get("pr_head_sha") or "")
+PY
+)"
+      matched_review_url="$(python3 - <<'PY' "$review_summary"
+import json
+import sys
+print((json.loads(sys.argv[1]) or {}).get("matched_review_url") or "")
+PY
+)"
+      matched_review_author="$(python3 - <<'PY' "$review_summary"
+import json
+import sys
+print((json.loads(sys.argv[1]) or {}).get("matched_review_author") or "")
+PY
+)"
+      matched_review_submitted_at="$(python3 - <<'PY' "$review_summary"
+import json
+import sys
+print((json.loads(sys.argv[1]) or {}).get("matched_review_submitted_at") or "")
+PY
+)"
+
+      if [[ "$summary_status" == "matched" ]]; then
+        GITHUB_REVIEW_STATUS="cleared"
+        GITHUB_REVIEW_URL="$matched_review_url"
+        GITHUB_REVIEW_AUTHOR="$matched_review_author"
+        GITHUB_REVIEW_SUBMITTED_AT="$matched_review_submitted_at"
+        emit_supervisor_event "github_review_cleared" "{\"iteration\":${ITERATION},\"head_sha\":$(json_escape "$HEAD_SHA"),\"review_url\":$(json_escape "$GITHUB_REVIEW_URL"),\"author\":$(json_escape "$GITHUB_REVIEW_AUTHOR")}"
+        write_state "ready" "github_review_cleared"
+        return 0
+      fi
+
+      if [[ "$summary_status" == "missing_pr" ]]; then
+        GITHUB_REVIEW_STATUS="missing_pr"
+      elif [[ "$summary_status" == "pending_head" ]]; then
+        GITHUB_REVIEW_STATUS="pending_head"
+      else
+        GITHUB_REVIEW_STATUS="pending_review"
+      fi
+      write_state "running" "github_review_waiting"
+    else
+      GITHUB_REVIEW_STATUS="missing_pr"
+      write_state "running" "github_review_waiting"
+    fi
+
+    now="$(date +%s)"
+    elapsed=$(( now - start_ts ))
+    if (( elapsed >= GITHUB_REVIEW_WAIT_SECONDS )); then
+      emit_supervisor_event "terminal" "{\"state\":\"pending_github_review\",\"reason\":\"github_review_not_visible_for_head\",\"iteration\":${ITERATION},\"head_sha\":$(json_escape "$HEAD_SHA"),\"pr_head_sha\":$(json_escape "$pr_head_sha")}"
+      write_state "pending_github_review" "github_review_not_visible_for_head"
+      emit_run_event "failed" "phase=review-loop-supervisor reason=pending_github_review iteration=${ITERATION}"
+      exit 1
+    fi
+    sleep "$GITHUB_REVIEW_POLL_SECONDS"
+  done
+}
+
 open_or_update_pr() {
   ensure_mutation_preconditions
 
@@ -650,6 +920,8 @@ open_or_update_pr() {
       git -C "$REPO_PATH" commit -m "$commit_subject"
     fi
   fi
+
+  refresh_head_state
 
   if git -C "$REPO_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
     git -C "$REPO_PATH" push
@@ -709,6 +981,10 @@ PY
 
 REPO_PATH="$(pwd)"
 BASE_BRANCH=""
+CLOSURE_MODE="local"
+GITHUB_REVIEW_WAIT_SECONDS=180
+GITHUB_REVIEW_POLL_SECONDS=15
+GITHUB_REVIEW_AUTHORS=()
 REVIEW_TIMEOUT=900
 FIX_TIMEOUT=900
 MAX_RUNTIME_SECONDS=5400
@@ -735,6 +1011,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --test-cmd)
       TEST_COMMANDS+=("${2:-}")
+      shift 2
+      ;;
+    --closure-mode)
+      CLOSURE_MODE="${2:-}"
+      shift 2
+      ;;
+    --github-review-author)
+      GITHUB_REVIEW_AUTHORS+=("${2:-}")
+      shift 2
+      ;;
+    --github-review-wait-seconds)
+      GITHUB_REVIEW_WAIT_SECONDS="${2:-}"
+      shift 2
+      ;;
+    --github-review-poll-seconds)
+      GITHUB_REVIEW_POLL_SECONDS="${2:-}"
       shift 2
       ;;
     --review-timeout)
@@ -789,10 +1081,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$CLOSURE_MODE" != "local" && "$CLOSURE_MODE" != "github" ]]; then
+  echo "Error: --closure-mode must be 'local' or 'github'." >&2
+  exit 1
+fi
+
+ensure_number "github-review-wait-seconds" "$GITHUB_REVIEW_WAIT_SECONDS"
+ensure_number "github-review-poll-seconds" "$GITHUB_REVIEW_POLL_SECONDS"
 ensure_number "review-timeout" "$REVIEW_TIMEOUT"
 ensure_number "fix-timeout" "$FIX_TIMEOUT"
 ensure_number "max-runtime-seconds" "$MAX_RUNTIME_SECONDS"
 ensure_number "status-interval-seconds" "$STATUS_INTERVAL_SECONDS"
+
+if (( GITHUB_REVIEW_POLL_SECONDS == 0 )); then
+  echo "Error: --github-review-poll-seconds must be at least 1." >&2
+  exit 1
+fi
 
 if (( REVIEW_TIMEOUT < 600 )); then
   echo "Error: --review-timeout must be at least 600 seconds." >&2
@@ -829,11 +1133,7 @@ if ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 BASE_BRANCH="$(derive_base_branch)"
-HEAD_BRANCH="$(git -C "$REPO_PATH" branch --show-current)"
-if [[ -z "$HEAD_BRANCH" ]]; then
-  echo "Error: unable to determine current branch in $REPO_PATH" >&2
-  exit 1
-fi
+refresh_head_state
 
 mkdir -p "$(state_dir_path)"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
@@ -871,14 +1171,22 @@ LAST_REVIEW_EXIT_CODE=""
 LAST_REVIEW_COMMAND=""
 LAST_REVIEW_ARTIFACT=""
 LAST_FIX_OUTPUT=""
+GITHUB_REVIEW_STATUS="not_requested"
+GITHUB_REVIEW_URL=""
+GITHUB_REVIEW_AUTHOR=""
+GITHUB_REVIEW_SUBMITTED_AT=""
+PR_NUMBER=""
 PR_URL=""
 ITERATION=0
 CURRENT_STATE="preflight"
 START_TS="$(date +%s)"
 LAST_STATUS_TS="$START_TS"
 
-emit_run_event "start" "phase=review-loop-supervisor repo=$REPO_PATH base=$BASE_BRANCH branch=$HEAD_BRANCH"
-emit_supervisor_event "start" "{\"repo\":$(json_escape "$REPO_PATH"),\"base\":$(json_escape "$BASE_BRANCH"),\"branch\":$(json_escape "$HEAD_BRANCH"),\"open_pr\":${OPEN_PR}}"
+trap 'handle_supervisor_signal INT' INT
+trap 'handle_supervisor_signal TERM' TERM
+
+emit_run_event "start" "phase=review-loop-supervisor repo=$REPO_PATH base=$BASE_BRANCH branch=$HEAD_BRANCH closure_mode=$CLOSURE_MODE"
+emit_supervisor_event "start" "{\"repo\":$(json_escape "$REPO_PATH"),\"base\":$(json_escape "$BASE_BRANCH"),\"branch\":$(json_escape "$HEAD_BRANCH"),\"head_sha\":$(json_escape "$HEAD_SHA"),\"open_pr\":${OPEN_PR},\"closure_mode\":$(json_escape "$CLOSURE_MODE")}"
 write_state "running" "started"
 
 if (( OPEN_PR == 1 )) && [[ -n "$(repo_status_filtered)" ]]; then
@@ -922,6 +1230,12 @@ if (( OPEN_PR == 1 )); then
   CURRENT_STATE="open_pr"
   emit_supervisor_event "pr_started" "{\"branch\":$(json_escape "$HEAD_BRANCH") }"
   open_or_update_pr
+fi
+
+if [[ "$CLOSURE_MODE" == "github" ]]; then
+  CURRENT_STATE="github_review"
+  refresh_head_state
+  wait_for_github_review_closure
 fi
 
 write_state "done" "completed"
