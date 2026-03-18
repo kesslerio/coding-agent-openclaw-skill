@@ -674,6 +674,39 @@ gh_repo() {
   )
 }
 
+remote_repo_slug() {
+  local remote_name="$1"
+  python3 - <<'PY' "$(git -C "$REPO_PATH" remote get-url "$remote_name" 2>/dev/null || true)"
+from urllib.parse import urlparse
+import sys
+
+remote_url = sys.argv[1].strip()
+if not remote_url:
+    print("")
+    raise SystemExit(0)
+
+normalized = remote_url
+if normalized.endswith(".git"):
+    normalized = normalized[:-4]
+if normalized.startswith("git@github.com:"):
+    normalized = normalized.replace("git@github.com:", "https://github.com/", 1)
+if normalized.startswith("ssh://git@github.com/"):
+    normalized = normalized.replace("ssh://git@github.com/", "https://github.com/", 1)
+
+if "github.com/" in normalized:
+    path = normalized.split("github.com/", 1)[1]
+else:
+    path = urlparse(normalized).path.lstrip("/")
+
+parts = [part for part in path.split("/") if part]
+if len(parts) < 2:
+    print("")
+    raise SystemExit(0)
+
+print(f"{parts[0]}/{parts[1]}")
+PY
+}
+
 pr_repo_parts() {
   python3 - <<'PY' "$PR_URL" "$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null || true)"
 from urllib.parse import urlparse
@@ -713,12 +746,49 @@ print("")
 PY
 }
 
+candidate_repo_slugs() {
+  local repo_parts upstream_remote push_remote remote_name slug seen_slugs=""
+
+  add_slug() {
+    local value="$1"
+    if [[ -z "$value" || " $seen_slugs " == *" $value "* ]]; then
+      return
+    fi
+    seen_slugs="${seen_slugs}${seen_slugs:+ }$value"
+    printf '%s\n' "$value"
+  }
+
+  repo_parts="$(pr_repo_parts)"
+  slug="$(printf '%s\n' "$repo_parts" | paste -sd/ -)"
+  add_slug "$slug"
+
+  upstream_remote="$(git -C "$REPO_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | sed 's#/.*##' || true)"
+  push_remote="$(git -C "$REPO_PATH" config --get remote.pushDefault 2>/dev/null || true)"
+
+  for remote_name in "$upstream_remote" "$push_remote" upstream origin; do
+    [[ -n "$remote_name" ]] || continue
+    add_slug "$(remote_repo_slug "$remote_name")"
+  done
+
+  while IFS= read -r remote_name; do
+    [[ -n "$remote_name" ]] || continue
+    add_slug "$(remote_repo_slug "$remote_name")"
+  done < <(git -C "$REPO_PATH" remote)
+}
+
 ensure_pr_context() {
-  local pr_json
+  local pr_json slug
 
   refresh_head_state
 
-  pr_json="$(gh_repo pr view "$HEAD_BRANCH" --json number,url 2>/dev/null || true)"
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    pr_json="$(gh_repo pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
+    if [[ -n "$pr_json" && "$pr_json" != "null" ]]; then
+      break
+    fi
+  done < <(candidate_repo_slugs)
+
   if [[ -z "$pr_json" || "$pr_json" == "null" ]]; then
     return 1
   fi
@@ -938,7 +1008,7 @@ PY
 open_or_update_pr() {
   ensure_mutation_preconditions
 
-  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number
+  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number slug
 
   if [[ -n "$PR_TITLE" ]]; then
     title="$PR_TITLE"
@@ -976,7 +1046,13 @@ open_or_update_pr() {
     git -C "$REPO_PATH" push -u origin "$HEAD_BRANCH"
   fi
 
-  existing_pr_json="$(gh_repo pr view "$HEAD_BRANCH" --json number,url 2>/dev/null || true)"
+  while IFS= read -r slug; do
+    [[ -n "$slug" ]] || continue
+    existing_pr_json="$(gh_repo pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
+    if [[ -n "$existing_pr_json" && "$existing_pr_json" != "null" ]]; then
+      break
+    fi
+  done < <(candidate_repo_slugs)
 
   if [[ -n "$existing_pr_json" ]]; then
     existing_pr_number="$(python3 - <<'PY' "$existing_pr_json"

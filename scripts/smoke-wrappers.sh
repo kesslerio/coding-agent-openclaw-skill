@@ -3342,6 +3342,7 @@ test_review_loop_supervisor_github_closure_clears() {
   local repo="$tmp_dir/repo-review-loop-github-clear"
   local output="$tmp_dir/review-loop-github-clear.out"
   local codex_args="$tmp_dir/review-loop-github-clear-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-github-clear-gh-args.txt"
   local state_file="$tmp_dir/review-loop-github-clear-state.txt"
 
   mkdir -p "$repo"
@@ -3354,6 +3355,7 @@ test_review_loop_supervisor_github_closure_clears() {
     SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
     SMOKE_GH_PR_EXISTS=1 \
     SMOKE_GH_REPO_PATH="$repo" \
     SMOKE_GH_GRAPHQL_SCENARIO=immediate-clear \
@@ -3361,6 +3363,8 @@ test_review_loop_supervisor_github_closure_clears() {
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --closure-mode github --github-review-author codex-bot >"$output" 2>&1
 
   assert_contains "$output" "\"type\":\"github_review_cleared\""
+  assert_contains "$gh_args" "--repo"
+  assert_contains "$gh_args" "example/repo.name"
   assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"done\""
   assert_contains "$repo/.ai/review-loops/latest.json" "\"status\": \"cleared\""
 }
