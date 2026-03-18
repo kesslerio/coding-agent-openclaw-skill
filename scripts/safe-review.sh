@@ -71,7 +71,7 @@ emit_terminal_event_once() {
   fi
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 handle_signal() {
   local signal="$1"
   local exit_code="130"
@@ -101,6 +101,10 @@ if [[ "$CLI" != "claude" && "$CLI" != "codex" ]]; then
 fi
 
 shift # Remove CLI name from args
+START_TS="$(date +%s)"
+trap 'handle_signal INT' INT
+trap 'handle_signal TERM' TERM
+emit_run_event "start" "phase=safe-review cli=$CLI"
 
 # Check for forbidden --max-turns flag
 for arg in "$@"; do
@@ -108,6 +112,7 @@ for arg in "$@"; do
     error "--max-turns is FORBIDDEN by coding-agent skill."
     echo "  Let the command complete naturally with adequate timeout."
     echo "  See: SKILL.md Rule 4"
+    emit_terminal_event_once "failed" "phase=safe-review cli=$CLI reason=forbidden_max_turns"
     exit 1
   fi
 done
@@ -115,6 +120,7 @@ done
 # Check timeout command exists (not default on macOS)
 if ! command -v timeout &>/dev/null; then
   error "'timeout' command not found. Install coreutils (brew install coreutils on macOS)."
+  emit_terminal_event_once "failed" "phase=safe-review cli=$CLI reason=missing_timeout"
   exit 1
 fi
 
@@ -128,6 +134,7 @@ if [[ $TIMEOUT -lt $MIN_REVIEW_TIMEOUT ]]; then
   echo "  See: SKILL.md Rule 5"
   echo ""
   echo "  Fix: TIMEOUT=$MIN_REVIEW_TIMEOUT $0 $CLI $*"
+  emit_terminal_event_once "failed" "phase=safe-review cli=$CLI reason=timeout_below_minimum"
   exit 1
 fi
 
@@ -140,10 +147,12 @@ if [[ "$CLI" == "claude" ]]; then
     else
       error "Claude CLI not found (tried CODING_AGENT_CLAUDE_BIN, ~/.claude/local/claude, then PATH)."
     fi
+    emit_terminal_event_once "failed" "phase=safe-review cli=$CLI reason=missing_claude_cli"
     exit 1
   fi
 elif ! command -v "$CLI" &>/dev/null; then
   error "CLI '$CLI' not found in PATH"
+  emit_terminal_event_once "failed" "phase=safe-review cli=$CLI reason=missing_cli"
   exit 1
 fi
 
@@ -164,11 +173,6 @@ fi
 
 # Execute with timeout (use ${arr[@]+...} for older bash compatibility)
 warn "Running $CLI with ${TIMEOUT}s timeout (min: ${MIN_REVIEW_TIMEOUT}s)"
-START_TS="$(date +%s)"
-trap 'handle_signal INT' INT
-trap 'handle_signal TERM' TERM
-
-emit_run_event "start" "phase=safe-review cli=$CLI timeout=${TIMEOUT}s"
 start_heartbeat
 
 set +e

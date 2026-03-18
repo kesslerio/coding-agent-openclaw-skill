@@ -672,9 +672,12 @@ repo_slug() {
 }
 
 ensure_pr_context() {
-  local pr_json
+  local pr_json slug
 
-  pr_json="$(gh pr view --json number,url 2>/dev/null || true)"
+  refresh_head_state
+  slug="$(repo_slug)"
+
+  pr_json="$(gh pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
   if [[ -z "$pr_json" || "$pr_json" == "null" ]]; then
     return 1
   fi
