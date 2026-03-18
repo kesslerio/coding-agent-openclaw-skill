@@ -667,17 +667,58 @@ repo_content_fingerprint() {
   )
 }
 
-repo_slug() {
-  git -C "$REPO_PATH" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+/[^/.]+)(\.git)?#\1#'
+gh_repo() {
+  (
+    cd "$REPO_PATH"
+    gh "$@"
+  )
+}
+
+pr_repo_parts() {
+  python3 - <<'PY' "$PR_URL" "$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null || true)"
+from urllib.parse import urlparse
+import sys
+
+pr_url = sys.argv[1].strip()
+remote_url = sys.argv[2].strip()
+
+def emit(owner: str, repo: str) -> None:
+    if not owner or not repo:
+        print("")
+        raise SystemExit(0)
+    print(owner)
+    print(repo)
+    raise SystemExit(0)
+
+if pr_url:
+    parts = [part for part in urlparse(pr_url).path.split("/") if part]
+    if len(parts) >= 4 and parts[2] == "pull":
+        emit(parts[0], parts[1])
+
+if remote_url:
+    normalized = remote_url
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    if normalized.startswith("git@github.com:"):
+        normalized = normalized.replace("git@github.com:", "https://github.com/", 1)
+    if normalized.startswith("ssh://git@github.com/"):
+        normalized = normalized.replace("ssh://git@github.com/", "https://github.com/", 1)
+    if "github.com/" in normalized:
+        path = normalized.split("github.com/", 1)[1]
+        parts = [part for part in path.split("/") if part]
+        if len(parts) >= 2:
+            emit(parts[0], parts[1])
+
+print("")
+PY
 }
 
 ensure_pr_context() {
-  local pr_json slug
+  local pr_json
 
   refresh_head_state
-  slug="$(repo_slug)"
 
-  pr_json="$(gh pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
+  pr_json="$(gh_repo pr view "$HEAD_BRANCH" --json number,url 2>/dev/null || true)"
   if [[ -z "$pr_json" || "$pr_json" == "null" ]]; then
     return 1
   fi
@@ -719,17 +760,20 @@ PY
 }
 
 fetch_github_review_payload() {
-  local slug owner repo_name
+  local repo_parts owner repo_name
 
   if ! ensure_pr_context; then
     return 1
   fi
 
-  slug="$(repo_slug)"
-  owner="${slug%%/*}"
-  repo_name="${slug#*/}"
+  repo_parts="$(pr_repo_parts)"
+  owner="$(printf '%s\n' "$repo_parts" | sed -n '1p')"
+  repo_name="$(printf '%s\n' "$repo_parts" | sed -n '2p')"
+  if [[ -z "$owner" || -z "$repo_name" ]]; then
+    return 1
+  fi
   # shellcheck disable=SC2016
-  gh api graphql \
+  gh_repo api graphql \
     -F owner="$owner" \
     -F repo="$repo_name" \
     -F pr="$PR_NUMBER" \
@@ -894,7 +938,7 @@ PY
 open_or_update_pr() {
   ensure_mutation_preconditions
 
-  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number repo_slug
+  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number
 
   if [[ -n "$PR_TITLE" ]]; then
     title="$PR_TITLE"
@@ -932,8 +976,7 @@ open_or_update_pr() {
     git -C "$REPO_PATH" push -u origin "$HEAD_BRANCH"
   fi
 
-  repo_slug="$(git -C "$REPO_PATH" remote get-url origin | sed -E 's#.*github.com[:/]([^/]+/[^/.]+)(\.git)?#\1#')"
-  existing_pr_json="$(gh pr list --repo "$repo_slug" --head "$HEAD_BRANCH" --json number,url --limit 1 2>/dev/null || true)"
+  existing_pr_json="$(gh_repo pr view "$HEAD_BRANCH" --json number,url 2>/dev/null || true)"
 
   if [[ -n "$existing_pr_json" ]]; then
     existing_pr_number="$(python3 - <<'PY' "$existing_pr_json"
@@ -945,10 +988,7 @@ try:
 except Exception:
     print("")
     raise SystemExit(0)
-if isinstance(payload, list) and payload:
-    print(payload[0].get("number", ""))
-else:
-    print("")
+print((payload or {}).get("number", ""))
 PY
 )"
     existing_pr_url="$(python3 - <<'PY' "$existing_pr_json"
@@ -960,16 +1000,13 @@ try:
 except Exception:
     print("")
     raise SystemExit(0)
-if isinstance(payload, list) and payload:
-    print(payload[0].get("url", ""))
-else:
-    print("")
+print((payload or {}).get("url", ""))
 PY
 )"
     if [[ -n "$existing_pr_number" ]]; then
       body_tmp="$RUN_TMP_DIR/pr-body.md"
       printf '%s\n' "$body" > "$body_tmp"
-      gh pr edit "$existing_pr_number" --title "$title" --body-file "$body_tmp"
+      gh_repo pr edit "$existing_pr_number" --title "$title" --body-file "$body_tmp"
       PR_URL="$existing_pr_url"
       emit_supervisor_event "pr_updated" "{\"number\":${existing_pr_number},\"url\":$(json_escape "$PR_URL") }"
       return 0
@@ -978,7 +1015,7 @@ PY
 
   body_tmp="$RUN_TMP_DIR/pr-body.md"
   printf '%s\n' "$body" > "$body_tmp"
-  PR_URL="$(gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$title" --body-file "$body_tmp" | tail -n 1)"
+  PR_URL="$(gh_repo pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$title" --body-file "$body_tmp" | tail -n 1)"
   emit_supervisor_event "pr_created" "{\"url\":$(json_escape "$PR_URL") }"
 }
 

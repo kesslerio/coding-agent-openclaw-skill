@@ -3346,6 +3346,7 @@ test_review_loop_supervisor_github_closure_clears() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
 
   PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
@@ -3372,6 +3373,7 @@ test_review_loop_supervisor_pending_github_review_fails_closed() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
 
   if PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
