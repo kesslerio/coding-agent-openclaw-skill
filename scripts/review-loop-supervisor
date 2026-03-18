@@ -686,6 +686,9 @@ if not remote_url:
     raise SystemExit(0)
 
 normalized = remote_url
+if "github.com" not in normalized and not normalized.startswith("git@github.com:"):
+    print("")
+    raise SystemExit(0)
 if normalized.endswith(".git"):
     normalized = normalized[:-4]
 if normalized.startswith("git@github.com:"):
@@ -1008,7 +1011,7 @@ PY
 open_or_update_pr() {
   ensure_mutation_preconditions
 
-  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number slug
+  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number existing_pr_repo_slug="" slug
 
   if [[ -n "$PR_TITLE" ]]; then
     title="$PR_TITLE"
@@ -1050,6 +1053,7 @@ open_or_update_pr() {
     [[ -n "$slug" ]] || continue
     existing_pr_json="$(gh_repo pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
     if [[ -n "$existing_pr_json" && "$existing_pr_json" != "null" ]]; then
+      existing_pr_repo_slug="$slug"
       break
     fi
   done < <(candidate_repo_slugs)
@@ -1082,7 +1086,7 @@ PY
     if [[ -n "$existing_pr_number" ]]; then
       body_tmp="$RUN_TMP_DIR/pr-body.md"
       printf '%s\n' "$body" > "$body_tmp"
-      gh_repo pr edit "$existing_pr_number" --title "$title" --body-file "$body_tmp"
+      gh_repo pr edit "$existing_pr_number" --repo "$existing_pr_repo_slug" --title "$title" --body-file "$body_tmp"
       PR_URL="$existing_pr_url"
       emit_supervisor_event "pr_updated" "{\"number\":${existing_pr_number},\"url\":$(json_escape "$PR_URL") }"
       return 0

@@ -3271,6 +3271,37 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/321\""
 }
 
+test_review_loop_supervisor_open_pr_updates_existing_pr() {
+  local repo="$tmp_dir/repo-review-loop-open-pr-update"
+  local remote="$tmp_dir/repo-review-loop-open-pr-update-remote.git"
+  local output="$tmp_dir/review-loop-open-pr-update.out"
+  local codex_args="$tmp_dir/review-loop-open-pr-update-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-open-pr-update-gh-args.txt"
+  local state_file="$tmp_dir/review-loop-open-pr-update-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git init --bare -q "$remote"
+  git -C "$repo" remote add origin "$remote"
+  git -C "$repo" remote add upstream "git@github.com:example/repo.name.git"
+  git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
+
+  PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1
+
+  assert_contains "$gh_args" "edit"
+  assert_contains "$gh_args" "--repo"
+  assert_contains "$gh_args" "example/repo.name"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/99\""
+}
+
 test_review_loop_supervisor_open_pr_requires_clean_tree() {
   local repo="$tmp_dir/repo-review-loop-open-pr-dirty"
   local output="$tmp_dir/review-loop-open-pr-dirty.out"
@@ -3493,6 +3524,7 @@ run_test test_review_loop_supervisor_detects_stuck_loop
 run_test test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree
 run_test test_review_loop_supervisor_without_open_pr_does_not_require_gh
 run_test test_review_loop_supervisor_open_pr_creates_pr
+run_test test_review_loop_supervisor_open_pr_updates_existing_pr
 run_test test_review_loop_supervisor_open_pr_requires_clean_tree
 
 printf 'Wrapper smoke tests passed.\n'
