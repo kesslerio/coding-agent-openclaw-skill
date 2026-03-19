@@ -3252,7 +3252,6 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   create_supervisor_repo "$repo"
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
-  git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
 
   PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
@@ -3284,7 +3283,6 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
   git -C "$repo" remote add upstream "git@github.com:example/repo.name.git"
-  git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
 
   PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
