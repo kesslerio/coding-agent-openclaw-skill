@@ -780,7 +780,7 @@ candidate_repo_slugs() {
 }
 
 ensure_pr_context() {
-  local pr_json slug
+  local pr_json="" slug=""
 
   refresh_head_state
 
@@ -1011,7 +1011,7 @@ PY
 open_or_update_pr() {
   ensure_mutation_preconditions
 
-  local title body body_tmp existing_pr_json existing_pr_url existing_pr_number existing_pr_repo_slug="" slug
+  local title="" body="" body_tmp="" existing_pr_json="" existing_pr_url="" existing_pr_number="" existing_pr_repo_slug="" slug=""
 
   if [[ -n "$PR_TITLE" ]]; then
     title="$PR_TITLE"
