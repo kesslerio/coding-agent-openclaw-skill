@@ -3254,7 +3254,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
 
-  PATH="$fake_bin:$PATH" \
+  if ! PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
@@ -3263,7 +3263,13 @@ test_review_loop_supervisor_open_pr_creates_pr() {
     SMOKE_GH_ARGS_FILE="$gh_args" \
     SMOKE_GH_PR_EXISTS=0 \
     SMOKE_GH_PR_CREATE_URL="https://example.test/pr/321" \
-    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
+    cat "$output" >&2
+    if [[ -f "$gh_args" ]]; then
+      cat "$gh_args" >&2
+    fi
+    exit 1
+  fi
 
   assert_contains "$output" "PR: https://example.test/pr/321"
   assert_contains "$gh_args" "pr"
@@ -3286,7 +3292,7 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
   git -C "$repo" remote add origin "$remote"
   git -C "$repo" remote add upstream "git@github.com:example/repo.name.git"
 
-  PATH="$fake_bin:$PATH" \
+  if ! PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
@@ -3294,7 +3300,13 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
     SMOKE_GH_ARGS_FILE="$gh_args" \
     SMOKE_GH_PR_EXISTS=1 \
-    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
+    cat "$output" >&2
+    if [[ -f "$gh_args" ]]; then
+      cat "$gh_args" >&2
+    fi
+    exit 1
+  fi
 
   assert_contains "$gh_args" "edit"
   assert_contains "$gh_args" "--repo"
