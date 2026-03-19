@@ -118,6 +118,18 @@ ensure_tooling() {
   fi
 }
 
+ACTIVE_CHILD_PID=""
+
+terminate_active_child() {
+  if [[ -z "$ACTIVE_CHILD_PID" ]]; then
+    return 0
+  fi
+
+  kill -TERM -- "-$ACTIVE_CHILD_PID" >/dev/null 2>&1 || kill "$ACTIVE_CHILD_PID" >/dev/null 2>&1 || true
+  sleep 1
+  kill -KILL -- "-$ACTIVE_CHILD_PID" >/dev/null 2>&1 || kill -KILL "$ACTIVE_CHILD_PID" >/dev/null 2>&1 || true
+}
+
 handle_supervisor_signal() {
   local signal="$1"
   local exit_code="130"
@@ -125,6 +137,7 @@ handle_supervisor_signal() {
     exit_code="143"
   fi
 
+  terminate_active_child
   write_state "interrupted" "signal_${signal}"
   emit_supervisor_event "terminal" "{\"state\":\"interrupted\",\"reason\":\"signal_${signal}\",\"iteration\":${ITERATION}}"
   emit_run_event "interrupted" "phase=review-loop-supervisor state=${CURRENT_STATE} iteration=${ITERATION} signal=${signal} exit_code=${exit_code}"
@@ -151,6 +164,17 @@ check_runtime_budget() {
     emit_run_event "failed" "phase=review-loop-supervisor reason=runtime_budget_exceeded elapsed=${elapsed}s"
     exit 1
   fi
+}
+
+remaining_runtime_seconds() {
+  local now elapsed remaining
+  now="$(date +%s)"
+  elapsed=$(( now - START_TS ))
+  remaining=$(( MAX_RUNTIME_SECONDS - elapsed ))
+  if (( remaining < 0 )); then
+    remaining=0
+  fi
+  printf '%s\n' "$remaining"
 }
 
 maybe_heartbeat() {
@@ -180,6 +204,31 @@ refresh_head_state() {
 
 repo_status_filtered() {
   git -C "$REPO_PATH" status --porcelain --untracked-files=all -- . ':(exclude).ai/review-loops/**'
+}
+
+head_matches_upstream() {
+  local upstream_sha=""
+  if ! git -C "$REPO_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    return 1
+  fi
+  upstream_sha="$(git -C "$REPO_PATH" rev-parse '@{u}' 2>/dev/null || true)"
+  [[ -n "$upstream_sha" && "$upstream_sha" == "$HEAD_SHA" ]]
+}
+
+run_tracked_shell_command() {
+  local output_file="$1"
+  local script="$2"
+  local rc=0
+
+  set +e
+  python3 -c 'import os, sys; os.setsid(); os.execvp("bash", ["bash", "-c", sys.argv[1]])' "$script" >"$output_file" 2>&1 &
+  ACTIVE_CHILD_PID=$!
+  wait "$ACTIVE_CHILD_PID"
+  rc=$?
+  ACTIVE_CHILD_PID=""
+  set -e
+
+  return "$rc"
 }
 
 write_state() {
@@ -488,10 +537,16 @@ run_review_attempt() {
   fi
   start_payload+="}"
   emit_supervisor_event "review_started" "$start_payload"
-  if (
-    cd "$REPO_PATH"
-    TIMEOUT="$REVIEW_TIMEOUT" "$SAFE_REVIEW_BIN" codex review --base "$BASE_BRANCH" --title "$title" "$prompt"
-  ) > "$LAST_REVIEW_OUTPUT" 2>&1; then
+  local review_script=""
+  printf -v review_script 'cd %q && export TIMEOUT=%q && exec %q codex review --base %q --title %q %q' \
+    "$REPO_PATH" \
+    "$REVIEW_TIMEOUT" \
+    "$SAFE_REVIEW_BIN" \
+    "$BASE_BRANCH" \
+    "$title" \
+    "$prompt"
+
+  if run_tracked_shell_command "$LAST_REVIEW_OUTPUT" "$review_script"; then
     LAST_REVIEW_EXIT_CODE="0"
     return 0
   else
@@ -553,10 +608,14 @@ run_fix() {
 
   LAST_FIX_OUTPUT="$RUN_TMP_DIR/fix-iter-${ITERATION}.txt"
   emit_supervisor_event "fix_started" "{\"iteration\":${ITERATION}}"
-  if ! (
-    cd "$REPO_PATH"
-    timeout "${FIX_TIMEOUT}s" codex -c 'model_reasoning_effort="high"' exec --full-auto "$fix_prompt"
-  ) > "$LAST_FIX_OUTPUT" 2>&1; then
+  local fix_script=""
+  printf -v fix_script 'cd %q && exec timeout %q codex -c %q exec --full-auto %q' \
+    "$REPO_PATH" \
+    "${FIX_TIMEOUT}s" \
+    'model_reasoning_effort="high"' \
+    "$fix_prompt"
+
+  if ! run_tracked_shell_command "$LAST_FIX_OUTPUT" "$fix_script"; then
     emit_supervisor_event "fix_failed" "{\"iteration\":${ITERATION},\"reason\":\"codex_exec_nonzero\"}"
     write_state "failed" "fix_command_failed"
     emit_run_event "failed" "phase=review-loop-supervisor reason=fix_command_failed iteration=${ITERATION}"
@@ -779,6 +838,35 @@ candidate_repo_slugs() {
   done < <(git -C "$REPO_PATH" remote)
 }
 
+normalize_pr_json() {
+  python3 - <<'PY' "$1"
+import json
+import sys
+
+raw = sys.argv[1]
+if not raw:
+    raise SystemExit(1)
+
+try:
+    payload = json.loads(raw)
+except Exception:
+    raise SystemExit(1)
+
+if isinstance(payload, list):
+    payload = payload[0] if payload else {}
+
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+
+number = payload.get("number")
+url = payload.get("url")
+if not number or not url:
+    raise SystemExit(1)
+
+print(json.dumps({"number": number, "url": url}))
+PY
+}
+
 ensure_pr_context() {
   local pr_json="" slug=""
 
@@ -787,6 +875,11 @@ ensure_pr_context() {
   while IFS= read -r slug; do
     [[ -n "$slug" ]] || continue
     pr_json="$(gh_repo pr view "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
+    pr_json="$(normalize_pr_json "$pr_json" 2>/dev/null || true)"
+    if [[ -z "$pr_json" || "$pr_json" == "null" ]]; then
+      pr_json="$(gh_repo pr list --head "$HEAD_BRANCH" --repo "$slug" --json number,url 2>/dev/null || true)"
+      pr_json="$(normalize_pr_json "$pr_json" 2>/dev/null || true)"
+    fi
     if [[ -n "$pr_json" && "$pr_json" != "null" ]]; then
       break
     fi
@@ -919,16 +1012,16 @@ PY
 
 wait_for_github_review_closure() {
   local start_ts now elapsed review_payload="" review_summary="" summary_status="" pr_head_sha=""
-  local matched_review_url="" matched_review_author="" matched_review_submitted_at=""
+  local matched_review_url="" matched_review_author="" matched_review_submitted_at="" sleep_seconds=0
 
   if [[ "$CLOSURE_MODE" != "github" ]]; then
     return 0
   fi
 
-  if [[ -n "$(repo_status_filtered)" ]]; then
-    write_state "failed" "github_review_requires_clean_pushed_head"
-    emit_supervisor_event "terminal" "{\"state\":\"failed\",\"reason\":\"github_review_requires_clean_pushed_head\",\"iteration\":${ITERATION}}"
-    emit_run_event "failed" "phase=review-loop-supervisor reason=github_review_requires_clean_pushed_head iteration=${ITERATION}"
+  if ! head_matches_upstream; then
+    write_state "failed" "github_review_requires_pushed_head"
+    emit_supervisor_event "terminal" "{\"state\":\"failed\",\"reason\":\"github_review_requires_pushed_head\",\"iteration\":${ITERATION}}"
+    emit_run_event "failed" "phase=review-loop-supervisor reason=github_review_requires_pushed_head iteration=${ITERATION}"
     exit 1
   fi
 
@@ -938,6 +1031,7 @@ wait_for_github_review_closure() {
   start_ts="$(date +%s)"
 
   while true; do
+    check_runtime_budget
     maybe_heartbeat "github_review"
     review_payload="$(fetch_github_review_payload 2>/dev/null || true)"
     if [[ -n "$review_payload" ]]; then
@@ -1004,7 +1098,14 @@ PY
       emit_run_event "failed" "phase=review-loop-supervisor reason=pending_github_review iteration=${ITERATION}"
       exit 1
     fi
-    sleep "$GITHUB_REVIEW_POLL_SECONDS"
+    sleep_seconds="$(remaining_runtime_seconds)"
+    if (( sleep_seconds > GITHUB_REVIEW_POLL_SECONDS )); then
+      sleep_seconds="$GITHUB_REVIEW_POLL_SECONDS"
+    fi
+    if (( sleep_seconds <= 0 )); then
+      check_runtime_budget
+    fi
+    sleep "$sleep_seconds"
   done
 }
 
