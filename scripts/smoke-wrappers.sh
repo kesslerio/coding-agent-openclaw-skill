@@ -3250,6 +3250,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
 
@@ -3280,6 +3281,7 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
   git -C "$repo" remote add upstream "git@github.com:example/repo.name.git"
