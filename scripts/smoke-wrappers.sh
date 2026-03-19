@@ -3417,6 +3417,7 @@ test_review_loop_supervisor_review_nonzero_persists_artifact() {
 
 test_review_loop_supervisor_github_closure_clears() {
   local repo="$tmp_dir/repo-review-loop-github-clear"
+  local remote="$tmp_dir/repo-review-loop-github-clear-remote.git"
   local output="$tmp_dir/review-loop-github-clear.out"
   local codex_args="$tmp_dir/review-loop-github-clear-codex-args.txt"
   local gh_args="$tmp_dir/review-loop-github-clear-gh-args.txt"
@@ -3424,6 +3425,10 @@ test_review_loop_supervisor_github_closure_clears() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
+  git init --bare -q "$remote"
+  git -C "$repo" remote add localpush "$remote"
+  git -C "$repo" push -u localpush kesslerio/fix/smoke-supervisor >/dev/null 2>&1
   git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
 
   PATH="$fake_bin:$PATH" \
@@ -3448,12 +3453,17 @@ test_review_loop_supervisor_github_closure_clears() {
 
 test_review_loop_supervisor_pending_github_review_fails_closed() {
   local repo="$tmp_dir/repo-review-loop-github-pending"
+  local remote="$tmp_dir/repo-review-loop-github-pending-remote.git"
   local output="$tmp_dir/review-loop-github-pending.out"
   local codex_args="$tmp_dir/review-loop-github-pending-codex-args.txt"
   local state_file="$tmp_dir/review-loop-github-pending-state.txt"
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
+  git init --bare -q "$remote"
+  git -C "$repo" remote add localpush "$remote"
+  git -C "$repo" push -u localpush kesslerio/fix/smoke-supervisor >/dev/null 2>&1
   git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
 
   if PATH="$fake_bin:$PATH" \
@@ -3473,6 +3483,130 @@ test_review_loop_supervisor_pending_github_review_fails_closed() {
   assert_contains "$output" "pending_github_review"
   assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"pending_github_review\""
   assert_contains "$repo/.ai/review-loops/latest.json" "\"status\": \"pending_review\""
+}
+
+test_review_loop_supervisor_github_closure_allows_test_artifacts() {
+  local repo="$tmp_dir/repo-review-loop-github-artifacts"
+  local remote="$tmp_dir/repo-review-loop-github-artifacts-remote.git"
+  local output="$tmp_dir/review-loop-github-artifacts.out"
+  local codex_args="$tmp_dir/review-loop-github-artifacts-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-github-artifacts-gh-args.txt"
+  local state_file="$tmp_dir/review-loop-github-artifacts-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
+  git init --bare -q "$remote"
+  git -C "$repo" remote add localpush "$remote"
+  git -C "$repo" push -u localpush kesslerio/fix/smoke-supervisor >/dev/null 2>&1
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
+
+  PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    SMOKE_GH_REPO_PATH="$repo" \
+    SMOKE_GH_GRAPHQL_SCENARIO=immediate-clear \
+    SMOKE_GH_GRAPHQL_REVIEW_AUTHOR=codex-bot \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --test-cmd "touch local-artifact.txt" --closure-mode github --github-review-author codex-bot >"$output" 2>&1
+
+  assert_contains "$output" "\"type\":\"github_review_cleared\""
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"done\""
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"worktree_dirty\": true"
+}
+
+test_review_loop_supervisor_github_closure_honors_runtime_budget() {
+  local repo="$tmp_dir/repo-review-loop-github-budget"
+  local remote="$tmp_dir/repo-review-loop-github-budget-remote.git"
+  local output="$tmp_dir/review-loop-github-budget.out"
+  local codex_args="$tmp_dir/review-loop-github-budget-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-github-budget-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
+  git init --bare -q "$remote"
+  git -C "$repo" remote add localpush "$remote"
+  git -C "$repo" push -u localpush kesslerio/fix/smoke-supervisor >/dev/null 2>&1
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
+
+  if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    SMOKE_GH_REPO_PATH="$repo" \
+    SMOKE_GH_GRAPHQL_SCENARIO=pending-review \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --closure-mode github --max-runtime-seconds 1 --github-review-wait-seconds 60 --github-review-poll-seconds 15 >"$output" 2>&1; then
+    echo "Expected runtime budget to fail before GitHub review wait expiry" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "runtime_budget_exceeded"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"timed_out\""
+}
+
+test_review_loop_supervisor_forwards_interrupts_to_active_child() {
+  local repo="$tmp_dir/repo-review-loop-signal-forward"
+  local output="$tmp_dir/review-loop-signal-forward.out"
+  local codex_args="$tmp_dir/review-loop-signal-forward-codex-args.txt"
+  local signal_wrapper="$tmp_dir/review-loop-signal-forward-safe-review.sh"
+  local supervisor_pid=""
+  local saw_child=0
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+
+  cat >"$signal_wrapper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+trap 'printf "term\n" >"$SMOKE_CHILD_SIGNAL_FILE"; exit 143' TERM
+while true; do
+  sleep 1
+done
+EOF
+  chmod +x "$signal_wrapper"
+
+  PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$signal_wrapper" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main >"$output" 2>&1 &
+  supervisor_pid=$!
+
+  for _ in $(seq 1 50); do
+    if grep -Fq "review_started" "$output" 2>/dev/null && pgrep -f "$signal_wrapper" >/dev/null 2>&1; then
+      saw_child=1
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ "$saw_child" != "1" ]]; then
+    kill -TERM "$supervisor_pid" 2>/dev/null || true
+    wait "$supervisor_pid" 2>/dev/null || true
+    echo "Expected active child process before supervisor signal" >&2
+    cat "$output" >&2 || true
+    exit 1
+  fi
+
+  kill -TERM "$supervisor_pid"
+  wait "$supervisor_pid" || true
+  sleep 1
+
+  assert_contains "$output" "reason\":\"signal_TERM\""
+  if pgrep -f "$signal_wrapper" >/dev/null 2>&1; then
+    echo "Expected signal-forward child process to be terminated with supervisor" >&2
+    ps -ax -o pid=,ppid=,pgid=,command= | rg "$signal_wrapper" >&2 || true
+    exit 1
+  fi
 }
 
 run_test() {
@@ -3566,6 +3700,9 @@ run_test test_review_loop_supervisor_parse_retry_fails_closed
 run_test test_review_loop_supervisor_review_nonzero_persists_artifact
 run_test test_review_loop_supervisor_github_closure_clears
 run_test test_review_loop_supervisor_pending_github_review_fails_closed
+run_test test_review_loop_supervisor_github_closure_allows_test_artifacts
+run_test test_review_loop_supervisor_github_closure_honors_runtime_budget
+run_test test_review_loop_supervisor_forwards_interrupts_to_active_child
 run_test test_review_loop_supervisor_emits_state_change_event
 run_test test_review_loop_supervisor_detects_stuck_loop
 run_test test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree
