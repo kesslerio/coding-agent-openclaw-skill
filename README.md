@@ -24,6 +24,7 @@ Guardrail: no bypass flags (`--yolo`, `--dangerously-skip-permissions`) unless e
 - Plan artifact review: use `./scripts/plan-review` or `./scripts/plan-review-live`.
 - PR/code review: use `codex review --base ...` directly or `./scripts/safe-review.sh`.
 - Never provide a manual review summary before running the matching wrapper/command.
+- `./scripts/safe-review.sh` now emits the full `RUN_EVENT` lifecycle for single-review runs and classifies timeout/signal exits as `interrupted`.
 
 Long-run wrapper status events (hard-fail policy):
 - `RUN_EVENT start`
@@ -79,6 +80,10 @@ CLI wrappers:
 
 # Supervise review/fix loop until P0/P1/P2 clear (optional PR open/update)
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main
+# For strict closure, require a GitHub-visible review attached to the current PR head SHA.
+./scripts/review-loop-supervisor --repo /path/to/repo --base main \
+  --closure-mode github \
+  --github-review-author codex-bot
 # --open-pr expects a committed, clean feature branch before the review loop starts.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main \
   --test-cmd "npm run lint" \

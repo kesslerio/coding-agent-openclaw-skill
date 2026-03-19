@@ -99,6 +99,40 @@ if [[ "${1:-}" == "pr" ]]; then
   esac
 fi
 
+if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  if [[ -n "${SMOKE_GH_GRAPHQL_JSON:-}" ]]; then
+    printf '%s\n' "$SMOKE_GH_GRAPHQL_JSON"
+    exit 0
+  fi
+
+  if [[ -n "${SMOKE_GH_GRAPHQL_SCENARIO:-}" ]]; then
+    repo_path="${SMOKE_GH_REPO_PATH:-$PWD}"
+    head_oid="${SMOKE_GH_GRAPHQL_HEAD_OID:-$(git -C "$repo_path" rev-parse HEAD 2>/dev/null || printf 'missing-head')}"
+    review_author="${SMOKE_GH_GRAPHQL_REVIEW_AUTHOR:-codex-bot}"
+    pr_url="${SMOKE_GH_GRAPHQL_PR_URL:-https://example.test/pr/99}"
+    case "$SMOKE_GH_GRAPHQL_SCENARIO" in
+      immediate-clear)
+        cat <<JSON
+{"data":{"repository":{"pullRequest":{"number":99,"url":"$pr_url","headRefOid":"$head_oid","reviews":{"nodes":[{"author":{"login":"$review_author"},"state":"COMMENTED","submittedAt":"2026-01-01T00:00:00Z","url":"$pr_url#pullrequestreview-1","commit":{"oid":"$head_oid"}}]}}}}}
+JSON
+        exit 0
+        ;;
+      pending-review)
+        cat <<JSON
+{"data":{"repository":{"pullRequest":{"number":99,"url":"$pr_url","headRefOid":"$head_oid","reviews":{"nodes":[]}}}}}
+JSON
+        exit 0
+        ;;
+      pending-head)
+        cat <<JSON
+{"data":{"repository":{"pullRequest":{"number":99,"url":"$pr_url","headRefOid":"stale-head","reviews":{"nodes":[]}}}}}
+JSON
+        exit 0
+        ;;
+    esac
+  fi
+fi
+
 exit 0
 EOF
 
@@ -151,6 +185,17 @@ SUPERVISOR_TOP P2|none|none|none
 SUPERVISOR_TOP P3|none|none|none
 OUT
         fi
+        exit 0
+        ;;
+      already-clear)
+        cat <<'OUT'
+Already clear.
+SUPERVISOR_COUNTS P0=0 P1=0 P2=0 P3=0
+SUPERVISOR_TOP P0|none|none|none
+SUPERVISOR_TOP P1|none|none|none
+SUPERVISOR_TOP P2|none|none|none
+SUPERVISOR_TOP P3|none|none|none
+OUT
         exit 0
         ;;
       parse-retry-success)
@@ -233,6 +278,14 @@ OUT
     echo "fix ok"
     exit 0
   fi
+fi
+
+if [[ -n "${SMOKE_CODEX_STDOUT:-}" ]]; then
+  printf '%s\n' "$SMOKE_CODEX_STDOUT"
+fi
+
+if [[ -n "${SMOKE_CODEX_EXIT_CODE:-}" ]]; then
+  exit "$SMOKE_CODEX_EXIT_CODE"
 fi
 
 if [[ "$all_args" == *"LIVE REVIEW SECTION:"* ]]; then
@@ -733,6 +786,42 @@ test_invalid_cli_rejected() {
     exit 1
   fi
   assert_contains "$output" "Unknown CLI"
+}
+
+test_safe_review_emits_run_events_done() {
+  local output="$tmp_dir/safe-review-done.txt"
+  local codex_args="$tmp_dir/safe-review-done-codex-args.txt"
+
+  PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    TIMEOUT=600 \
+    "$SCRIPT_DIR/safe-review.sh" codex review --base main "Smoke review" >"$output" 2>&1
+
+  assert_contains "$output" "RUN_EVENT start"
+  assert_contains "$output" "RUN_EVENT done"
+  assert_not_contains "$output" "RUN_EVENT interrupted"
+  assert_not_contains "$output" "RUN_EVENT failed"
+  assert_contains "$codex_args" "review"
+}
+
+test_safe_review_emits_run_events_interrupted() {
+  local output="$tmp_dir/safe-review-interrupted.txt"
+  local codex_args="$tmp_dir/safe-review-interrupted-codex-args.txt"
+
+  if PATH="$fake_bin:$PATH" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_CODEX_EXIT_CODE=124 \
+    TIMEOUT=600 \
+    "$SCRIPT_DIR/safe-review.sh" codex review --base main "Smoke review interrupted" >"$output" 2>&1; then
+    echo "Expected safe-review.sh to treat exit code 124 as interrupted" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "RUN_EVENT start"
+  assert_contains "$output" "RUN_EVENT interrupted"
+  assert_not_contains "$output" "RUN_EVENT done"
+  assert_not_contains "$output" "RUN_EVENT failed"
+  assert_contains "$codex_args" "review"
 }
 
 test_doctor_known_issue_guidance() {
@@ -3195,11 +3284,11 @@ test_review_loop_supervisor_open_pr_creates_pr() {
 
   mkdir -p "$repo"
   create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
   git init --bare -q "$remote"
   git -C "$repo" remote add origin "$remote"
-  git -C "$repo" push -u origin kesslerio/fix/smoke-supervisor >/dev/null 2>&1
 
-  PATH="$fake_bin:$PATH" \
+  if ! PATH="$fake_bin:$PATH" \
     REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
     SMOKE_CODEX_MODE=review-loop \
     SMOKE_REVIEW_LOOP_SCENARIO=converge \
@@ -3208,12 +3297,55 @@ test_review_loop_supervisor_open_pr_creates_pr() {
     SMOKE_GH_ARGS_FILE="$gh_args" \
     SMOKE_GH_PR_EXISTS=0 \
     SMOKE_GH_PR_CREATE_URL="https://example.test/pr/321" \
-    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
+    cat "$output" >&2
+    if [[ -f "$gh_args" ]]; then
+      cat "$gh_args" >&2
+    fi
+    exit 1
+  fi
 
   assert_contains "$output" "PR: https://example.test/pr/321"
   assert_contains "$gh_args" "pr"
   assert_contains "$gh_args" "create"
   assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/321\""
+}
+
+test_review_loop_supervisor_open_pr_updates_existing_pr() {
+  local repo="$tmp_dir/repo-review-loop-open-pr-update"
+  local remote="$tmp_dir/repo-review-loop-open-pr-update-remote.git"
+  local output="$tmp_dir/review-loop-open-pr-update.out"
+  local codex_args="$tmp_dir/review-loop-open-pr-update-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-open-pr-update-gh-args.txt"
+  local state_file="$tmp_dir/review-loop-open-pr-update-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git -C "$repo" config protocol.file.allow always
+  git init --bare -q "$remote"
+  git -C "$repo" remote add origin "$remote"
+  git -C "$repo" remote add upstream "git@github.com:example/repo.name.git"
+
+  if ! PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=converge \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
+    cat "$output" >&2
+    if [[ -f "$gh_args" ]]; then
+      cat "$gh_args" >&2
+    fi
+    exit 1
+  fi
+
+  assert_contains "$gh_args" "edit"
+  assert_contains "$gh_args" "--repo"
+  assert_contains "$gh_args" "example/repo.name"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/99\""
 }
 
 test_review_loop_supervisor_open_pr_requires_clean_tree() {
@@ -3283,6 +3415,66 @@ test_review_loop_supervisor_review_nonzero_persists_artifact() {
   assert_contains "$artifact_path" "Wrapped review failed intentionally."
 }
 
+test_review_loop_supervisor_github_closure_clears() {
+  local repo="$tmp_dir/repo-review-loop-github-clear"
+  local output="$tmp_dir/review-loop-github-clear.out"
+  local codex_args="$tmp_dir/review-loop-github-clear-codex-args.txt"
+  local gh_args="$tmp_dir/review-loop-github-clear-gh-args.txt"
+  local state_file="$tmp_dir/review-loop-github-clear-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
+
+  PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    SMOKE_GH_REPO_PATH="$repo" \
+    SMOKE_GH_GRAPHQL_SCENARIO=immediate-clear \
+    SMOKE_GH_GRAPHQL_REVIEW_AUTHOR=codex-bot \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --closure-mode github --github-review-author codex-bot >"$output" 2>&1
+
+  assert_contains "$output" "\"type\":\"github_review_cleared\""
+  assert_contains "$gh_args" "--repo"
+  assert_contains "$gh_args" "example/repo.name"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"done\""
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"status\": \"cleared\""
+}
+
+test_review_loop_supervisor_pending_github_review_fails_closed() {
+  local repo="$tmp_dir/repo-review-loop-github-pending"
+  local output="$tmp_dir/review-loop-github-pending.out"
+  local codex_args="$tmp_dir/review-loop-github-pending-codex-args.txt"
+  local state_file="$tmp_dir/review-loop-github-pending-state.txt"
+
+  mkdir -p "$repo"
+  create_supervisor_repo "$repo"
+  git -C "$repo" remote add origin "git@github.com:example/repo.name.git"
+
+  if PATH="$fake_bin:$PATH" \
+    REVIEW_LOOP_SAFE_REVIEW_BIN="$fake_bin/safe-review.sh" \
+    SMOKE_CODEX_MODE=review-loop \
+    SMOKE_REVIEW_LOOP_SCENARIO=already-clear \
+    SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
+    SMOKE_CODEX_ARGS_FILE="$codex_args" \
+    SMOKE_GH_PR_EXISTS=1 \
+    SMOKE_GH_REPO_PATH="$repo" \
+    SMOKE_GH_GRAPHQL_SCENARIO=pending-review \
+    "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --closure-mode github --github-review-wait-seconds 1 --github-review-poll-seconds 1 >"$output" 2>&1; then
+    echo "Expected pending GitHub review closure to fail closed" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "pending_github_review"
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"state\": \"pending_github_review\""
+  assert_contains "$repo/.ai/review-loops/latest.json" "\"status\": \"pending_review\""
+}
+
 run_test() {
   local test_name="$1"
   echo "SMOKE_TEST start name=${test_name}" >&2
@@ -3292,6 +3484,8 @@ run_test() {
 
 run_test test_invalid_mode_rejected
 run_test test_invalid_cli_rejected
+run_test test_safe_review_emits_run_events_done
+run_test test_safe_review_emits_run_events_interrupted
 run_test test_doctor_known_issue_guidance
 run_test test_canonical_guard_behavior
 run_test test_review_prompt_pass_through
@@ -3370,11 +3564,14 @@ run_test test_review_loop_supervisor_converges
 run_test test_review_loop_supervisor_parse_retry_success
 run_test test_review_loop_supervisor_parse_retry_fails_closed
 run_test test_review_loop_supervisor_review_nonzero_persists_artifact
+run_test test_review_loop_supervisor_github_closure_clears
+run_test test_review_loop_supervisor_pending_github_review_fails_closed
 run_test test_review_loop_supervisor_emits_state_change_event
 run_test test_review_loop_supervisor_detects_stuck_loop
 run_test test_review_loop_supervisor_detects_stuck_loop_on_dirty_worktree
 run_test test_review_loop_supervisor_without_open_pr_does_not_require_gh
 run_test test_review_loop_supervisor_open_pr_creates_pr
+run_test test_review_loop_supervisor_open_pr_updates_existing_pr
 run_test test_review_loop_supervisor_open_pr_requires_clean_tree
 
 printf 'Wrapper smoke tests passed.\n'
