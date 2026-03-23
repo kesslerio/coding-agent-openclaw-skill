@@ -477,6 +477,46 @@ build_review_command_summary() {
     "$title"
 }
 
+build_exec_review_command_summary() {
+  printf 'TIMEOUT=%s codex -a never exec -s read-only [review prompt omitted]\n' \
+    "$REVIEW_TIMEOUT"
+}
+
+review_prompt_conflict_detected() {
+  local file="$1"
+  grep -Fq "the argument '--base <BRANCH>' cannot be used with '[PROMPT]'" "$file"
+}
+
+run_exec_review_fallback() {
+  local prompt="$1"
+  local review_rc
+  local fallback_prompt
+
+  fallback_prompt="Codex review on this host rejected --base together with a custom prompt, so this is a fallback review run.\n"
+  fallback_prompt+="Review the current branch against base branch ${BASE_BRANCH} in this repository.\n"
+  fallback_prompt+="Inspect the git diff and any relevant files yourself.\n\n"
+  fallback_prompt+="$prompt"
+
+  LAST_REVIEW_COMMAND="$(build_exec_review_command_summary)"
+  emit_supervisor_event "review_fallback_started" "{\"iteration\":${ITERATION},\"mode\":\"codex_exec_read_only\"}"
+  {
+    printf '\n[review-loop-supervisor] Falling back to codex exec read-only review because codex review rejected --base with a custom prompt.\n\n'
+    if (
+      cd "$REPO_PATH"
+      timeout "${REVIEW_TIMEOUT}s" codex -a never exec -s read-only "$fallback_prompt"
+    ); then
+      LAST_REVIEW_EXIT_CODE="0"
+      emit_supervisor_event "review_fallback_completed" "{\"iteration\":${ITERATION},\"mode\":\"codex_exec_read_only\"}"
+      return 0
+    else
+      review_rc=$?
+    fi
+  } >> "$LAST_REVIEW_OUTPUT" 2>&1
+
+  LAST_REVIEW_EXIT_CODE="$review_rc"
+  return 1
+}
+
 persist_terminal_review_artifact() {
   local attempt="$1"
   local artifact_path
@@ -554,6 +594,11 @@ run_review_attempt() {
   fi
 
   LAST_REVIEW_EXIT_CODE="$review_rc"
+  if review_prompt_conflict_detected "$LAST_REVIEW_OUTPUT"; then
+    if run_exec_review_fallback "$prompt"; then
+      return 0
+    fi
+  fi
   persist_terminal_review_artifact "$attempt"
   emit_supervisor_event "review_failed" "$(build_review_failure_payload "$attempt" "review_command_nonzero")"
   write_state "failed" "review_command_failed"
