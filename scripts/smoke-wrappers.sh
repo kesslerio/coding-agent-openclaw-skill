@@ -90,10 +90,37 @@ if [[ "${1:-}" == "pr" ]]; then
       exit 1
       ;;
     create)
+      body_file=""
+      prev=""
+      for arg in "$@"; do
+        if [[ "$prev" == "--body-file" ]]; then
+          body_file="$arg"
+          break
+        fi
+        prev="$arg"
+      done
+      if [[ -n "${SMOKE_GH_BODY_FILE:-}" && -n "$body_file" && -f "$body_file" ]]; then
+        cp "$body_file" "$SMOKE_GH_BODY_FILE"
+      fi
       printf '%s\n' "${SMOKE_GH_PR_CREATE_URL:-https://example.test/pr/123}"
       exit 0
       ;;
-    edit|checks)
+    edit)
+      body_file=""
+      prev=""
+      for arg in "$@"; do
+        if [[ "$prev" == "--body-file" ]]; then
+          body_file="$arg"
+          break
+        fi
+        prev="$arg"
+      done
+      if [[ -n "${SMOKE_GH_BODY_FILE:-}" && -n "$body_file" && -f "$body_file" ]]; then
+        cp "$body_file" "$SMOKE_GH_BODY_FILE"
+      fi
+      exit 0
+      ;;
+    checks)
       exit 0
       ;;
   esac
@@ -3280,6 +3307,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   local output="$tmp_dir/review-loop-open-pr.out"
   local codex_args="$tmp_dir/review-loop-open-pr-codex-args.txt"
   local gh_args="$tmp_dir/review-loop-open-pr-gh-args.txt"
+  local gh_body="$tmp_dir/review-loop-open-pr-gh-body.md"
   local state_file="$tmp_dir/review-loop-open-pr-state.txt"
 
   mkdir -p "$repo"
@@ -3295,6 +3323,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
     SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_BODY_FILE="$gh_body" \
     SMOKE_GH_PR_EXISTS=0 \
     SMOKE_GH_PR_CREATE_URL="https://example.test/pr/321" \
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
@@ -3308,6 +3337,7 @@ test_review_loop_supervisor_open_pr_creates_pr() {
   assert_contains "$output" "PR: https://example.test/pr/321"
   assert_contains "$gh_args" "pr"
   assert_contains "$gh_args" "create"
+  assert_contains "$gh_body" "Closes #50"
   assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/321\""
 }
 
@@ -3317,6 +3347,7 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
   local output="$tmp_dir/review-loop-open-pr-update.out"
   local codex_args="$tmp_dir/review-loop-open-pr-update-codex-args.txt"
   local gh_args="$tmp_dir/review-loop-open-pr-update-gh-args.txt"
+  local gh_body="$tmp_dir/review-loop-open-pr-update-gh-body.md"
   local state_file="$tmp_dir/review-loop-open-pr-update-state.txt"
 
   mkdir -p "$repo"
@@ -3333,6 +3364,7 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
     SMOKE_REVIEW_LOOP_STATE_FILE="$state_file" \
     SMOKE_CODEX_ARGS_FILE="$codex_args" \
     SMOKE_GH_ARGS_FILE="$gh_args" \
+    SMOKE_GH_BODY_FILE="$gh_body" \
     SMOKE_GH_PR_EXISTS=1 \
     "$SCRIPT_DIR/review-loop-supervisor" --repo "$repo" --base main --open-pr --issue 50 >"$output" 2>&1; then
     cat "$output" >&2
@@ -3345,6 +3377,7 @@ test_review_loop_supervisor_open_pr_updates_existing_pr() {
   assert_contains "$gh_args" "edit"
   assert_contains "$gh_args" "--repo"
   assert_contains "$gh_args" "example/repo.name"
+  assert_contains "$gh_body" "Closes #50"
   assert_contains "$repo/.ai/review-loops/latest.json" "\"pr_url\": \"https://example.test/pr/99\""
 }
 

@@ -198,6 +198,8 @@ Use this block in completion messages:
 - PR body sections (required): `What`, `Why`, `Tests`, `AI Assistance`.
 - `Tests`: list exact commands run.
 - `AI Assistance`: used/not used, testing level, prompt/session log link, and "I understand this code."
+- `review-loop-supervisor --open-pr --issue <n>` auto-injects `Closes #<n>`
+  into the PR body so GitHub can close the issue on merge.
 
 ## Agent Workflow
 

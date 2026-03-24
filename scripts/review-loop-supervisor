@@ -710,7 +710,7 @@ build_default_pr_body() {
 
   issue_block=""
   if [[ -n "$ISSUE_NUMBER" ]]; then
-    issue_block="Relates to #$ISSUE_NUMBER"
+    issue_block="Closes #$ISSUE_NUMBER"
   fi
 
   cat <<EOFPR
@@ -733,6 +733,27 @@ $tests_block
 
 $issue_block
 EOFPR
+}
+
+ensure_pr_body_issue_closure() {
+  local body="$1"
+  local issue_number="${2:-}"
+
+  if [[ -z "$issue_number" ]]; then
+    printf '%s' "$body"
+    return 0
+  fi
+
+  if printf '%s\n' "$body" | grep -Eq "(^|[^[:alnum:]])(Closes|Fixes|Resolves)[[:space:]]+#${issue_number}([^[:alnum:]]|$)"; then
+    printf '%s' "$body"
+    return 0
+  fi
+
+  if [[ -n "$body" ]]; then
+    printf '%s\n\nCloses #%s\n' "$body" "$issue_number"
+  else
+    printf 'Closes #%s\n' "$issue_number"
+  fi
 }
 
 sha256_cmd() {
@@ -1172,6 +1193,7 @@ open_or_update_pr() {
   else
     body="$(build_default_pr_body)"
   fi
+  body="$(ensure_pr_body_issue_closure "$body" "$ISSUE_NUMBER")"
 
   if [[ -n "$(repo_status_filtered)" ]]; then
     local commit_subject
