@@ -75,6 +75,8 @@ CLI wrappers:
 # Requires latest plan-review metadata to be ready unless --force is used.
 # In non-TTY orchestration, this fails fast if plan status is not APPROVED.
 # If the next step is review-loop-supervisor --open-pr, commit the generated implementation changes first.
+# When executing from Hermes, do the work in a dedicated git worktree, not in the primary checkout.
+# Phase B stops after push + PR; do not merge or deploy from this flow.
 # Wrapper output remains text by default; pass --output json explicitly for machine-readable automation.
 ./scripts/code-implement --plan /path/to/repo/.ai/plans/<plan>.md
 
