@@ -178,6 +178,7 @@ claude --resume
 # Supervise review/fix loop until P0-P2 blockers clear
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main
 # --open-pr expects a committed, clean feature branch before the review loop starts.
+# When --issue is set, the PR body automatically includes `Closes #<issue>`.
 ./scripts/review-loop-supervisor --repo /path/to/repo --base main \
   --test-cmd "npm run lint" --test-cmd "npm test" --open-pr --issue 50
 ```
